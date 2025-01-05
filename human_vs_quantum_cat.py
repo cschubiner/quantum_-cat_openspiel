@@ -94,8 +94,7 @@ def main(_):
                 },
                 rewards=None,
                 discounts=None,
-                step_type=None,
-                current_player=cur_player
+                step_type=None
             )
 
             action_out = agent.step([fake_ts], is_evaluation=True)
