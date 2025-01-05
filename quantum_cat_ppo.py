@@ -6,7 +6,6 @@ This trains multiple PPO agents to play Quantum Cat, supporting 3-5 players.
 import os
 from datetime import datetime
 import time
-from tqdm import tqdm
 from absl import app
 from absl import flags
 from absl import logging
@@ -134,10 +133,7 @@ def run_ppo_on_quantum_cat(
     # Training loop
     episodes_done = 0
     time_step = envs.reset()
-    
-    # Training progress bar
-    with tqdm(total=num_episodes, desc="Training Episodes") as pbar:
-        while episodes_done < num_episodes:
+    while episodes_done < num_episodes:
         # Step until we fill up agent's batch
         for _ in range(steps_per_batch):
             # We only need ONE action per environment (the current player's action)
@@ -180,9 +176,7 @@ def run_ppo_on_quantum_cat(
                     opponents[pid].post_step(opp_rewards, done)
 
             # Count completed episodes
-            completed = sum(1 for d in done if d)
-            episodes_done += completed
-            pbar.update(completed)
+            episodes_done += sum(1 for d in done if d)
             if episodes_done >= num_episodes:
                 break
 
@@ -195,18 +189,15 @@ def run_ppo_on_quantum_cat(
         for opp in opponents.values():
             opp.learn(agent_timesteps)
 
-    # Save the trained agent
-    save_path = f"quantum_cat_agent_p{player_id}.pth"
-    torch.save(agent.state_dict(), save_path)
-    print(f"Saved trained agent to {save_path}")
-    
-    # Evaluate vs random
-    print("\nEvaluating vs random opponents:")
-    evaluate_agent(agent, envs, num_episodes=20, player_id=player_id)
-    
-    # Evaluate self-play
-    print("\nEvaluating self-play:")
-    evaluate_agent(agent, envs, num_episodes=20, player_id=player_id, opponent_agent=agent)
+    # After training, do a quick evaluation:
+    # We'll evaluate by letting our agent pick actions deterministically
+    # (is_evaluation=True) and keep other players random.
+    # We'll run ~20 episodes for a rough measure of agent's performance.
+    total_eval_reward = 0
+    n_episodes = 20
+    episodes_done = 0
+    time_step = envs.reset()
+    while episodes_done < n_episodes:
         # We only need ONE action per environment (the current player's action)
         env_actions = []
         for i in range(num_envs):
@@ -217,17 +208,12 @@ def run_ppo_on_quantum_cat(
                 agent_output = agent.step([ts], is_evaluation=True)
                 env_actions.append(agent_output[0].action)
             else:
-                # Terminal state handling
+                # Random action for other players or if terminal
                 if current_p == pyspiel.PlayerId.TERMINAL or ts.last():
                     action = 0  # Dummy action for terminal states
                 else:
-                    # Either use opponent_agent (self-play) or random
-                    if opponent_agent is not None:
-                        opp_output = opponent_agent.step([ts], is_evaluation=True)
-                        action = opp_output[0].action
-                    else:
-                        legal_acts = ts.observations["legal_actions"][current_p]
-                        action = random.choice(legal_acts) if legal_acts else 0
+                    legal_acts = ts.observations["legal_actions"][current_p]
+                    action = random.choice(legal_acts) if legal_acts else 0
                 env_actions.append(action)
 
         # Convert to StepOutput objects - one per environment
@@ -240,10 +226,8 @@ def run_ppo_on_quantum_cat(
         episodes_done += sum(1 for d in done if d)
         time_step = next_time_step
 
-    avg_eval_reward = total_eval_reward / num_episodes
-    mode = "self-play" if opponent_agent else "vs random"
-    print(f"Evaluation ({mode}), episodes={num_episodes}, avg reward={avg_eval_reward:.2f}")
-    return avg_eval_reward
+    avg_eval_reward = total_eval_reward / n_episodes
+    print(f"Evaluation over {n_episodes} episodes, avg reward = {avg_eval_reward:.2f}")
 
 def main():
     run_ppo_on_quantum_cat(
