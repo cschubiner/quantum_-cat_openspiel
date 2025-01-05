@@ -156,11 +156,9 @@ def run_ppo_on_quantum_cat(
                             legal_acts = ts_p.observations["legal_actions"][p_id]
                             actions[p_id] = random.choice(legal_acts)
 
-            # Convert actions to StepOutput objects for each env
-            step_outputs = []
-            for env_idx in range(num_envs):
-                env_actions = [StepOutput(action=a, probs=None) for a in actions]
-                step_outputs.append(env_actions)
+            # Convert actions to StepOutput objects - one per environment
+            step_outputs = [StepOutput(action=actions[time_step[i].current_player()], probs=None) 
+                          for i in range(num_envs)]
 
             # Step the vector environment
             next_time_step, reward, done, _ = envs.step(step_outputs)
@@ -205,11 +203,9 @@ def run_ppo_on_quantum_cat(
                 legal_acts = ts.observations["legal_actions"][current_p]
                 actions[current_p] = random.choice(legal_acts)
 
-        # Convert actions to StepOutput objects for each env
-        step_outputs = []
-        for env_idx in range(num_envs):
-            env_actions = [StepOutput(action=a, probs=None) for a in actions]
-            step_outputs.append(env_actions)
+        # Convert actions to StepOutput objects - one per environment
+        step_outputs = [StepOutput(action=actions[time_step[i].current_player()], probs=None)
+                       for i in range(num_envs)]
 
         next_time_step, reward, done, _ = envs.step(step_outputs)
         total_eval_reward += sum(reward[:, player_id])
