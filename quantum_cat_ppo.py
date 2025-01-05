@@ -164,11 +164,8 @@ def run_ppo_on_quantum_cat(
             next_time_step, reward, done, _ = envs.step(step_outputs)
             # "reward" and "done" are shape [num_envs, num_players]
             # We only care about our agent's seat: reward[:, player_id] and done[:, player_id]
-            # Extract rewards and done flags for our agent's seat
-            agent_rewards = [r[player_id] for r in reward]
-            agent_dones = [d[player_id] for d in done]
-            
-            agent.post_step(agent_rewards, agent_dones)
+            # For vector env, reward and done are already per-environment
+            agent.post_step(reward, done)
 
             # Bookkeeping
             time_step = next_time_step
@@ -209,9 +206,9 @@ def run_ppo_on_quantum_cat(
                        for i in range(num_envs)]
 
         next_time_step, reward, done, _ = envs.step(step_outputs)
-        total_eval_reward += sum(reward[:, player_id])
+        total_eval_reward += sum(reward)
         # Count how many envs finished an episode
-        episodes_done += sum(done[:, player_id])
+        episodes_done += sum(1 for d in done if d)
         time_step = next_time_step
 
     avg_eval_reward = total_eval_reward / n_episodes
