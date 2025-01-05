@@ -185,6 +185,13 @@ def run_ppo_on_quantum_cat(
                 episodes_done += finished_episodes
                 pbar.update(finished_episodes)
 
+                # Checkpoint every 20000 episodes
+                # (only triggers when we actually cross a multiple of 20000)
+                if episodes_done // 20000 != (episodes_done - finished_episodes) // 20000:
+                    ckpt_path = f"quantum_cat_agent_{episodes_done}.pth"
+                    torch.save(agent.state_dict(), ckpt_path)
+                    print(f"Checkpoint saved: {ckpt_path}")
+
                 if episodes_done >= num_episodes:
                     break
 
