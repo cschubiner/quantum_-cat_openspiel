@@ -26,7 +26,8 @@ FLAGS = flags.FLAGS
 
 # Game strings can just contain the name or the name followed by parameters
 # and arguments, e.g. "breakthrough(rows=6,columns=6)"
-flags.DEFINE_string("game_string", "tic_tac_toe", "Game string")
+# flags.DEFINE_string("game_string", "tic_tac_toe", "Game string")
+flags.DEFINE_string("game_string", "python_quantum_cat", "Game string")
 
 
 def main(_):

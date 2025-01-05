@@ -77,22 +77,21 @@ class QuantumCatGame(pyspiel.Game):
         max_game_length=_MAX_GAME_LENGTH,
     )
     super().__init__(_GAME_TYPE, game_info, game_parameters)
-    self.num_players = num_players
-    assert 3 <= self.num_players <= 5, "Only 3..5 players supported."
+    assert 3 <= num_players <= 5, "Only 3..5 players supported."
 
     # Card range depends on #players
-    self.max_card_value = {3: 7, 4: 8, 5: 9}[self.num_players]
+    self.max_card_value = {3: 7, 4: 8, 5: 9}[num_players]
     # 5 copies of each rank
     self.total_cards = 5 * self.max_card_value
     self.num_card_types = self.max_card_value
     self.num_colors = _NUM_COLORS
 
     # Cards per player initially + #tricks
-    if self.num_players == 5:
+    if num_players == 5:
       # 45 total => each gets 9 => discards 1 => 8 => we play 7 tricks
       self.cards_per_player_initial = 9
       self.num_tricks = 7
-    elif self.num_players == 4:
+    elif num_players == 4:
       # 40 total => each gets 10 => discards 1 => 9 => we play 8 tricks
       self.cards_per_player_initial = 10
       self.num_tricks = 8
@@ -107,7 +106,7 @@ class QuantumCatGame(pyspiel.Game):
   def make_py_observer(self, iig_obs_type=None, params=None):
     return QuantumCatObserver(
         iig_obs_type or pyspiel.IIGObservationType(perfect_recall=False),
-        self.num_players, self.num_card_types, self.num_colors, params
+        self.num_players(), self.num_card_types, self.num_colors, params
     )
 
 # ---------------------------------------------------------------------
@@ -133,7 +132,7 @@ class QuantumCatGameState(pyspiel.State):
     self._game = game
 
     # Basic parameters
-    self._num_players = game.num_players
+    self._num_players = game.num_players()
     self._num_card_types = game.num_card_types
     self._num_colors = game.num_colors
     self._cards_per_player_initial = game.cards_per_player_initial
@@ -202,7 +201,7 @@ class QuantumCatGameState(pyspiel.State):
   def returns(self):
     """Total reward for each player over the course of the game so far."""
     if not self._game_over:
-      return [0.0] * self._game.num_players
+      return [0.0] * self._game.num_players()
     return list(self._returns)
 
   def legal_actions(self, player=None):
