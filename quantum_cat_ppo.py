@@ -115,56 +115,23 @@ def run_ppo_on_quantum_cat(
     while steps_done < total_timesteps:
         # Step until we fill up agent's batch
         for _ in range(steps_per_batch):
-            # Create an action array for all players
-            actions = [None] * num_players
-
-            # For each environment, we have num_players time_steps
-            # but we only have to pick an action for the "current_player"
-            # if it's our agent's seat (player_id).
-            for env_idx in range(num_envs):
-                # The environment's observation for each seat:
-                all_player_ts = time_step[env_idx]
-
-                # We'll pick random actions for everyone
-                # except if it's the agent's turn.
-                current_p = all_player_ts.current_player()
-                if current_p == player_id and not all_player_ts.last():
+            # We only need ONE action per environment (the current player's action)
+            env_actions = []
+            for i in range(num_envs):
+                ts = time_step[i]
+                current_p = ts.current_player()
+                if current_p == player_id and not ts.last():
                     # PPO agent picks action
-                    agent_output = agent.step([all_player_ts], is_evaluation=False)
-                    actions[current_p] = agent_output[0].action
+                    agent_output = agent.step([ts], is_evaluation=False)
+                    env_actions.append(agent_output[0].action)
                 else:
-                    # For other seats or if it's terminal for the agent, random action
-                    # (Though if last() is True, the environment step will ignore actions.)
-                    legal_acts = all_player_ts.observations["legal_actions"]
-                    actions[current_p] = random.choice(legal_acts)
+                    # Random action for other players or if terminal
+                    legal_acts = ts.observations["legal_actions"][current_p]
+                    action = random.choice(legal_acts) if legal_acts else 0
+                    env_actions.append(action)
 
-            # Because SyncVectorEnv expects an array of shape [num_envs, num_players]
-            # But each environment only needs the action for the "current_player."
-            # We fill in random actions for each environment's other seats:
-            # So let's do that for each environment's players:
-            # If the seat is not already filled, fill it randomly.
-            # (In many cases, the environment only uses the current player's
-            #  chosen action and ignores the rest, but we fill them anyway.)
-            for env_idx in range(num_envs):
-                for p_id in range(num_players):
-                    if actions[p_id] is None:
-                        ts_p = time_step[env_idx]
-                        if ts_p.last():
-                            # If the environment is done for this env, action is irrelevant
-                            actions[p_id] = 0
-                        else:
-                            legal_acts = ts_p.observations["legal_actions"]
-                            if legal_acts:  # If there are legal actions
-                                actions[p_id] = random.choice(legal_acts)
-                            else:
-                                # If no legal actions, use action 0 as default
-                                # The environment will handle invalid actions
-                                actions[p_id] = 0
-
-            # Convert actions to StepOutput objects - one per environment
-            # Only pass the current player's action for each environment
-            step_outputs = [StepOutput(action=actions[time_step[i].current_player()], probs=None) 
-                          for i in range(num_envs)]
+            # Convert to StepOutput objects - one per environment
+            step_outputs = [StepOutput(action=a, probs=None) for a in env_actions]
 
             # Step the vector environment with the StepOutput objects
             next_time_step, reward, done, _ = envs.step(step_outputs)
@@ -193,29 +160,23 @@ def run_ppo_on_quantum_cat(
     episodes_done = 0
     time_step = envs.reset()
     while episodes_done < n_episodes:
-        actions = [None] * num_players
-        for env_idx in range(num_envs):
-            ts = time_step[env_idx]
-            if ts.last():
-                # the environment ended for this player
-                pass
+        # We only need ONE action per environment (the current player's action)
+        env_actions = []
+        for i in range(num_envs):
+            ts = time_step[i]
             current_p = ts.current_player()
             if current_p == player_id and not ts.last():
-                # Agent picks an action deterministically
+                # Agent picks action deterministically
                 agent_output = agent.step([ts], is_evaluation=True)
-                actions[current_p] = agent_output[0].action
+                env_actions.append(agent_output[0].action)
             else:
-                # random for other seats
-                legal_acts = ts.observations["legal_actions"]
-                if legal_acts:  # If there are legal actions
-                    actions[current_p] = random.choice(legal_acts)
-                else:
-                    # If no legal actions, use action 0 as default
-                    actions[current_p] = 0
+                # Random action for other players or if terminal
+                legal_acts = ts.observations["legal_actions"][current_p]
+                action = random.choice(legal_acts) if legal_acts else 0
+                env_actions.append(action)
 
-        # Convert actions to StepOutput objects - one per environment
-        step_outputs = [StepOutput(action=actions[time_step[i].current_player()], probs=None)
-                       for i in range(num_envs)]
+        # Convert to StepOutput objects - one per environment
+        step_outputs = [StepOutput(action=a, probs=None) for a in env_actions]
 
         # Step the vector environment with the StepOutput objects
         next_time_step, reward, done, _ = envs.step(step_outputs)
