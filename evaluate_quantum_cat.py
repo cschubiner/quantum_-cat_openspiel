@@ -73,7 +73,7 @@ def main(_):
     # Setup env
     num_envs = 2  # or however many parallel envs
     envs = SyncVectorEnv([
-        lambda: rl_environment.Environment(game=game, players=FLAGS.num_players)
+        rl_environment.Environment(game=game)
         for _ in range(num_envs)
     ])
 
