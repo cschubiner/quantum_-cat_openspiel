@@ -1,0 +1,593 @@
+import numpy as np
+import pyspiel
+from collections import deque
+
+# ---------------------------------------------------------------------
+# Configuration & Constants
+# ---------------------------------------------------------------------
+
+_DEFAULT_NUM_PLAYERS = 5  # If no param is given, defaults to 5. Supports 3..5.
+
+# Suits/Colors for trick-taking strength and adjacency board.
+_COLORS = ["R", "B", "Y", "G"]
+_NUM_COLORS = len(_COLORS)
+
+# Paradox action code
+_ACTION_PARADOX = 999
+
+# For predictions, we only allow 1..4 (no 0, no >4).
+# We place them at action codes [101..104].
+_ACTION_PREDICT_OFFSET = 100  # so "Predict=1" -> 101, "Predict=4" -> 104
+
+# ---------------------------------------------------------------------
+# GameType & GameInfo
+# ---------------------------------------------------------------------
+_GAME_TYPE = pyspiel.GameType(
+    short_name="python_quantum_cat",
+    long_name="Quantum Cat Trick-Taking (One-Round, Adjacency Bonus)",
+    dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
+    chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
+    information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
+    utility=pyspiel.GameType.Utility.ZERO_SUM,
+    reward_model=pyspiel.GameType.RewardModel.TERMINAL,
+    max_num_players=5,
+    min_num_players=3,
+    provides_information_state_string=True,
+    provides_information_state_tensor=True,
+    provides_observation_string=True,
+    provides_observation_tensor=True,
+    parameter_specification={
+        "players": _DEFAULT_NUM_PLAYERS
+    }
+)
+
+_MAX_GAME_LENGTH = 500  # Enough to cover dealing, discarding, bidding, trick-taking
+
+_QUANTUM_CAT_GAME_INFO = pyspiel.GameInfo(
+    num_distinct_actions=1000,   # Large enough for all moves + paradox
+    max_chance_outcomes=45,      # Max deck size for 5 players
+    num_players=_DEFAULT_NUM_PLAYERS,
+    min_utility=-50.0,
+    max_utility=50.0,
+    utility_sum=0.0,
+    max_game_length=_MAX_GAME_LENGTH,
+)
+
+# ---------------------------------------------------------------------
+# QuantumCatGame
+# ---------------------------------------------------------------------
+class QuantumCatGame(pyspiel.Game):
+  """
+  One-round 'Quantum Cat Trick-Taking' with adjacency scoring for correct bids.
+  - 3..5 players
+  - Ranks: 5 players => 1..9, 4 => 1..8, 3 => 1..7
+  - Discard once, then predict (1..4), then play 'num_tricks' tricks, then score.
+  """
+
+  def __init__(self, params=None):
+    game_parameters = params or dict()
+    num_players = game_parameters.get("players", _DEFAULT_NUM_PLAYERS)
+    game_info = pyspiel.GameInfo(
+        num_distinct_actions=1000,   # Large enough for all moves + paradox
+        max_chance_outcomes=45,      # Max deck size for 5 players
+        num_players=num_players,
+        min_utility=-50.0,
+        max_utility=50.0,
+        utility_sum=0.0,
+        max_game_length=_MAX_GAME_LENGTH,
+    )
+    super().__init__(_GAME_TYPE, game_info, game_parameters)
+    self.num_players = num_players
+    assert 3 <= self.num_players <= 5, "Only 3..5 players supported."
+
+    # Card range depends on #players
+    self.max_card_value = {3: 7, 4: 8, 5: 9}[self.num_players]
+    # 5 copies of each rank
+    self.total_cards = 5 * self.max_card_value
+    self.num_card_types = self.max_card_value
+    self.num_colors = _NUM_COLORS
+
+    # Cards per player initially + #tricks
+    if self.num_players == 5:
+      # 45 total => each gets 9 => discards 1 => 8 => we play 7 tricks
+      self.cards_per_player_initial = 9
+      self.num_tricks = 7
+    elif self.num_players == 4:
+      # 40 total => each gets 10 => discards 1 => 9 => we play 8 tricks
+      self.cards_per_player_initial = 10
+      self.num_tricks = 8
+    else:  # 3 players => 35 total => each can get 11 if we want => leftover 2 cards not used?
+      self.cards_per_player_initial = 11
+      self.num_tricks = 10  # e.g., discard 1 => 10 left => play 9 (1 leftover) or 10
+      # Adjust to your exact rules if needed.
+
+  def new_initial_state(self):
+    return QuantumCatGameState(self)
+
+  def make_py_observer(self, iig_obs_type=None, params=None):
+    return QuantumCatObserver(
+        iig_obs_type or pyspiel.IIGObservationType(perfect_recall=False),
+        self.num_players, self.num_card_types, self.num_colors, params
+    )
+
+# ---------------------------------------------------------------------
+# QuantumCatGameState
+# ---------------------------------------------------------------------
+class QuantumCatGameState(pyspiel.State):
+  """
+  Phases:
+    0) Dealing (chance)
+    1) Discard (each player discards 1 card)
+    2) Prediction (must pick 1..4)
+    3) Trick-taking (num_tricks)
+    4) Scoring (terminal)
+
+  Adjacency Board => _board_ownership[color][rank] = player_id or -1 if empty.
+  We place tokens whenever a player declares (color, rank).
+  Then at game end, if player didn't paradox and matched their bid,
+  they get adjacency bonus = size of largest connected cluster of squares that belong to them.
+  """
+
+  def __init__(self, game: QuantumCatGame):
+    super().__init__(game)
+    self._game = game
+
+    # Basic parameters
+    self._num_players = game.num_players
+    self._num_card_types = game.num_card_types
+    self._num_colors = game.num_colors
+    self._cards_per_player_initial = game.cards_per_player_initial
+    self._total_cards = game.total_cards
+    self._num_tricks = game.num_tricks
+
+    # Phase: 0..4
+    self._phase = 0
+
+    # Create & shuffle deck
+    self._deck = self._create_deck()
+    np.random.shuffle(self._deck)
+    self._cards_dealt = 0
+    self._deal_player = 0
+
+    # Each player's hand => length-_num_card_types vector
+    self._hands = [np.zeros(self._num_card_types, dtype=int)
+                   for _ in range(self._num_players)]
+
+    # Discard tracking
+    self._has_discarded = [False] * self._num_players
+
+    # Predictions
+    self._predictions = [-1] * self._num_players
+
+    # Trick info
+    self._trick_number = 0
+    self._start_player = 0
+    self._current_player = pyspiel.PlayerId.CHANCE
+    self._led_color = None
+    self._cards_played_this_trick = [None] * self._num_players
+    self._tricks_won = np.zeros(self._num_players, dtype=int)
+
+    # Board ownership (color, rank) => which player placed a token? -1 => empty
+    # We fill this whenever a player declares color for a rank.
+    self._board_ownership = -1 * np.ones((self._num_colors, self._num_card_types), dtype=int)
+
+    # Paradox tracking
+    self._has_paradoxed = [False] * self._num_players
+
+    # Terminal
+    self._game_over = False
+    self._returns = [0.0] * self._num_players
+
+  # --------------
+  # Deck creation
+  # --------------
+  def _create_deck(self):
+    deck = []
+    for val in range(1, self._game.max_card_value+1):
+      for _ in range(5):
+        deck.append(val)
+    return np.array(deck, dtype=int)
+
+  # -------------------------------------------------------------------
+  # PySpiel interface methods
+  # -------------------------------------------------------------------
+  def current_player(self):
+    if self._game_over:
+      return pyspiel.PlayerId.TERMINAL
+    return self._current_player
+
+  def is_terminal(self):
+    return self._game_over
+
+  def returns(self):
+    """Total reward for each player over the course of the game so far."""
+    if not self._game_over:
+      return [0.0] * self._game.num_players
+    return list(self._returns)
+
+  def legal_actions(self, player=None):
+    if player is None:
+      player = self.current_player()
+    return self._legal_actions(player)
+
+  def chance_outcomes(self):
+    # Dealing
+    num_left = self._total_cards - self._cards_dealt
+    if num_left <= 0:
+      return []
+    p = 1.0 / num_left
+    return [(i, p) for i in range(num_left)]
+
+  def _action_to_string(self, player, action):
+    if player == pyspiel.PlayerId.CHANCE:
+      return f"DealCard(index={action})"
+    if action == _ACTION_PARADOX:
+      return "PARADOX"
+
+    # Phase-based
+    if self._phase == 1:
+      # Discard => action in [0..num_card_types-1]
+      return f"Discard: rank={action+1}"
+    elif self._phase == 2:
+      # Predictions => [101..104] => means 1..4
+      pred = action - _ACTION_PREDICT_OFFSET
+      return f"Prediction={pred}"
+    elif self._phase == 3:
+      color_idx = action // self._num_card_types
+      rank_idx = action % self._num_card_types
+      return f"Play: (rank={rank_idx+1}, color={_COLORS[color_idx]})"
+
+    return f"UnknownAction={action}"
+
+  def __str__(self):
+    return (
+      f"Phase={self._phase}, Trick={self._trick_number}, CurrentPlayer={self._current_player}\n"
+      f"Hands={self._hands}\n"
+      f"HasDiscarded={self._has_discarded}, Predictions={self._predictions}\n"
+      f"TricksWon={self._tricks_won}, LedColor={self._led_color}\n"
+      f"Paradoxed={self._has_paradoxed}, GameOver={self._game_over}\n"
+      f"BoardOwnership=\n{self._board_ownership}"
+    )
+
+  def _apply_action(self, action):
+    if self.is_chance_node():
+      self._apply_deal(action)
+    else:
+      if self._phase == 1:
+        self._apply_discard(action)
+      elif self._phase == 2:
+        # Must be in [101..104], i.e. 1..4
+        self._apply_prediction(action)
+      elif self._phase == 3:
+        if action == _ACTION_PARADOX:
+          self._apply_paradox()
+        else:
+          self._apply_trick_action(action)
+
+  # -------------------------------------------------------------------
+  # Phase 0: Dealing (chance)
+  # -------------------------------------------------------------------
+  def _apply_deal(self, outcome_index):
+    chosen_idx = self._cards_dealt + outcome_index
+    chosen_card = self._deck[chosen_idx]
+    # swap
+    self._deck[chosen_idx], self._deck[self._cards_dealt] = \
+      self._deck[self._cards_dealt], self._deck[chosen_idx]
+    self._hands[self._deal_player][chosen_card - 1] += 1
+
+    self._cards_dealt += 1
+    self._deal_player = (self._deal_player + 1) % self._num_players
+
+    # Once everyone has the required initial cards, go to discard phase
+    if self._cards_dealt >= (self._num_players * self._cards_per_player_initial):
+      self._phase = 1
+      self._current_player = 0
+    else:
+      self._current_player = pyspiel.PlayerId.CHANCE
+
+  # -------------------------------------------------------------------
+  # Phase 1: Discard
+  # -------------------------------------------------------------------
+  def _apply_discard(self, action):
+    player = self._current_player
+    self._hands[player][action] -= 1
+    self._has_discarded[player] = True
+    self._advance_discard_phase()
+
+  def _advance_discard_phase(self):
+    if all(self._has_discarded):
+      # move to predictions
+      self._phase = 2
+      self._current_player = 0
+    else:
+      self._current_player = (self._current_player + 1) % self._num_players
+
+  def _legal_actions(self, player):
+    # Phase-based logic
+    if player == pyspiel.PlayerId.CHANCE:
+      if self._phase == 0:
+        num_left = self._total_cards - self._cards_dealt
+        return list(range(num_left))
+      return []
+
+    if self._phase == 1:
+      # Discard
+      if not self._has_discarded[player]:
+        return self._discard_actions(player)
+      else:
+        return []
+    elif self._phase == 2:
+      # Predictions in [1..4] => action codes [101..104]
+      if self._predictions[player] < 0:
+        return [101, 102, 103, 104]  # Predict 1..4
+      else:
+        return []
+    elif self._phase == 3:
+      return self._trick_legal_actions(player)
+    # Phase 4 => no actions
+    return []
+
+  def _discard_actions(self, player):
+    hand_vec = self._hands[player]
+    acts = []
+    for rank_idx in range(self._num_card_types):
+      if hand_vec[rank_idx] > 0:
+        acts.append(rank_idx)
+    return sorted(acts)  # Sort actions to ensure they are in ascending order
+
+  # -------------------------------------------------------------------
+  # Phase 2: Prediction
+  # -------------------------------------------------------------------
+  def _apply_prediction(self, action):
+    player = self._current_player
+    pred = action - _ACTION_PREDICT_OFFSET  # e.g. 101 => 1
+    self._predictions[player] = pred
+    self._advance_prediction_phase()
+
+  def _advance_prediction_phase(self):
+    next_p = (self._current_player + 1) % self._num_players
+    if all(x >= 1 for x in self._predictions):  # i.e., everyone predicted 1..4
+      # Move to trick-taking
+      self._phase = 3
+      self._trick_number = 0
+      self._start_player = 0
+      self._current_player = self._start_player
+      self._led_color = None
+      self._cards_played_this_trick = [None]*self._num_players
+    else:
+      self._current_player = next_p
+
+  # -------------------------------------------------------------------
+  # Phase 3: Trick-taking
+  # -------------------------------------------------------------------
+  def _trick_legal_actions(self, player):
+    hand_vec = self._hands[player]
+    led_color_idx = None if (self._led_color is None) else _COLORS.index(self._led_color)
+
+    # Check if we can follow the led color
+    can_follow = False
+    if led_color_idx is not None:
+      for rank_idx in range(self._num_card_types):
+        if hand_vec[rank_idx] > 0 and self._board_ownership[led_color_idx][rank_idx] < 0:
+          can_follow = True
+          break
+
+    actions = []
+    for rank_idx in range(self._num_card_types):
+      if hand_vec[rank_idx] <= 0:
+        continue
+      for c_idx in range(self._num_colors):
+        if self._board_ownership[c_idx][rank_idx] != -1:
+          # that color-rank is already claimed
+          continue
+        # If led color is set, must follow if possible
+        if (led_color_idx is not None) and (c_idx != led_color_idx) and can_follow:
+          continue
+        act = c_idx*self._num_card_types + rank_idx
+        actions.append(act)
+
+    if not actions:
+      # no moves => paradox
+      return [_ACTION_PARADOX]
+    return sorted(actions)  # Sort actions to ensure they are in ascending order
+
+  def _apply_trick_action(self, action):
+    color_idx = action // self._num_card_types
+    rank_idx = action % self._num_card_types
+
+    player = self._current_player
+    # Remove from hand
+    self._hands[player][rank_idx] -= 1
+    # Mark board ownership => adjacency
+    self._board_ownership[color_idx][rank_idx] = player
+
+    # Record play
+    rank_val = rank_idx + 1
+    color_str = _COLORS[color_idx]
+    self._cards_played_this_trick[player] = (rank_val, color_str)
+
+    # If no color led, set it
+    if self._led_color is None:
+      self._led_color = color_str
+
+    # Next
+    self._current_player = (self._current_player + 1) % self._num_players
+    # If we loop back to start_player => trick ends
+    if self._current_player == self._start_player:
+      winner = self._evaluate_trick_winner()
+      self._tricks_won[winner] += 1
+      self._trick_number += 1
+      self._start_player = winner
+      self._current_player = winner
+      self._led_color = None
+      self._cards_played_this_trick = [None]*self._num_players
+
+      # Check if done
+      if self._trick_number >= self._num_tricks:
+        self._phase = 4
+        self._compute_final_scores()
+        self._game_over = True
+
+  def _evaluate_trick_winner(self):
+    # If at least one red => highest red
+    red_plays = [(p, v) for p,(v,c) in enumerate(self._cards_played_this_trick) if c == "R"]
+    if red_plays:
+      return max(red_plays, key=lambda x: x[1])[0]
+    # else highest among led color
+    if self._led_color is None:
+      # corner case
+      all_plays = [(p,v) for p,(v,c) in enumerate(self._cards_played_this_trick)]
+      return max(all_plays, key=lambda x: x[1])[0]
+    led_plays = [(p,v) for p,(v,c) in enumerate(self._cards_played_this_trick)
+                 if c == self._led_color]
+    if not led_plays:
+      # fallback => highest overall
+      all_plays = [(p,v) for p,(v,c) in enumerate(self._cards_played_this_trick)]
+      return max(all_plays, key=lambda x: x[1])[0]
+    return max(led_plays, key=lambda x: x[1])[0]
+
+  # -------------------------------------------------------------------
+  # Paradox
+  # -------------------------------------------------------------------
+  def _apply_paradox(self):
+    player = self._current_player
+    self._has_paradoxed[player] = True
+
+    # End game
+    self._phase = 4
+    self._game_over = True
+    self._compute_final_scores()
+
+  # -------------------------------------------------------------------
+  # Scoring (Phase 4)
+  # -------------------------------------------------------------------
+  def _compute_final_scores(self):
+    # First compute raw scores
+    raw_scores = [0.0] * self._num_players
+    for p in range(self._num_players):
+      tricks = self._tricks_won[p]
+      if self._has_paradoxed[p]:
+        # If paradox => score = -(tricks)
+        raw_scores[p] = -float(tricks)
+      else:
+        base = float(tricks)
+        pred = self._predictions[p]
+        if pred == tricks:
+          # get adjacency bonus = largest connected cluster
+          cluster_bonus = self._largest_cluster_for_player(p)
+          raw_scores[p] = base + cluster_bonus
+        else:
+          raw_scores[p] = base
+
+    # Normalize scores to ensure zero-sum
+    total = sum(raw_scores)
+    avg = total / self._num_players
+    for p in range(self._num_players):
+      self._returns[p] = raw_scores[p] - avg
+
+  # -------------------------------------------------------------------
+  # Adjacency Logic
+  # -------------------------------------------------------------------
+  def _largest_cluster_for_player(self, player):
+    """
+    Compute the size of the largest connected group of squares
+    for which _board_ownership[color][rank] == player.
+    Adjacency = up/down/left/right in (color, rank) grid.
+    color in [0.._num_colors-1], rank in [0.._num_card_types-1].
+    """
+    visited = np.zeros((self._num_colors, self._num_card_types), dtype=bool)
+    max_cluster = 0
+
+    def neighbors(c, r):
+      for dc, dr in [(1,0),(-1,0),(0,1),(0,-1)]:
+        cc, rr = c+dc, r+dr
+        if 0 <= cc < self._num_colors and 0 <= rr < self._num_card_types:
+          yield (cc, rr)
+
+    for c_idx in range(self._num_colors):
+      for r_idx in range(self._num_card_types):
+        if (self._board_ownership[c_idx][r_idx] == player) and (not visited[c_idx][r_idx]):
+          # BFS or DFS to find connected cluster
+          size = 0
+          queue = deque([(c_idx, r_idx)])
+          visited[c_idx][r_idx] = True
+          while queue:
+            c0, r0 = queue.popleft()
+            size += 1
+            # check neighbors
+            for (c1, r1) in neighbors(c0, r0):
+              if not visited[c1][r1] and self._board_ownership[c1][r1] == player:
+                visited[c1][r1] = True
+                queue.append((c1, r1))
+
+          if size > max_cluster:
+            max_cluster = size
+
+    return max_cluster
+
+
+# ---------------------------------------------------------------------
+# Observer
+# ---------------------------------------------------------------------
+class QuantumCatObserver:
+  """Observer, conforming to the PyObserver interface."""
+
+  def __init__(self, iig_obs_type, num_players, num_card_types, num_colors, params=None):
+    """Initializes an empty observation tensor."""
+    if params:
+      raise ValueError(f"Observation parameters not supported; passed {params}")
+
+    self.iig_obs_type = iig_obs_type
+    self.num_players = num_players
+    self.num_card_types = num_card_types
+    self.num_colors = num_colors
+
+    # Determine which observation pieces we want to include
+    pieces = [
+        ("current_player", num_players, (num_players,)),
+        ("phase", 5, (5,)),  # 0..4
+    ]
+    if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
+      pieces.append(("hand", num_card_types, (num_card_types,)))
+
+    # Build the single flat tensor
+    total_size = sum(size for name, size, shape in pieces)
+    self.tensor = np.zeros(total_size, dtype=np.float32)
+
+    # Build the named & reshaped views of the bits of the flat tensor
+    self.dict = {}
+    index = 0
+    for name, size, shape in pieces:
+      self.dict[name] = self.tensor[index:index + size].reshape(shape)
+      index += size
+
+  def set_from(self, state, player):
+    """Updates the observer's data to reflect `state` from the POV of `player`."""
+    self.tensor.fill(0)
+    cp = state.current_player()
+    if cp != pyspiel.PlayerId.TERMINAL and cp != pyspiel.PlayerId.CHANCE:
+      self.dict["current_player"][cp] = 1
+
+    if 0 <= state._phase <= 4:
+      self.dict["phase"][state._phase] = 1
+
+    # If single-player private info => store your hand
+    if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
+      for i in range(self.num_card_types):
+        self.dict["hand"][i] = state._hands[player][i]
+
+  def string_from(self, state, player):
+    """Observation of `state` from the POV of `player`, as a string."""
+    pieces = []
+    cp = state.current_player()
+    if cp != pyspiel.PlayerId.TERMINAL and cp != pyspiel.PlayerId.CHANCE:
+      pieces.append(f"p{cp}")
+    pieces.append(f"phase={state._phase}")
+    if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
+      pieces.append(f"hand={state._hands[player]}")
+    return " ".join(str(p) for p in pieces)
+
+# ---------------------------------------------------------------------
+# Register the game
+# ---------------------------------------------------------------------
+pyspiel.register_game(_GAME_TYPE, QuantumCatGame)
