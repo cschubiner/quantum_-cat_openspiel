@@ -208,7 +208,6 @@ def run_ppo_on_quantum_cat(
 def main(_):
     num_players = FLAGS.num_players
     num_episodes = FLAGS.num_episodes
-    steps_per_batch = FLAGS.steps_per_batch
     seed = FLAGS.seed
     num_envs = FLAGS.num_envs
     save_path = FLAGS.save_path
