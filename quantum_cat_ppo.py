@@ -37,18 +37,18 @@ from open_spiel.python.pytorch.ppo import legal_actions_to_mask
 
 def run_ppo_on_quantum_cat(
     num_players=3,
-    total_timesteps=2000,
+    num_episodes=1000,
     steps_per_batch=16,
     player_id=0,
     seed=1234,
 ):
     """
-    Trains a single PPO agent on the quantum_cat game, controlling
-    one player and letting the other players act randomly.
+    Trains a single PPO agent on the quantum_cat game vs. PPO opponents,
+    for num_episodes full games.
 
     Args:
       num_players: number of players in quantum_cat. (3..5)
-      total_timesteps: total environment steps to run training.
+      num_episodes: number of full games to train for
       steps_per_batch: number of environment steps before each PPO update.
       player_id: which seat the PPO agent controls. 0 <= player_id < num_players.
       seed: random seed.
@@ -99,7 +99,28 @@ def run_ppo_on_quantum_cat(
         agent_fn=ppo.PPOAgent,  # Use PPOAgent for vector inputs instead of PPOAtariAgent
     )
 
-    # Helper function: for players we do NOT control,
+    # Create PPO opponents for other seats
+    opponents = {}
+    for opp_id in range(num_players):
+        if opp_id != player_id:
+            opp_agent = PPO(
+                input_shape=info_state_shape,
+                num_actions=num_actions,
+                num_players=num_players,
+                player_id=opp_id,
+                num_envs=num_envs,
+                steps_per_batch=steps_per_batch,
+                update_epochs=4,  # They will learn too
+                learning_rate=2.5e-4,
+                gae=True,
+                gamma=0.99,
+                gae_lambda=0.95,
+                device="cpu",
+                agent_fn=ppo.PPOAgent,
+            )
+            opponents[opp_id] = opp_agent
+
+    # Helper function: for players we do NOT control (fallback),
     # pick random legal actions:
     def random_policy(time_steps):
         actions = []
@@ -110,9 +131,9 @@ def run_ppo_on_quantum_cat(
         return actions
 
     # Training loop
-    steps_done = 0
+    episodes_done = 0
     time_step = envs.reset()
-    while steps_done < total_timesteps:
+    while episodes_done < num_episodes:
         # Step until we fill up agent's batch
         for _ in range(steps_per_batch):
             # We only need ONE action per environment (the current player's action)
@@ -121,16 +142,23 @@ def run_ppo_on_quantum_cat(
                 ts = time_step[i]
                 current_p = ts.current_player()
                 if current_p == player_id and not ts.last():
-                    # PPO agent picks action
+                    # Main PPO agent picks action
                     agent_output = agent.step([ts], is_evaluation=False)
                     env_actions.append(agent_output[0].action)
                 else:
-                    # Random action for other players or if terminal
+                    # PPO opponents or terminal state handling
                     if current_p == pyspiel.PlayerId.TERMINAL or ts.last():
                         action = 0  # Dummy action for terminal states
                     else:
-                        legal_acts = ts.observations["legal_actions"][current_p]
-                        action = random.choice(legal_acts) if legal_acts else 0
+                        # Get the PPO opponent for this seat
+                        opp = opponents.get(current_p)
+                        if opp is not None:
+                            opp_output = opp.step([ts], is_evaluation=False)
+                            action = opp_output[0].action
+                        else:
+                            # Fallback to random if no opponent found
+                            legal_acts = ts.observations["legal_actions"][current_p]
+                            action = random.choice(legal_acts) if legal_acts else 0
                     env_actions.append(action)
 
             # Convert to StepOutput objects - one per environment
@@ -138,21 +166,28 @@ def run_ppo_on_quantum_cat(
 
             # Step the vector environment with the StepOutput objects
             next_time_step, reward, done, _ = envs.step(step_outputs)
-            # Extract just our agent's rewards and done flags
-            agent_rewards = [r[player_id] if r is not None else 0.0 for r in reward]
-            # done is already per-environment boolean
-            agent.post_step(agent_rewards, done)
+            # Handle rewards and done flags for all agents
+            for pid in range(num_players):
+                if pid == player_id:
+                    agent_rewards = [r[pid] if r is not None else 0.0 for r in reward]
+                    agent.post_step(agent_rewards, done)
+                elif pid in opponents:
+                    opp_rewards = [r[pid] if r is not None else 0.0 for r in reward]
+                    opponents[pid].post_step(opp_rewards, done)
 
-            # Bookkeeping
-            time_step = next_time_step
-            steps_done += num_envs
-            if steps_done >= total_timesteps:
+            # Count completed episodes
+            episodes_done += sum(1 for d in done if d)
+            if episodes_done >= num_episodes:
                 break
 
-        # Once we have a full batch, do learning
-        # Extract just our agent's observations from each environment's timestep
+            # Continue to next timestep
+            time_step = next_time_step
+
+        # Once we have a full batch, do learning for all agents
         agent_timesteps = [ts for ts in time_step]
         agent.learn(agent_timesteps)
+        for opp in opponents.values():
+            opp.learn(agent_timesteps)
 
     # After training, do a quick evaluation:
     # We'll evaluate by letting our agent pick actions deterministically
@@ -197,7 +232,7 @@ def run_ppo_on_quantum_cat(
 def main():
     run_ppo_on_quantum_cat(
         num_players=3,
-        total_timesteps=2000,
+        num_episodes=1000,
         steps_per_batch=16,
         player_id=0,
         seed=1234,
