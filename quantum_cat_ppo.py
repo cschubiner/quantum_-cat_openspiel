@@ -166,8 +166,8 @@ def run_ppo_on_quantum_cat(
             step_outputs = [StepOutput(action=actions[time_step[i].current_player()], probs=None) 
                           for i in range(num_envs)]
 
-            # Step the vector environment with just the action integers
-            next_time_step, reward, done, _ = envs.step([so.action for so in step_outputs])
+            # Step the vector environment with the StepOutput objects
+            next_time_step, reward, done, _ = envs.step(step_outputs)
             # Extract just our agent's rewards and done flags
             agent_rewards = [r[player_id] for r in reward]
             # done is already per-environment boolean
@@ -217,8 +217,8 @@ def run_ppo_on_quantum_cat(
         step_outputs = [StepOutput(action=actions[time_step[i].current_player()], probs=None)
                        for i in range(num_envs)]
 
-        # Step the vector environment with just the action integers
-        next_time_step, reward, done, _ = envs.step([so.action for so in step_outputs])
+        # Step the vector environment with the StepOutput objects
+        next_time_step, reward, done, _ = envs.step(step_outputs)
         total_eval_reward += sum(reward)
         # Count how many envs finished an episode
         episodes_done += sum(1 for d in done if d)
