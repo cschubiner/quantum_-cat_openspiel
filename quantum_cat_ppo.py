@@ -126,7 +126,7 @@ def run_ppo_on_quantum_cat(
                     env_actions.append(agent_output[0].action)
                 else:
                     # Random action for other players or if terminal
-                    if current_p < 0 or ts.last():
+                    if current_p == pyspiel.PlayerId.TERMINAL or ts.last():
                         action = 0  # Dummy action for terminal states
                     else:
                         legal_acts = ts.observations["legal_actions"][current_p]
@@ -174,7 +174,7 @@ def run_ppo_on_quantum_cat(
                 env_actions.append(agent_output[0].action)
             else:
                 # Random action for other players or if terminal
-                if current_p < 0 or ts.last():
+                if current_p == pyspiel.PlayerId.TERMINAL or ts.last():
                     action = 0  # Dummy action for terminal states
                 else:
                     legal_acts = ts.observations["legal_actions"][current_p]
