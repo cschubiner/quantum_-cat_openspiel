@@ -8,40 +8,32 @@ uses tqdm for progress, and saves the agent after training.
 We also include a function to evaluate the trained agent vs. random or self-play.
 """
 
-import os
 import random
-import time
-from collections import namedtuple, deque
 
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
-
-from absl import app
-from absl import flags
-from absl import logging
-
+from absl import app, flags
 from tqdm import tqdm
-
 import pyspiel
+
 from open_spiel.python import rl_environment
 from open_spiel.python.rl_agent import StepOutput
 from open_spiel.python.vector_env import SyncVectorEnv
-
 # Import your existing PPO implementation
 # (It must match your open_spiel/python/pytorch/ppo.py)
-from open_spiel.python.pytorch.ppo import PPO
-from open_spiel.python.pytorch.ppo import PPOAgent
+from open_spiel.python.pytorch.ppo import PPO, PPOAgent
 
 from open_spiel.python.games import quantum_cat
+
 
 FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("num_players", 3, "Number of players in Quantum Cat (3..5).")
-flags.DEFINE_integer("num_episodes", 2000, "Number of full games to train for.")
-flags.DEFINE_integer("steps_per_batch", 16, "Environment steps per PPO update.")
+flags.DEFINE_integer("num_episodes", 20000, "Number of full games to train for.")
+flags.DEFINE_integer("steps_per_batch", 512, "Environment steps per PPO update.")
 flags.DEFINE_integer("seed", 1234, "Random seed.")
-flags.DEFINE_integer("num_envs", 2, "Number of vectorized envs.")
+flags.DEFINE_integer("num_envs", 8, "Number of vectorized envs.")
 flags.DEFINE_string("save_path", "quantum_cat_agent.pth", "Where to save the agent.")
 flags.DEFINE_bool("use_tensorboard", False, "Whether to log to TensorBoard.")
 
@@ -216,44 +208,6 @@ def run_ppo_on_quantum_cat(
 
     return agent, opponents
 
-def evaluate_agent(agent, envs, player_id=0, num_episodes=20, opponents=None):
-    """
-    Evaluates `agent` in `envs` for `num_episodes`, where `agent` is for `player_id`.
-    By default, other players pick random actions (or use given `opponents`).
-    """
-    total_eval_reward = 0
-    episodes_done = 0
-    time_step = envs.reset()
-
-    while episodes_done < num_episodes:
-        env_actions = []
-        for i in range(len(envs.envs)):
-            ts = time_step[i]
-            current_p = ts.current_player()
-            if ts.last():
-                # terminal -> dummy action
-                env_actions.append(0)
-            elif current_p == player_id:
-                agent_out = agent.step([ts], is_evaluation=True)
-                env_actions.append(agent_out[0].action)
-            else:
-                # random or opponent
-                if opponents and current_p in opponents:
-                    opp_out = opponents[current_p].step([ts], is_evaluation=True)
-                    env_actions.append(opp_out[0].action)
-                else:
-                    legals = ts.observations["legal_actions"][current_p]
-                    env_actions.append(random.choice(legals) if legals else 0)
-
-        step_outputs = [StepOutput(action=a, probs=None) for a in env_actions]
-        next_time_step, reward, done, _ = envs.step(step_outputs)
-        total_eval_reward += sum(r[player_id] if r is not None else 0.0 for r in reward)
-        episodes_done += sum(1 for d in done if d)
-        time_step = next_time_step
-
-    avg_eval_reward = total_eval_reward / num_episodes
-    print(f"[Eval] Player {player_id} => episodes={num_episodes}, avg reward={avg_eval_reward}")
-    return avg_eval_reward
 
 def main(_):
     num_players = FLAGS.num_players
@@ -275,23 +229,6 @@ def main(_):
         save_path=save_path,
         use_tensorboard=use_tb
     )
-
-    # Evaluate vs random or self-play:
-    # reuse the same #envs and game
-    game = pyspiel.load_game("python_quantum_cat", {"players": num_players})
-    eval_envs = SyncVectorEnv([
-        rl_environment.Environment(game=game, players=num_players)
-        for _ in range(num_envs)
-    ])
-
-    # Evaluate the trained agent vs random
-    evaluate_agent(agent, eval_envs, player_id=0, num_episodes=20)
-
-    # Evaluate self-play (i.e. using same agent for all players)
-    # We'll just pass a dictionary of {pid: agent} for all pids
-    # so they all share the same policy
-    sp_opponents = {pid: agent for pid in range(num_players) if pid != 0}
-    evaluate_agent(agent, eval_envs, player_id=0, num_episodes=20, opponents=sp_opponents)
 
 if __name__ == "__main__":
     app.run(main)
