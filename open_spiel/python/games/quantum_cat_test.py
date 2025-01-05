@@ -260,7 +260,7 @@ class QuantumCatTest(absltest.TestCase):
   def _deal_and_discard(self, game, state):
     """Helper to fully deal and discard once for each player."""
     # Deal
-    deals_needed = game.num_players * game.cards_per_player_initial
+    deals_needed = game.num_players() * game.cards_per_player_initial
     for _ in range(deals_needed):
       outcomes = state.chance_outcomes()
       actions, probs = zip(*outcomes)
@@ -268,7 +268,7 @@ class QuantumCatTest(absltest.TestCase):
       state.apply_action(chosen)
 
     # Discard
-    for p in range(game.num_players):
+    for p in range(game.num_players()):
       discard_actions = state.legal_actions(p)
       # pick the first feasible discard
       if discard_actions:
