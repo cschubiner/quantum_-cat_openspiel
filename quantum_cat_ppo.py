@@ -63,7 +63,7 @@ def run_ppo_on_quantum_cat(
     Args:
       num_players: how many total players in the game (3..5)
       num_episodes: how many episodes (full games) of training
-      steps_per_batch: environment steps before each PPO update
+      episodes_per_batch: number of full episodes to collect before each PPO update
       player_id: which seat the 'main' PPO agent occupies
       seed: random seed
       num_envs: how many synchronous envs for parallel training
@@ -102,7 +102,7 @@ def run_ppo_on_quantum_cat(
         num_players=num_players,
         player_id=player_id,
         num_envs=num_envs,
-        steps_per_batch=steps_per_batch,
+        steps_per_batch=16,  # Fixed size since we're episode-based now
         update_epochs=4,
         learning_rate=2.5e-4,
         gae=True,
@@ -122,7 +122,7 @@ def run_ppo_on_quantum_cat(
                 num_players=num_players,
                 player_id=opp_id,
                 num_envs=num_envs,
-                steps_per_batch=steps_per_batch,
+                steps_per_batch=16,  # Fixed size since we're episode-based now
                 update_epochs=4,
                 learning_rate=2.5e-4,
                 gae=True,
