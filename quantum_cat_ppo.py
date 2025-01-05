@@ -164,8 +164,8 @@ def run_ppo_on_quantum_cat(
             next_time_step, reward, done, _ = envs.step(step_outputs)
             # Extract just our agent's rewards and done flags
             agent_rewards = [r[player_id] for r in reward]
-            agent_dones = [d[player_id] for d in done]
-            agent.post_step(agent_rewards, agent_dones)
+            # done is already per-environment boolean
+            agent.post_step(agent_rewards, done)
 
             # Bookkeeping
             time_step = next_time_step
