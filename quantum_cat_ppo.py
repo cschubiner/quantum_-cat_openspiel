@@ -153,7 +153,7 @@ def run_ppo_on_quantum_cat(
                             # If the environment is done for this env, action is irrelevant
                             actions[p_id] = 0
                         else:
-                            legal_acts = ts_p.observations["legal_actions"][p_id]
+                            legal_acts = ts_p.observations["legal_actions"]
                             if legal_acts:  # If there are legal actions
                                 actions[p_id] = random.choice(legal_acts)
                             else:
@@ -205,7 +205,7 @@ def run_ppo_on_quantum_cat(
                 actions[current_p] = agent_output[0].action
             else:
                 # random for other seats
-                legal_acts = ts.observations["legal_actions"][current_p]
+                legal_acts = ts.observations["legal_actions"]
                 if legal_acts:  # If there are legal actions
                     actions[current_p] = random.choice(legal_acts)
                 else:
