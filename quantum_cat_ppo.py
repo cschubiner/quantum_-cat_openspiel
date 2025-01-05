@@ -82,7 +82,7 @@ def run_ppo_on_quantum_cat(
     info_state_shape = (len(obs_spec),)  # Flattened shape of info_state (19,)
     num_actions = game.num_distinct_actions()
 
-    # Initialize the PPO agent
+    # Initialize the PPO agent with PPOAgent for vector observations
     agent = PPO(
         input_shape=info_state_shape,
         num_actions=num_actions,
@@ -96,6 +96,7 @@ def run_ppo_on_quantum_cat(
         gamma=0.99,
         gae_lambda=0.95,
         device="cpu",  # or "cuda" if GPU is available
+        agent_fn=ppo.PPOAgent,  # Use PPOAgent for vector inputs instead of PPOAtariAgent
     )
 
     # Helper function: for players we do NOT control,
