@@ -26,64 +26,100 @@ from open_spiel.python.games import quantum_cat
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_players", 3, "Number of players.")
-flags.DEFINE_integer("num_episodes", 20, "Number of episodes to evaluate.")
-flags.DEFINE_string("agent_path", "quantum_cat_agent.pth", "Path to saved agent.")
+flags.DEFINE_integer("num_episodes", 600, "Number of episodes to evaluate.")
+flags.DEFINE_string("agent_path", "quantum_cat_agent_2500000.pth", "Path to saved agent.")
 flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
 flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
 
+
 def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
-    total_reward = 0
+    """Evaluates an agent for a specified number of episodes.
+
+    Once an environment is done, we reset it immediately (unless we've already
+    finished the total desired number of episodes). This ensures that each
+    environment contributes fully to the episode count.
+    """
+    # Number of episodes completed so far across all environments.
     episodes_done = 0
+
+    # Sum of rewards earned by 'player_id' across all episodes.
+    total_reward = 0
+
+    # Initialize all environments.
     time_step = envs.reset()
 
+    # Keep stepping until we've completed 'num_episodes' in total.
     while episodes_done < num_episodes:
         actions = []
-        for i in range(len(envs.envs)):
-            ts = time_step[i]
-            p = ts.current_player()
+        # Compute actions for all environments.
+        for i, ts in enumerate(time_step):
             if ts.last():
-                actions.append(0)  # dummy
+                # If an environment is already in a terminal state, it just needs
+                # a dummy action for now.
+                actions.append(0)
                 continue
+
+            p = ts.current_player()
+            legal = ts.observations["legal_actions"][p]
+
             if random_vs_random:
-                # All players play randomly
-                legal = ts.observations["legal_actions"][p]
-                actions.append(random.choice(legal) if legal else 0)
+                # Everyone plays random in this mode.
+                chosen_action = random.choice(legal) if legal else 0
             else:
                 if p == player_id:
                     out = agent.step([ts], is_evaluation=True)
-                    actions.append(out[0].action)
+                    chosen_action = out[0].action
                 else:
                     if self_play:
-                        # same agent for other players
+                        # Same agent for all players.
                         out = agent.step([ts], is_evaluation=True)
-                        actions.append(out[0].action)
+                        chosen_action = out[0].action
                     else:
-                        # random
-                        legal = ts.observations["legal_actions"][p]
-                        actions.append(random.choice(legal) if legal else 0)
+                        # Other players (not 'player_id') act randomly.
+                        chosen_action = random.choice(legal) if legal else 0
 
+            actions.append(chosen_action)
+
+        # Step all environments together.
         step_out = [StepOutput(action=a, probs=None) for a in actions]
         next_time_step, reward, done, _ = envs.step(step_out)
-        total_reward += sum(r[player_id] if r is not None else 0 for r in reward)
-        episodes_done += sum(1 for d in done if d)
+
+        # Process any environments that have finished.
+        for i, dval in enumerate(done):
+            if dval:
+                # If reward[i] is not None, accumulate the agent's reward.
+                if reward[i] is not None:
+                    total_reward += reward[i][player_id]
+
+                episodes_done += 1
+
+                # If we still need more episodes, reset just this environment.
+                if episodes_done < num_episodes:
+                    next_time_step[i] = envs.reset_at(i)
+
+        # Update time steps for the next loop iteration.
         time_step = next_time_step
 
+    # Average reward per episode.
     avg_rew = total_reward / num_episodes
-    print(f"[Evaluate] player_id={player_id}, episodes={num_episodes}, avg reward={avg_rew:.2f}")
+
+    print(f"[Evaluate] player_id={player_id}, episodes={num_episodes}, "
+          f"avg reward={avg_rew:.2f}, episodes_done={episodes_done}")
     return avg_rew
+
 
 def main(_):
     # Load game
     game = pyspiel.load_game("python_quantum_cat", {"players": FLAGS.num_players})
 
     # Setup env
-    num_envs = 2  # or however many parallel envs
+    num_envs = 8  # or however many parallel envs you want
     envs = SyncVectorEnv([
         rl_environment.Environment(game=game)
         for _ in range(num_envs)
     ])
 
-    # Build agent with same shape/params you used in training
+    # Build agent with the same architecture/params used in training
     sample_ts = envs.reset()
     obs_spec = sample_ts[0].observations["info_state"][0]
     info_state_shape = (len(obs_spec),)
@@ -95,7 +131,7 @@ def main(_):
         num_players=FLAGS.num_players,
         player_id=0,
         num_envs=num_envs,
-        steps_per_batch=16,  # arbitrary; not used heavily in eval
+        steps_per_batch=16,  # not used heavily in eval
         update_epochs=4,
         learning_rate=2.5e-4,
         gae=True,
@@ -109,14 +145,15 @@ def main(_):
     agent.load_state_dict(torch.load(FLAGS.agent_path, map_location="cpu"))
     agent.eval()
 
+    # Evaluate
     if FLAGS.random_vs_random:
         print("Evaluating random vs random play...")
-        evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes, 
-                self_play=False, random_vs_random=True)
+        evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes,
+                 self_play=False, random_vs_random=True)
     else:
-        # Regular agent evaluation
-        evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes, 
-                self_play=FLAGS.self_play, random_vs_random=False)
+        evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes,
+                 self_play=FLAGS.self_play, random_vs_random=False)
+
 
 if __name__ == "__main__":
     app.run(main)
