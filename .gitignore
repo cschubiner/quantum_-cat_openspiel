@@ -13,6 +13,7 @@ __pycache__/
 .venv
 venv/
 ENV/
+openspiel-env
 
  # OSX specific
 .DS_Store
@@ -60,3 +61,4 @@ Package.resolved
 # Visual Studio generated files
 open_spiel/.vs
 /.env
+.aider*
