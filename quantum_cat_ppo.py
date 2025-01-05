@@ -156,8 +156,14 @@ def run_ppo_on_quantum_cat(
                             legal_acts = ts_p.observations["legal_actions"][p_id]
                             actions[p_id] = random.choice(legal_acts)
 
+            # Convert actions to StepOutput objects for each env
+            step_outputs = []
+            for env_idx in range(num_envs):
+                env_actions = [StepOutput(action=a, probs=None) for a in actions]
+                step_outputs.append(env_actions)
+
             # Step the vector environment
-            next_time_step, reward, done, _ = envs.step([actions]*num_envs)
+            next_time_step, reward, done, _ = envs.step(step_outputs)
             # "reward" and "done" are shape [num_envs, num_players]
             # We only care about our agent's seat: reward[:, player_id] and done[:, player_id]
             agent.post_step(
@@ -199,7 +205,13 @@ def run_ppo_on_quantum_cat(
                 legal_acts = ts.observations["legal_actions"][current_p]
                 actions[current_p] = random.choice(legal_acts)
 
-        next_time_step, reward, done, _ = envs.step([actions]*num_envs)
+        # Convert actions to StepOutput objects for each env
+        step_outputs = []
+        for env_idx in range(num_envs):
+            env_actions = [StepOutput(action=a, probs=None) for a in actions]
+            step_outputs.append(env_actions)
+
+        next_time_step, reward, done, _ = envs.step(step_outputs)
         total_eval_reward += sum(reward[:, player_id])
         # Count how many envs finished an episode
         episodes_done += sum(done[:, player_id])
