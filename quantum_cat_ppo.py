@@ -227,7 +227,7 @@ def evaluate_agent(agent, envs, player_id=0, num_episodes=20, opponents=None):
 
     while episodes_done < num_episodes:
         env_actions = []
-        for i in range(envs.num_envs):
+        for i in range(len(envs.envs)):
             ts = time_step[i]
             current_p = ts.current_player()
             if ts.last():
