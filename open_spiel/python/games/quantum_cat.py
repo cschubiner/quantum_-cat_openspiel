@@ -571,6 +571,7 @@ class QuantumCatObserver:
     pieces = [
         ("current_player", num_players, (num_players,)),
         ("phase", 5, (5,)),  # 0..4
+        ("led_color", num_colors + 1, (num_colors + 1,)),  # 1-hot for each color + None
     ]
     if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(("hand", num_card_types, (num_card_types,)))
@@ -587,6 +588,17 @@ class QuantumCatObserver:
       self.dict[name] = self.tensor[index:index + size].reshape(shape)
       index += size
 
+  def _encode_led_color(self, led_color):
+    """
+    led_color: 'R', 'B', 'Y', 'G', or None.
+    We set one-hot for R/B/Y/G. If None, we set the last slot.
+    """
+    color_map = {"R": 0, "B": 1, "Y": 2, "G": 3}
+    if led_color is None:
+      self.dict["led_color"][-1] = 1.0
+    else:
+      self.dict["led_color"][color_map[led_color]] = 1.0
+
   def set_from(self, state, player):
     """Updates the observer's data to reflect `state` from the POV of `player`."""
     self.tensor.fill(0)
@@ -596,6 +608,9 @@ class QuantumCatObserver:
 
     if 0 <= state._phase <= 4:
       self.dict["phase"][state._phase] = 1
+
+    # Encode led color
+    self._encode_led_color(state._led_color)
 
     # If single-player private info => store your hand + your color tokens
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
