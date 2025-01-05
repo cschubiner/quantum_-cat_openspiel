@@ -31,8 +31,8 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("num_players", 3, "Number of players in Quantum Cat (3..5).")
 # flags.DEFINE_integer("num_episodes", 20000, "Number of full games to train for.")
-flags.DEFINE_integer("num_episodes", 3000, "Number of full games to train for.")
-flags.DEFINE_integer("steps_per_batch", 2048, "Environment steps per PPO update.")
+flags.DEFINE_integer("num_episodes", 3000, "Number of full games to train for.") 
+flags.DEFINE_integer("episodes_per_batch", 8, "Number of full episodes to gather before each PPO update.")
 flags.DEFINE_integer("seed", 1234, "Random seed.")
 flags.DEFINE_integer("num_envs", 8, "Number of vectorized envs.")
 flags.DEFINE_string("save_path", "quantum_cat_agent.pth", "Where to save the agent.")
