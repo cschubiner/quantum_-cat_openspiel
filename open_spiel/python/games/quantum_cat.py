@@ -95,10 +95,9 @@ class QuantumCatGame(pyspiel.Game):
       # 40 total => each gets 10 => discards 1 => 9 => we play 8 tricks
       self.cards_per_player_initial = 10
       self.num_tricks = 8
-    else:  # 3 players => 35 total => each can get 11 if we want => leftover 2 cards not used?
+    else:  # 3 players => for example, can deal 11 each, discard 1 => 10 => etc.
       self.cards_per_player_initial = 11
-      self.num_tricks = 10  # e.g., discard 1 => 10 left => play 9 (1 leftover) or 10
-      # Adjust to your exact rules if needed.
+      self.num_tricks = 10
 
   def new_initial_state(self):
     return QuantumCatGameState(self)
@@ -125,6 +124,13 @@ class QuantumCatGameState(pyspiel.State):
   We place tokens whenever a player declares (color, rank).
   Then at game end, if player didn't paradox and matched their bid,
   they get adjacency bonus = size of largest connected cluster of squares that belong to them.
+
+  New “No forced follow” logic:
+    - Each player has color-tokens for R,B,Y,G. Initially all True.
+    - If the lead color is not None and a player declares a *different* color,
+      that player must remove the token for the lead color (set it False),
+      thus can never again declare that lead color in the round.
+    - If a player's token for a color is False, that player cannot declare that color anymore.
   """
 
   def __init__(self, game: QuantumCatGame):
@@ -167,11 +173,14 @@ class QuantumCatGameState(pyspiel.State):
     self._tricks_won = np.zeros(self._num_players, dtype=int)
 
     # Board ownership (color, rank) => which player placed a token? -1 => empty
-    # We fill this whenever a player declares color for a rank.
     self._board_ownership = -1 * np.ones((self._num_colors, self._num_card_types), dtype=int)
 
     # Paradox tracking
     self._has_paradoxed = [False] * self._num_players
+
+    # Each player’s color tokens: True means they can still declare that color
+    # Indexed by [player][color_idx]
+    self._color_tokens = np.ones((self._num_players, self._num_colors), dtype=bool)
 
     # Terminal
     self._game_over = False
@@ -245,6 +254,7 @@ class QuantumCatGameState(pyspiel.State):
       f"HasDiscarded={self._has_discarded}, Predictions={self._predictions}\n"
       f"TricksWon={self._tricks_won}, LedColor={self._led_color}\n"
       f"Paradoxed={self._has_paradoxed}, GameOver={self._game_over}\n"
+      f"ColorTokens={self._color_tokens}\n"
       f"BoardOwnership=\n{self._board_ownership}"
     )
 
@@ -301,39 +311,6 @@ class QuantumCatGameState(pyspiel.State):
     else:
       self._current_player = (self._current_player + 1) % self._num_players
 
-  def _legal_actions(self, player):
-    # Phase-based logic
-    if player == pyspiel.PlayerId.CHANCE:
-      if self._phase == 0:
-        num_left = self._total_cards - self._cards_dealt
-        return list(range(num_left))
-      return []
-
-    if self._phase == 1:
-      # Discard
-      if not self._has_discarded[player]:
-        return self._discard_actions(player)
-      else:
-        return []
-    elif self._phase == 2:
-      # Predictions in [1..4] => action codes [101..104]
-      if self._predictions[player] < 0:
-        return [101, 102, 103, 104]  # Predict 1..4
-      else:
-        return []
-    elif self._phase == 3:
-      return self._trick_legal_actions(player)
-    # Phase 4 => no actions
-    return []
-
-  def _discard_actions(self, player):
-    hand_vec = self._hands[player]
-    acts = []
-    for rank_idx in range(self._num_card_types):
-      if hand_vec[rank_idx] > 0:
-        acts.append(rank_idx)
-    return sorted(acts)  # Sort actions to ensure they are in ascending order
-
   # -------------------------------------------------------------------
   # Phase 2: Prediction
   # -------------------------------------------------------------------
@@ -359,36 +336,66 @@ class QuantumCatGameState(pyspiel.State):
   # -------------------------------------------------------------------
   # Phase 3: Trick-taking
   # -------------------------------------------------------------------
-  def _trick_legal_actions(self, player):
-    hand_vec = self._hands[player]
-    led_color_idx = None if (self._led_color is None) else _COLORS.index(self._led_color)
+  def _legal_actions(self, player):
+    # Phase-based logic
+    if player == pyspiel.PlayerId.CHANCE:
+      if self._phase == 0:
+        num_left = self._total_cards - self._cards_dealt
+        return list(range(num_left))
+      return []
+    if self._phase == 1:
+      # Discard
+      if not self._has_discarded[player]:
+        return self._discard_actions(player)
+      else:
+        return []
+    elif self._phase == 2:
+      # Predictions in [1..4] => action codes [101..104]
+      if self._predictions[player] < 0:
+        return [101, 102, 103, 104]  # Predict 1..4
+      else:
+        return []
+    elif self._phase == 3:
+      return self._trick_legal_actions(player)
+    # Phase 4 => no actions
+    return []
 
-    # Check if we can follow the led color
-    can_follow = False
-    if led_color_idx is not None:
-      for rank_idx in range(self._num_card_types):
-        if hand_vec[rank_idx] > 0 and self._board_ownership[led_color_idx][rank_idx] < 0:
-          can_follow = True
-          break
+  def _discard_actions(self, player):
+    hand_vec = self._hands[player]
+    acts = []
+    for rank_idx in range(self._num_card_types):
+      if hand_vec[rank_idx] > 0:
+        acts.append(rank_idx)
+    return sorted(acts)
+
+  def _trick_legal_actions(self, player):
+    """
+    Each color can be declared only if player’s token for that color is still True.
+    The player can always declare any color for which they have a token,
+    even if there's a led color. If they pick a different color than the lead,
+    they must forfeit that lead color token (done inside _apply_trick_action).
+    """
+    hand_vec = self._hands[player]
 
     actions = []
     for rank_idx in range(self._num_card_types):
       if hand_vec[rank_idx] <= 0:
         continue
       for c_idx in range(self._num_colors):
+        if not self._color_tokens[player][c_idx]:
+          # player no longer has that color token
+          continue
         if self._board_ownership[c_idx][rank_idx] != -1:
           # that color-rank is already claimed
           continue
-        # If led color is set, must follow if possible
-        if (led_color_idx is not None) and (c_idx != led_color_idx) and can_follow:
-          continue
-        act = c_idx*self._num_card_types + rank_idx
+        # If all checks pass, action is valid
+        act = c_idx * self._num_card_types + rank_idx
         actions.append(act)
 
     if not actions:
       # no moves => paradox
       return [_ACTION_PARADOX]
-    return sorted(actions)  # Sort actions to ensure they are in ascending order
+    return sorted(actions)
 
   def _apply_trick_action(self, action):
     color_idx = action // self._num_card_types
@@ -400,7 +407,6 @@ class QuantumCatGameState(pyspiel.State):
     # Mark board ownership => adjacency
     self._board_ownership[color_idx][rank_idx] = player
 
-    # Record play
     rank_val = rank_idx + 1
     color_str = _COLORS[color_idx]
     self._cards_played_this_trick[player] = (rank_val, color_str)
@@ -408,6 +414,11 @@ class QuantumCatGameState(pyspiel.State):
     # If no color led, set it
     if self._led_color is None:
       self._led_color = color_str
+    else:
+      # If player *did not* follow the lead color => remove lead-color token
+      if color_str != self._led_color:
+        led_idx = _COLORS.index(self._led_color)
+        self._color_tokens[player][led_idx] = False
 
     # Next
     self._current_player = (self._current_player + 1) % self._num_players
@@ -524,7 +535,6 @@ class QuantumCatGameState(pyspiel.State):
 
     return max_cluster
 
-
 # ---------------------------------------------------------------------
 # Observer
 # ---------------------------------------------------------------------
@@ -548,6 +558,7 @@ class QuantumCatObserver:
     ]
     if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(("hand", num_card_types, (num_card_types,)))
+      pieces.append(("color_tokens", num_colors, (num_colors,)))
 
     # Build the single flat tensor
     total_size = sum(size for name, size, shape in pieces)
@@ -570,10 +581,12 @@ class QuantumCatObserver:
     if 0 <= state._phase <= 4:
       self.dict["phase"][state._phase] = 1
 
-    # If single-player private info => store your hand
+    # If single-player private info => store your hand + your color tokens
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       for i in range(self.num_card_types):
         self.dict["hand"][i] = state._hands[player][i]
+      for c_idx in range(self.num_colors):
+        self.dict["color_tokens"][c_idx] = float(state._color_tokens[player][c_idx])
 
   def string_from(self, state, player):
     """Observation of `state` from the POV of `player`, as a string."""
@@ -584,9 +597,8 @@ class QuantumCatObserver:
     pieces.append(f"phase={state._phase}")
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(f"hand={state._hands[player]}")
+      pieces.append(f"color_tokens={state._color_tokens[player]}")
     return " ".join(str(p) for p in pieces)
 
-# ---------------------------------------------------------------------
-# Register the game
-# ---------------------------------------------------------------------
+
 pyspiel.register_game(_GAME_TYPE, QuantumCatGame)

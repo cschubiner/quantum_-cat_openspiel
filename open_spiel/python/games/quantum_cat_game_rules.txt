@@ -1,0 +1,159 @@
+Cat in the Box: Software Simulation Instructions
+
+Game Overview:
+
+“Cat in the Box” is a trick-taking game with a twist. The color of each card is not fixed and is determined when the card is played. Players must declare a color when playing a card, but certain restrictions apply to ensure that colors are declared according to the game’s rules.
+
+The goal is to win the most points by accurately predicting the number of tricks a player will win while avoiding paradoxes (situations where no valid moves remain).
+
+Game Components:
+
+In the software, you will need to model the following components:
+
+Component	Description
+Cat Cards	Numbered cards (values 1 to 9) that have no fixed color until played.
+Player Boards	Each player has a board to track declared colors.
+Research Board	A shared board to track which colors have been declared for each card number.
+Player Tokens	Tokens that players place on the research board and player boards to track declarations and predictions.
+
+Number of Cards and Tokens:
+
+The number of cards and tokens varies by player count:
+
+Number of Players	Cards Used	Player Tokens	Research Board Size
+5 Players	45 (1 to 9)	12 each	Full board (9 rows, 4 colors)
+4 Players	40 (1 to 8)	12 each	8 rows, 4 colors
+3 Players	30 (1 to 6)	12 each	6 rows, 4 colors
+
+Game Setup Logic:
+	1.	Deal Cards:
+	•	Shuffle the deck and deal an equal number of cards to each player.
+	•	Place one card face down in the center (this card is removed from play).
+	2.	Initialize Boards:
+	•	Each player places tokens on the X spaces of their player boards.
+	•	The research board starts empty, with no tokens placed.
+
+Game Flow (Round Sequence):
+
+Each round consists of three phases:
+	1.	Preparation Phase
+	2.	Trick Phase
+	3.	Scoring Phase
+
+Players take turns being the Start Player, and the game continues for a number of rounds equal to the number of players.
+
+1. Preparation Phase Logic:
+	1.	Deal Cards:
+Shuffle and distribute cards to all players.
+	2.	Predict Tricks:
+	•	Starting with the Start Player, each player predicts how many tricks they will win this round.
+	•	Players place a token on the research board to indicate their prediction.
+
+Prediction Example:
+	•	A player predicts they will win 3 tricks.
+	•	They place a token on the 3 space of the research board.
+
+2. Trick Phase Logic:
+
+In the Trick Phase, players take turns playing cards and declaring colors. The phase continues until all players have only one card remaining.
+
+Core Trick-Taking Rules:
+	1.	Start Player:
+The Start Player plays a card from their hand and declares its color.
+	2.	Following Players:
+Each subsequent player must also play a card and declare its color.
+	•	They must follow the Led Color if possible.
+	•	If they cannot follow the Led Color, they can declare a different color.
+
+Declaring a Color:
+
+The color of a card is determined when it is played, but players must follow these rules:
+	1.	The corresponding space on the research board must be empty.
+	•	For example, if a player wants to declare Red 5, the Red 5 space on the research board must be empty.
+	2.	The player must have a token on the X space of the declared color on their player board.
+
+Led Color Logic:
+	•	The first declared color in a trick becomes the Led Color.
+	•	Subsequent players must follow this color if possible.
+
+Strength of Cards:
+	•	Red is the strongest color.
+	•	Blue, Yellow, and Green are equal in strength but weaker than Red.
+
+If players declare the same color, compare the card numbers. The player with the highest number wins the trick.
+
+Handling Paradoxes:
+
+A paradox occurs when a player cannot make a valid move. This happens when:
+	1.	The player has no cards that can be declared according to the rules.
+	2.	They cannot place a token on the research board.
+
+When a Paradox Occurs:
+	•	The trick phase ends immediately.
+	•	No one wins the trick that caused the paradox.
+	•	The player who caused the paradox loses 1 point for each trick they’ve won in the round.
+
+3. Scoring Phase Logic:
+
+At the end of the round, players score points based on:
+	1.	Tricks Won:
+	•	Each trick won is worth 1 point.
+	2.	Bonus for Accurate Prediction:
+	•	If a player predicted their number of tricks correctly, they earn bonus points based on their connected tokens on the research board.
+
+Bonus Scoring Logic:
+	•	Players earn 1 point for each connected token in their largest group on the research board.
+	•	Tokens must be horizontally or vertically adjacent.
+	•	Diagonal connections do not count.
+
+End of Game Logic:
+
+The game ends after all players have been the Start Player once.
+
+The player with the most points after all rounds wins the game.
+
+If there is a tie, the player with the highest score in the final round wins.
+If still tied, the victory is shared.
+
+Special Rules for 2 Players:
+
+When playing with 2 players, follow these modified rules:
+	1.	Deal 10 cards to each player.
+	2.	Place the remaining 5 cards in the center of the table.
+	3.	Reveal 3 cards from the center pile and place tokens on the green row of the research board for those numbers.
+
+If a duplicate number is revealed, place tokens on both the green and yellow rows.
+
+Summary of Key Game Logic for Implementation:
+
+Game Phase	Key Actions
+Preparation Phase	Deal cards, predict tricks, place tokens
+Trick Phase	Play cards, declare colors, follow observation rules
+Scoring Phase	Score points for tricks won and accurate predictions
+End of Game	Determine the winner based on total points
+
+Key Validation Rules for Implementation:
+	1.	Color Declaration Validation:
+Ensure the space on the research board is empty and the player has a token on the X space of their board.
+	2.	Trick-Winning Logic:
+Compare the declared colors and card numbers to determine the trick winner.
+	3.	Paradox Handling:
+Stop the trick phase if a paradox occurs and apply penalties.
+
+
+---------
+
+4 things to keep in mind: 
+"""One, there is no pass action. If it's your turn, whether it's in the prediction phase or the trick-taking phase, if it's your move, you have to play an action. And if there are no moves you can make, and you're in the trick-taking phase, then you have to paradox. So maybe paradox should be implemented as a move. Or, in the trick-taking phase, we could do it where if the player has no legal moves, then that would be considered a paradox. I'm not sure what's best. You can decide. 
+
+The second thing that needs to change is that you're misinterpreting the rule of the instructions mentioning placing one card face-down to move from play. This is actually something that happens after the Dealing phase, but before the Bid Prediction phase. Basically, each player looks at their full hand and decides to discard one of their cards face-down into the center. Those cards are removed from play, which means if there are five players, then five cards will be removed from play. 
+
+Ah, and a third thing... Let's say each player starts with nine cards. They will discard one to get down to eight. But then the number of tricks they play is only seven, so you never actually end up playing all... all of the cards that start off in your hand, because the game ends with every player having one card in their hand still remaining. 
+
+Finally, when you create the deck, let's say it's five players. You don't create a deck of nine cards times four, but rather you create a deck of nine cards times five. Similarly, when there are four players, you remove the nines, so you'll have a deck of cards one through eight, and five of each of them. And then with three players, there are no eights or nines, so you'll have the cards one through seven, and there will be five of each as well.
+"""
+
+PARADOX PENALTY: The penalty for paradox is that you cannot get the bonus connecting points even if you made the exact amount of tricks that you bid. And the second penalty is that your score, instead of being equal to the number of tricks you bid, it's actually equal to negative one times that number. Meaning you get penalized more for paradoxing the more tricks you made.
+
+
+BONUS SCORING: This is adjacency scoring. You only get this adjacency bonus if you predicted the number of tricks correctly. And if you did it in Paradox. We don't need to implement multiple rounds. This whole game should just be one round, as we have existing. Also, you can only ever bid a number between one and four tricks. You can't bid zero or any number greater than four. Given this, please write out the new full implementation including any additional observer logic
