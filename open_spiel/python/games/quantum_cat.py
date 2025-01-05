@@ -185,6 +185,9 @@ class QuantumCatGameState(pyspiel.State):
     # Terminal
     self._game_over = False
     self._returns = [0.0] * self._num_players
+    
+    # Track if trump has been broken
+    self._trump_broken = False
 
   # --------------
   # Deck creation
@@ -392,6 +395,14 @@ class QuantumCatGameState(pyspiel.State):
         act = c_idx * self._num_card_types + rank_idx
         actions.append(act)
 
+    # If leading the trick (led_color is None) and trump not broken, 
+    # disallow R if there's another color
+    if self._led_color is None and not self._trump_broken:
+        non_trump_actions = [a for a in actions if (a // self._num_card_types) != 0]
+        if non_trump_actions:
+            # Remove trump actions
+            actions = non_trump_actions
+
     if not actions:
       # no moves => paradox
       return [_ACTION_PARADOX]
@@ -410,6 +421,11 @@ class QuantumCatGameState(pyspiel.State):
     rank_val = rank_idx + 1
     color_str = _COLORS[color_idx]
     self._cards_played_this_trick[player] = (rank_val, color_str)
+
+    # If this is not the lead color, and the chosen color is "R",
+    # then we've broken trump.
+    if self._led_color is not None and color_str == "R" and color_str != self._led_color:
+      self._trump_broken = True
 
     # If no color led, set it
     if self._led_color is None:
