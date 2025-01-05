@@ -90,7 +90,7 @@ def run_ppo_on_quantum_cat(
 
     # Create multiple vector envs
     envs = SyncVectorEnv([
-        lambda: make_env(game, seed + i, num_players) for i in range(num_envs)
+        make_env(game, seed + i, num_players) for i in range(num_envs)
     ])
 
     # We only train the agent for 'player_id'.
@@ -280,7 +280,7 @@ def main(_):
     # reuse the same #envs and game
     game = pyspiel.load_game("python_quantum_cat", {"players": num_players})
     eval_envs = SyncVectorEnv([
-        lambda: rl_environment.Environment(game=game, players=num_players)
+        rl_environment.Environment(game=game, players=num_players)
         for _ in range(num_envs)
     ])
 
