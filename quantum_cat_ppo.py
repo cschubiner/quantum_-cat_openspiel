@@ -126,16 +126,11 @@ def run_ppo_on_quantum_cat(
                     env_actions.append(agent_output[0].action)
                 else:
                     # Random action for other players or if terminal
-                    try:
+                    if current_p < 0 or ts.last():
+                        action = 0  # Dummy action for terminal states
+                    else:
                         legal_acts = ts.observations["legal_actions"][current_p]
                         action = random.choice(legal_acts) if legal_acts else 0
-                    except IndexError:
-                        print("\nDebug info for IndexError:")
-                        print(f"Current player: {current_p}")
-                        print(f"Timestep observations: {ts.observations}")
-                        print(f"Legal actions array: {ts.observations['legal_actions']}")
-                        print(f"Is terminal state? {ts.last()}")
-                        raise  # Re-raise the error after printing debug info
                     env_actions.append(action)
 
             # Convert to StepOutput objects - one per environment
@@ -179,8 +174,11 @@ def run_ppo_on_quantum_cat(
                 env_actions.append(agent_output[0].action)
             else:
                 # Random action for other players or if terminal
-                legal_acts = ts.observations["legal_actions"][current_p]
-                action = random.choice(legal_acts) if legal_acts else 0
+                if current_p < 0 or ts.last():
+                    action = 0  # Dummy action for terminal states
+                else:
+                    legal_acts = ts.observations["legal_actions"][current_p]
+                    action = random.choice(legal_acts) if legal_acts else 0
                 env_actions.append(action)
 
         # Convert to StepOutput objects - one per environment
