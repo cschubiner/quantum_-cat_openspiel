@@ -154,7 +154,12 @@ def run_ppo_on_quantum_cat(
                             actions[p_id] = 0
                         else:
                             legal_acts = ts_p.observations["legal_actions"][p_id]
-                            actions[p_id] = random.choice(legal_acts)
+                            if legal_acts:  # If there are legal actions
+                                actions[p_id] = random.choice(legal_acts)
+                            else:
+                                # If no legal actions, use action 0 as default
+                                # The environment will handle invalid actions
+                                actions[p_id] = 0
 
             # Convert actions to StepOutput objects - one per environment
             step_outputs = [StepOutput(action=actions[time_step[i].current_player()], probs=None) 
@@ -199,7 +204,11 @@ def run_ppo_on_quantum_cat(
             else:
                 # random for other seats
                 legal_acts = ts.observations["legal_actions"][current_p]
-                actions[current_p] = random.choice(legal_acts)
+                if legal_acts:  # If there are legal actions
+                    actions[current_p] = random.choice(legal_acts)
+                else:
+                    # If no legal actions, use action 0 as default
+                    actions[current_p] = 0
 
         # Convert actions to StepOutput objects - one per environment
         step_outputs = [StepOutput(action=actions[time_step[i].current_player()], probs=None)
