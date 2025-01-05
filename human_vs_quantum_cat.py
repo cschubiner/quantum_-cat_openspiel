@@ -19,7 +19,7 @@ from open_spiel.python.games import quantum_cat
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_players", 3, "Number of players in the game.")
 flags.DEFINE_string("agent_path", "quantum_cat_agent.pth", "Path to saved PPO agent.")
-flags.DEFINE_integer("human_player", 0, "Which seat the human controls (0..N-1).")
+flags.DEFINE_integer("human_player", 2, "Which seat the human controls (0..N-1).")
 
 def main(_):
     num_players = FLAGS.num_players
@@ -28,15 +28,16 @@ def main(_):
     game = pyspiel.load_game("python_quantum_cat", {"players": num_players})
     state = game.new_initial_state()
 
-    # Build a PPO agent for each seat that isn't the human
-    # so we can load weights for them
+    # Create PPO agent for player 0 and random bot for player 1
     agents = {}
-    for pid in range(num_players):
-        if pid != human_player:
-            agent = make_agent(game, pid)
-            agent.load_state_dict(torch.load(FLAGS.agent_path, map_location="cpu"))
-            agent.eval()
-            agents[pid] = agent
+    
+    # PPO agent always plays as player 0 (as it was trained)
+    ppo_agent = make_agent(game, 0)  # player_id=0 to match training
+    ppo_agent.load_state_dict(torch.load(FLAGS.agent_path, map_location="cpu"))
+    ppo_agent.eval()
+    agents[0] = ppo_agent
+    
+    # Player 1 will be a random bot (handled in the main loop)
 
     # Step through the game
     while not state.is_terminal():
@@ -77,30 +78,29 @@ def main(_):
             print(f"You picked: {state.action_to_string(cur_player, chosen_action)}")
             state.apply_action(chosen_action)
         else:
-            # Agent's turn
-            agent = agents[cur_player]
-            obs = state.observation_tensor(cur_player)
-            # We build a "fake" time step to feed the agent
-            # or we can do a simpler approach: call agent.network directly
-            # but let's do the quick approach with a single-step
-            from open_spiel.python.rl_environment import TimeStep
-            # A single environment-like TimeStep
-            # observations["info_state"][cur_player] = obs
-            # observations["legal_actions"][cur_player] = state.legal_actions(cur_player)
-            fake_ts = TimeStep(
-                observations={
-                    "info_state": {cur_player: obs},
-                    "legal_actions": {cur_player: state.legal_actions(cur_player)}
-                },
-                rewards=None,
-                discounts=None,
-                step_type=None
-            )
-
-            action_out = agent.step([fake_ts], is_evaluation=True)
-            chosen_action = action_out[0].action
-            print(f"Agent {cur_player} picks: {state.action_to_string(cur_player, chosen_action)}")
-            state.apply_action(chosen_action)
+            if cur_player == 0:
+                # PPO Agent's turn
+                agent = agents[cur_player]
+                obs = state.observation_tensor(cur_player)
+                fake_ts = TimeStep(
+                    observations={
+                        "info_state": {cur_player: obs},
+                        "legal_actions": {cur_player: state.legal_actions(cur_player)}
+                    },
+                    rewards=None,
+                    discounts=None,
+                    step_type=None
+                )
+                action_out = agent.step([fake_ts], is_evaluation=True)
+                chosen_action = action_out[0].action
+                print(f"PPO Agent picks: {state.action_to_string(cur_player, chosen_action)}")
+                state.apply_action(chosen_action)
+            else:
+                # Random bot's turn (player 1)
+                legal_actions = state.legal_actions(cur_player)
+                chosen_action = random.choice(legal_actions)
+                print(f"Random bot picks: {state.action_to_string(cur_player, chosen_action)}")
+                state.apply_action(chosen_action)
 
     # Terminal
     print("\n=====================================")
