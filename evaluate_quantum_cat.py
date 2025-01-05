@@ -29,8 +29,9 @@ flags.DEFINE_integer("num_players", 3, "Number of players.")
 flags.DEFINE_integer("num_episodes", 20, "Number of episodes to evaluate.")
 flags.DEFINE_string("agent_path", "quantum_cat_agent.pth", "Path to saved agent.")
 flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
+flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
 
-def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False):
+def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
     total_reward = 0
     episodes_done = 0
     time_step = envs.reset()
@@ -43,18 +44,23 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False):
             if ts.last():
                 actions.append(0)  # dummy
                 continue
-            if p == player_id:
-                out = agent.step([ts], is_evaluation=True)
-                actions.append(out[0].action)
+            if random_vs_random:
+                # All players play randomly
+                legal = ts.observations["legal_actions"][p]
+                actions.append(random.choice(legal) if legal else 0)
             else:
-                if self_play:
-                    # same agent for other players
+                if p == player_id:
                     out = agent.step([ts], is_evaluation=True)
                     actions.append(out[0].action)
                 else:
-                    # random
-                    legal = ts.observations["legal_actions"][p]
-                    actions.append(random.choice(legal) if legal else 0)
+                    if self_play:
+                        # same agent for other players
+                        out = agent.step([ts], is_evaluation=True)
+                        actions.append(out[0].action)
+                    else:
+                        # random
+                        legal = ts.observations["legal_actions"][p]
+                        actions.append(random.choice(legal) if legal else 0)
 
         step_out = [StepOutput(action=a, probs=None) for a in actions]
         next_time_step, reward, done, _ = envs.step(step_out)
@@ -103,8 +109,14 @@ def main(_):
     agent.load_state_dict(torch.load(FLAGS.agent_path, map_location="cpu"))
     agent.eval()
 
-    # Evaluate
-    evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes, self_play=FLAGS.self_play)
+    if FLAGS.random_vs_random:
+        print("Evaluating random vs random play...")
+        evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes, 
+                self_play=False, random_vs_random=True)
+    else:
+        # Regular agent evaluation
+        evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes, 
+                self_play=FLAGS.self_play, random_vs_random=False)
 
 if __name__ == "__main__":
     app.run(main)
