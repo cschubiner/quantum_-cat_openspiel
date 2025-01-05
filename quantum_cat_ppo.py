@@ -135,7 +135,7 @@ def run_ppo_on_quantum_cat(
                 else:
                     # For other seats or if it's terminal for the agent, random action
                     # (Though if last() is True, the environment step will ignore actions.)
-                    legal_acts = all_player_ts.observations["legal_actions"][current_p]
+                    legal_acts = all_player_ts.observations["legal_actions"]
                     actions[current_p] = random.choice(legal_acts)
 
             # Because SyncVectorEnv expects an array of shape [num_envs, num_players]
