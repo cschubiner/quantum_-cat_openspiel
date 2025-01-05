@@ -78,8 +78,8 @@ def run_ppo_on_quantum_cat(
     # The environment returns time steps for all players, but we only
     # train on player_id's perspective. Let's get that info.
     sample_timestep = envs.reset()
-    obs_spec = sample_timestep[player_id].observations["info_state"]
-    info_state_shape = (len(obs_spec),)  # Flattened shape of info_state
+    obs_spec = sample_timestep[0].observations["info_state"][player_id]
+    info_state_shape = (len(obs_spec),)  # Flattened shape of info_state (19,)
     num_actions = game.num_distinct_actions()
 
     # Initialize the PPO agent
