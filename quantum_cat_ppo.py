@@ -164,10 +164,11 @@ def run_ppo_on_quantum_cat(
             next_time_step, reward, done, _ = envs.step(step_outputs)
             # "reward" and "done" are shape [num_envs, num_players]
             # We only care about our agent's seat: reward[:, player_id] and done[:, player_id]
-            agent.post_step(
-                reward[:, player_id].tolist(),
-                done[:, player_id].tolist()
-            )
+            # Extract rewards and done flags for our agent's seat
+            agent_rewards = [r[player_id] for r in reward]
+            agent_dones = [d[player_id] for d in done]
+            
+            agent.post_step(agent_rewards, agent_dones)
 
             # Bookkeeping
             time_step = next_time_step
