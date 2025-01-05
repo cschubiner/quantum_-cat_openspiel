@@ -62,4 +62,5 @@ Package.resolved
 open_spiel/.vs
 /.env
 .aider*
+quantum_cat_ppo/
 quantum_checkpoints/

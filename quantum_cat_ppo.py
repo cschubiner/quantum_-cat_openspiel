@@ -34,6 +34,7 @@ from open_spiel.python.rl_agent import StepOutput
 # (You said you have this in open_spiel/python/pytorch/ppo.py)
 from open_spiel.python.pytorch.ppo import PPO
 from open_spiel.python.pytorch.ppo import legal_actions_to_mask
+from open_spiel.python.pytorch.ppo import PPOAgent
 
 def run_ppo_on_quantum_cat(
     num_players=3,
@@ -72,7 +73,8 @@ def run_ppo_on_quantum_cat(
     # that run in parallel. Here we do 1 or 2 as an example, but you can
     # increase this.
     num_envs = 2
-    envs = SyncVectorEnv([make_env for _ in range(num_envs)])
+    # Create actual environment instances by calling the make_env function
+    envs = SyncVectorEnv([make_env() for _ in range(num_envs)])
 
     # The environment returns time steps for all players, but we only
     # train on player_id's perspective. Let's get that info.
@@ -95,6 +97,7 @@ def run_ppo_on_quantum_cat(
         gamma=0.99,
         gae_lambda=0.95,
         device="cpu",  # or "cuda" if GPU is available
+        agent_fn=PPOAgent,
     )
 
     # Helper function: for players we do NOT control,
