@@ -20,129 +20,201 @@ from open_spiel.python.utils import spawn
 from open_spiel.python.vector_env import SyncVectorEnv
 from open_spiel.python.games import quantum_cat
 
+# run_quantum_cat_ppo.py
+import random
+import numpy as np
+import torch
 
-FLAGS = flags.FLAGS
+import pyspiel
+from open_spiel.python import rl_environment
+from open_spiel.python.vector_env import SyncVectorEnv
+from open_spiel.python.rl_agent import StepOutput
 
-# Training parameters
-flags.DEFINE_string("game_name", "python_quantum_cat", "Name of the game")
-flags.DEFINE_integer("num_players", 5, "Number of players (3-5 supported)")
-flags.DEFINE_integer("num_envs", 8, "Number of parallel environments")
-flags.DEFINE_integer("num_training_steps", 10_000_000, "Number of training steps")
-flags.DEFINE_integer("eval_every", 10000, "Evaluate every N steps")
-flags.DEFINE_string("checkpoint_dir", "quantum_cat_ppo", "Directory for checkpoints")
+# Import your existing PPO implementation
+# (You said you have this in open_spiel/python/pytorch/ppo.py)
+from open_spiel.python.pytorch.ppo import PPO
+from open_spiel.python.pytorch.ppo import legal_actions_to_mask
 
-# PPO specific parameters
-flags.DEFINE_float("learning_rate", 2.5e-4, "Learning rate")
-flags.DEFINE_integer("num_minibatches", 4, "Number of minibatches per update")
-flags.DEFINE_integer("update_epochs", 4, "Number of epochs per update")
-flags.DEFINE_float("gamma", 0.99, "Discount factor")
-flags.DEFINE_float("gae_lambda", 0.95, "GAE lambda parameter")
-flags.DEFINE_float("clip_coef", 0.2, "PPO clip coefficient")
-flags.DEFINE_float("ent_coef", 0.01, "Entropy coefficient")
-flags.DEFINE_float("vf_coef", 0.5, "Value function coefficient")
-flags.DEFINE_float("max_grad_norm", 0.5, "Maximum gradient norm")
+def run_ppo_on_quantum_cat(
+    num_players=3,
+    total_timesteps=2000,
+    steps_per_batch=16,
+    player_id=0,
+    seed=1234,
+):
+    """
+    Trains a single PPO agent on the quantum_cat game, controlling
+    one player and letting the other players act randomly.
 
-def create_env():
-    """Creates a new environment instance."""
-    return rl_environment.Environment(
-        FLAGS.game_name,
-        players=FLAGS.num_players
+    Args:
+      num_players: number of players in quantum_cat. (3..5)
+      total_timesteps: total environment steps to run training.
+      steps_per_batch: number of environment steps before each PPO update.
+      player_id: which seat the PPO agent controls. 0 <= player_id < num_players.
+      seed: random seed.
+    """
+    # Set seeds
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    # Load the quantum_cat game
+    game = pyspiel.load_game("python_quantum_cat", {"players": num_players})
+    # Create an OpenSpiel RL environment for the game
+    # By default, rl_environment.Environment will run all players inside a single env step,
+    # but we only control the agent for 'player_id'; the others are random.
+    def make_env():
+        return rl_environment.Environment(
+            game=game, seed=seed, players=num_players
+        )
+
+    # For better PPO performance, create multiple synchronous environments
+    # that run in parallel. Here we do 1 or 2 as an example, but you can
+    # increase this.
+    num_envs = 2
+    envs = SyncVectorEnv([make_env for _ in range(num_envs)])
+
+    # The environment returns time steps for all players, but we only
+    # train on player_id's perspective. Let's get that info.
+    sample_timestep = envs.reset()
+    obs_spec = sample_timestep[player_id].observations["info_state"]
+    info_state_shape = (len(obs_spec),)  # Flattened shape of info_state
+    num_actions = game.num_distinct_actions()
+
+    # Initialize the PPO agent
+    agent = PPO(
+        input_shape=info_state_shape,
+        num_actions=num_actions,
+        num_players=num_players,
+        player_id=player_id,
+        num_envs=num_envs,
+        steps_per_batch=steps_per_batch,
+        update_epochs=4,
+        learning_rate=2.5e-4,
+        gae=True,
+        gamma=0.99,
+        gae_lambda=0.95,
+        device="cpu",  # or "cuda" if GPU is available
     )
 
-def main(_):
-    # Set up logging
-    logging.set_verbosity(logging.INFO)
-
-    # Create tensorboard writer
-    writer = SummaryWriter(os.path.join(FLAGS.checkpoint_dir, "tensorboard"))
-
-    # Get environment specs from a single environment instance
-    test_env = create_env()
-    obs_shape = test_env.observation_spec()["info_state"][0]
-    num_actions = test_env.action_spec()["num_actions"]
-
-    # Create PPO agents (one per player)
-    agents = []
-    for player_id in range(FLAGS.num_players):
-        agent = ppo.PPO(
-            input_shape=tuple([obs_shape]),  # PPO expects a tuple
-            num_actions=num_actions,
-            num_players=FLAGS.num_players,
-            player_id=player_id,
-            num_envs=FLAGS.num_envs,
-            learning_rate=FLAGS.learning_rate,
-            num_minibatches=FLAGS.num_minibatches,
-            update_epochs=FLAGS.update_epochs,
-            gamma=FLAGS.gamma,
-            gae_lambda=FLAGS.gae_lambda,
-            clip_coef=FLAGS.clip_coef,
-            entropy_coef=FLAGS.ent_coef,
-            value_coef=FLAGS.vf_coef,
-            max_grad_norm=FLAGS.max_grad_norm,
-            device="cuda" if torch.cuda.is_available() else "cpu",
-            writer=writer,  # Use tensorboard for logging
-            agent_fn=ppo.PPOAgent  # Use standard network (not Atari)
-        )
-        agents.append(agent)
-
-    # Create vector environment - create actual environments, not just functions
-    envs = [create_env() for _ in range(FLAGS.num_envs)]
-    vector_env = SyncVectorEnv(envs)
+    # Helper function: for players we do NOT control,
+    # pick random legal actions:
+    def random_policy(time_steps):
+        actions = []
+        for ts in time_steps:
+            # ts is a TimeStep for exactly one player
+            legal_acts = ts.observations["legal_actions"][ts.current_player()]
+            actions.append(random.choice(legal_acts))
+        return actions
 
     # Training loop
-    step = 0
-    while step < FLAGS.num_training_steps:
-        # Collect experience
-        time_steps = vector_env.reset()
-        episode_returns = [0.0] * FLAGS.num_players
+    steps_done = 0
+    time_step = envs.reset()
+    while steps_done < total_timesteps:
+        # Step until we fill up agent's batch
+        for _ in range(steps_per_batch):
+            # Create an action array for all players
+            actions = [None] * num_players
 
-        # Each time_step in time_steps is actually a list containing one time step
-        while not all(ts[0].last() for ts in time_steps):
-            player_ids = [ts[0].observations["current_player"] for ts in time_steps]
-            actions = []
+            # For each environment, we have num_players time_steps
+            # but we only have to pick an action for the "current_player"
+            # if it's our agent's seat (player_id).
+            for env_idx in range(num_envs):
+                # The environment's observation for each seat:
+                all_player_ts = time_step[env_idx]
 
-            for env_idx, player_id in enumerate(player_ids):
-                if player_id >= 0:  # Not a chance node
-                    # The time step is already a list containing one element
-                    agent_output = agents[player_id].step(time_steps[env_idx])
-                    # agent_output is a list of StepOutput objects, but we only have one
-                    actions.append(agent_output[0])
+                # We'll pick random actions for everyone
+                # except if it's the agent's turn.
+                current_p = all_player_ts.current_player()
+                if current_p == player_id and not all_player_ts.last():
+                    # PPO agent picks action
+                    agent_output = agent.step([all_player_ts], is_evaluation=False)
+                    actions[current_p] = agent_output[0].action
                 else:
-                    actions.append(None)  # Chance node
+                    # For other seats or if it's terminal for the agent, random action
+                    # (Though if last() is True, the environment step will ignore actions.)
+                    legal_acts = all_player_ts.observations["legal_actions"][current_p]
+                    actions[current_p] = random.choice(legal_acts)
 
-            next_time_steps = vector_env.step(actions)
+            # Because SyncVectorEnv expects an array of shape [num_envs, num_players]
+            # But each environment only needs the action for the "current_player."
+            # We fill in random actions for each environment's other seats:
+            # So let's do that for each environment's players:
+            # If the seat is not already filled, fill it randomly.
+            # (In many cases, the environment only uses the current player's
+            #  chosen action and ignores the rest, but we fill them anyway.)
+            for env_idx in range(num_envs):
+                for p_id in range(num_players):
+                    if actions[p_id] is None:
+                        ts_p = time_step[env_idx]
+                        if ts_p.last():
+                            # If the environment is done for this env, action is irrelevant
+                            actions[p_id] = 0
+                        else:
+                            legal_acts = ts_p.observations["legal_actions"][p_id]
+                            actions[p_id] = random.choice(legal_acts)
 
-            # Post-step updates for each agent
-            for i, (ts, next_ts) in enumerate(zip(time_steps, next_time_steps)):
-                if ts[0].rewards is not None:  # Some transitions might not have rewards
-                    for pid, reward in enumerate(ts[0].rewards):
-                        episode_returns[pid] += reward
-                        agents[pid].post_step(reward, next_ts[0].last())
+            # Step the vector environment
+            next_time_step, reward, done, _ = envs.step([actions]*num_envs)
+            # "reward" and "done" are shape [num_envs, num_players]
+            # We only care about our agent's seat: reward[:, player_id] and done[:, player_id]
+            agent.post_step(
+                reward[:, player_id].tolist(),
+                done[:, player_id].tolist()
+            )
 
-            time_steps = next_time_steps
+            # Bookkeeping
+            time_step = next_time_step
+            steps_done += num_envs
+            if steps_done >= total_timesteps:
+                break
 
-        # Update all agents
-        for pid, agent in enumerate(agents):
-            # Each time step is already a list containing one element
-            agent.learn(time_steps[0])
+        # Once we have a full batch, do learning
+        agent.learn(time_step[:, player_id])
 
-        step += FLAGS.num_envs
+    # After training, do a quick evaluation:
+    # We'll evaluate by letting our agent pick actions deterministically
+    # (is_evaluation=True) and keep other players random.
+    # We'll run ~20 episodes for a rough measure of agent's performance.
+    total_eval_reward = 0
+    n_episodes = 20
+    episodes_done = 0
+    time_step = envs.reset()
+    while episodes_done < n_episodes:
+        actions = [None] * num_players
+        for env_idx in range(num_envs):
+            ts = time_step[env_idx]
+            if ts.last():
+                # the environment ended for this player
+                pass
+            current_p = ts.current_player()
+            if current_p == player_id and not ts.last():
+                # Agent picks an action deterministically
+                agent_output = agent.step([ts], is_evaluation=True)
+                actions[current_p] = agent_output[0].action
+            else:
+                # random for other seats
+                legal_acts = ts.observations["legal_actions"][current_p]
+                actions[current_p] = random.choice(legal_acts)
 
-        # Evaluation and checkpointing
-        if step % FLAGS.eval_every < FLAGS.num_envs:
-            logging.info("Step %d: Returns %s", step, episode_returns)
+        next_time_step, reward, done, _ = envs.step([actions]*num_envs)
+        total_eval_reward += sum(reward[:, player_id])
+        # Count how many envs finished an episode
+        episodes_done += sum(done[:, player_id])
+        time_step = next_time_step
 
-            # Log to tensorboard
-            for pid, returns in enumerate(episode_returns):
-                writer.add_scalar(f"player_{pid}/episode_return", returns, step)
+    avg_eval_reward = total_eval_reward / n_episodes
+    print(f"Evaluation over {n_episodes} episodes, avg reward = {avg_eval_reward:.2f}")
 
-            # Save checkpoints
-            checkpoint_dir = os.path.join(FLAGS.checkpoint_dir, f"step_{step}")
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            for pid, agent in enumerate(agents):
-                path = os.path.join(checkpoint_dir, f"agent_{pid}.pt")
-                torch.save(agent.state_dict(), path)
+def main():
+    run_ppo_on_quantum_cat(
+        num_players=3,
+        total_timesteps=2000,
+        steps_per_batch=16,
+        player_id=0,
+        seed=1234,
+    )
 
 if __name__ == "__main__":
-    with spawn.main_handler():
-        app.run(main)
+    main()
+
