@@ -179,7 +179,9 @@ def run_ppo_on_quantum_cat(
                 break
 
         # Once we have a full batch, do learning
-        agent.learn(time_step[:, player_id])
+        # Extract just our agent's observations from each environment's timestep
+        agent_timesteps = [ts for ts in time_step]
+        agent.learn(agent_timesteps)
 
     # After training, do a quick evaluation:
     # We'll evaluate by letting our agent pick actions deterministically
