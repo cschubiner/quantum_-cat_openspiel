@@ -572,6 +572,11 @@ class QuantumCatObserver:
         ("current_player", num_players, (num_players,)),
         ("phase", 5, (5,)),  # 0..4
         ("led_color", num_colors + 1, (num_colors + 1,)),  # 1-hot for each color + None
+        ("trick_number", 1, (1,)),
+        ("start_player", num_players, (num_players,)),
+        ("cards_played_in_trick", 2 * num_players, (2 * num_players,)),  # pairs of (rank,color_idx)
+        ("predictions", num_players, (num_players,)),
+        ("tricks_won", num_players, (num_players,)),
     ]
     if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(("hand", num_card_types, (num_card_types,)))
@@ -611,6 +616,30 @@ class QuantumCatObserver:
 
     # Encode led color
     self._encode_led_color(state._led_color)
+
+    # Store trick info
+    self.dict["trick_number"][0] = state._trick_number
+    
+    # One-hot for start player (if not terminal)
+    if not state.is_terminal():
+        self.dict["start_player"][state._start_player] = 1.0
+
+    # Cards played in current trick as (rank,color_idx) pairs
+    arr = self.dict["cards_played_in_trick"]
+    color_map = {"R": 0, "B": 1, "Y": 2, "G": 3}
+    for p in range(self.num_players):
+        if state._cards_played_this_trick[p] is not None:
+            rank_val, color_str = state._cards_played_this_trick[p]
+            arr[2*p] = rank_val
+            arr[2*p + 1] = color_map[color_str]
+        else:
+            arr[2*p] = -1  # indicates "no card"
+            arr[2*p + 1] = -1
+
+    # Predictions and tricks won
+    for p in range(self.num_players):
+        self.dict["predictions"][p] = state._predictions[p]
+        self.dict["tricks_won"][p] = state._tricks_won[p]
 
     # If single-player private info => store your hand + your color tokens
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
