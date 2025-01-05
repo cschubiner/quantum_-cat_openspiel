@@ -95,7 +95,9 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
 
                 # If we still need more episodes, reset just this environment.
                 if episodes_done < num_episodes:
-                    next_time_step[i] = envs.reset_at(i)
+                    # Reset all environments and update just the one we need
+                    temp_reset = envs.reset()
+                    next_time_step[i] = temp_reset[i]
 
         # Update time steps for the next loop iteration.
         time_step = next_time_step
