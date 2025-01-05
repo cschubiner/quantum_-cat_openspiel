@@ -1,145 +1,286 @@
-Cat in the Box: Software Simulation Instructions
+# CAT IN THE BOX
+## A Quantum Trick-Taking Game for 2-5 Players
 
-Game Overview:
+### GAME OVERVIEW
+Cat in the Box is a trick-taking game where cards exist in a quantum state - having no fixed color until they're played. Players must carefully manage their color declarations while avoiding paradoxes and trying to win their predicted number of tricks. Through clever play and strategic color declarations, players attempt to create connected patterns on the research board while meeting their trick predictions.
 
-“Cat in the Box” is a trick-taking game with a twist. The color of each card is not fixed and is determined when the card is played. Players must declare a color when playing a card, but certain restrictions apply to ensure that colors are declared according to the game’s rules.
+### COMPONENTS
 
-The goal is to win the most points by accurately predicting the number of tricks a player will win while avoiding paradoxes (situations where no valid moves remain).
+1. Research Board:
+- A central grid showing numbers (rows) and colors (columns)
+- Colors are: Red (Trump), Blue, Yellow, and Green
+- Numbers vary by player count:
+  - 5 Players: Numbers 1-9
+  - 4 Players: Numbers 1-8
+  - 3 Players: Numbers 1-6
 
-Game Components:
+2. Player Boards:
+- Individual boards for each player
+- Shows four color X spaces (one for each color)
+- Displays available trick prediction values (1-4)
+- Color-coded edges matching the research board colors
 
-In the software, you will need to model the following components:
+3. Cat Cards:
+- Numbered cards with no inherent color
+- 5 copies of each number in play
+- Total cards vary by player count:
+  - 5 Players: 45 cards (5 copies each of 1-9)
+  - 4 Players: 40 cards (5 copies each of 1-8)
+  - 3 Players: 30 cards (5 copies each of 1-6)
 
-Component	Description
-Cat Cards	Numbered cards (values 1 to 9) that have no fixed color until played.
-Player Boards	Each player has a board to track declared colors.
-Research Board	A shared board to track which colors have been declared for each card number.
-Player Tokens	Tokens that players place on the research board and player boards to track declarations and predictions.
+4. Player Tokens:
+- 12 tokens per player in distinct colors
+- Used to mark:
+  - Available colors on player boards
+  - Played cards on research board
+  - Trick predictions
 
-Number of Cards and Tokens:
+5. Start Player Card
 
-The number of cards and tokens varies by player count:
+### DETAILED SETUP
 
-Number of Players	Cards Used	Player Tokens	Research Board Size
-5 Players	45 (1 to 9)	12 each	Full board (9 rows, 4 colors)
-4 Players	40 (1 to 8)	12 each	8 rows, 4 colors
-3 Players	30 (1 to 6)	12 each	6 rows, 4 colors
+1. Research Board Setup:
+- Place the research board in the center
+- Ensure all spaces are clear
+- The board shows:
+  - Vertical columns for each color (Red, Blue, Yellow, Green)
+  - Horizontal rows for each number in play
+  - Red column marked with cat symbol (indicating Trump)
 
-Game Setup Logic:
-	1.	Deal Cards:
-	•	Shuffle the deck and deal an equal number of cards to each player.
-	•	Place one card face down in the center (this card is removed from play).
-	2.	Initialize Boards:
-	•	Each player places tokens on the X spaces of their player boards.
-	•	The research board starts empty, with no tokens placed.
+2. Player Setup:
+- Each player receives:
+  - One player board
+  - 12 tokens in their color
+  - Place one token on each X space of their board
+  - These tokens indicate which colors you can still declare
 
-Game Flow (Round Sequence):
+3. Deck Preparation:
+- Remove unused number cards based on player count
+- Ensure exactly 5 copies of each valid number
+- Shuffle thoroughly
 
-Each round consists of three phases:
-	1.	Preparation Phase
-	2.	Trick Phase
-	3.	Scoring Phase
+### GAME STRUCTURE
 
-Players take turns being the Start Player, and the game continues for a number of rounds equal to the number of players.
+The game plays out in three distinct phases:
+1. Preparation Phase
+2. Trick-Taking Phase
+3. Scoring Phase
 
-1. Preparation Phase Logic:
-	1.	Deal Cards:
-Shuffle and distribute cards to all players.
-	2.	Predict Tricks:
-	•	Starting with the Start Player, each player predicts how many tricks they will win this round.
-	•	Players place a token on the research board to indicate their prediction.
+## PREPARATION PHASE
 
-Prediction Example:
-	•	A player predicts they will win 3 tricks.
-	•	They place a token on the 3 space of the research board.
+### 1. Card Distribution
+- Deal cards equally to all players
+- Players should keep their cards hidden
+- All players will receive the same number of cards
 
-2. Trick Phase Logic:
+### 2. Discard Phase
+- Each player secretly selects one card from their hand
+- Cards are placed face-down in the center
+- These cards are removed from play for the entire round
+- This reduces hand size by one before predictions
 
-In the Trick Phase, players take turns playing cards and declaring colors. The phase continues until all players have only one card remaining.
+### 3. Prediction Phase
+- Players examine their remaining cards
+- Choose to predict winning 1, 2, 3, or 4 tricks
+- Cannot predict 0 or more than 4 tricks
+- Mark prediction with a token
+- Consider:
+  - High numbers are stronger
+  - Red (Trump) is strongest color
+  - Available color declarations
+  - Potential for connected groups
 
-Core Trick-Taking Rules:
-	1.	Start Player:
-The Start Player plays a card from their hand and declares its color.
-	2.	Following Players:
-Each subsequent player must also play a card and declare its color.
-	•	They must follow the Led Color if possible.
-	•	If they cannot follow the Led Color, they can declare a different color.
+## TRICK-TAKING PHASE
 
-Declaring a Color:
+### Basic Mechanics
 
-The color of a card is determined when it is played, but players must follow these rules:
-	1.	The corresponding space on the research board must be empty.
-	•	For example, if a player wants to declare Red 5, the Red 5 space on the research board must be empty.
-	2.	The player must have a token on the X space of the declared color on their player board.
+1. Playing Cards:
+- Start player leads any card except red (unless red is broken)
+- Must declare a valid color for the card
+- Place card by appropriate color on player board
+- Mark research board with token in matching space
 
-Led Color Logic:
-	•	The first declared color in a trick becomes the Led Color.
-	•	Subsequent players must follow this color if possible.
+2. Color Declaration Rules:
+A color declaration is only valid if:
+- The space on research board is empty
+- You still have token on that color's X space
+- It follows lead color/trump restrictions
+- The number-color combination hasn't been claimed
 
-Strength of Cards:
-	•	Red is the strongest color.
-	•	Blue, Yellow, and Green are equal in strength but weaker than Red.
+3. Following Suit:
+When responding to a led card, players have two options:
+a) Follow the led color:
+   - Declare your card as the led color
+   - Place token on research board
+   - Keep your color token on player board
 
-If players declare the same color, compare the card numbers. The player with the highest number wins the trick.
+b) Choose different color:
+   - Declare any other valid color
+   - MUST remove token from led color's X space
+   - Can never declare that color again this round
+   - Usually loses trick unless playing red (Trump)
 
-Handling Paradoxes:
+### Trump (Red) Rules
 
-A paradox occurs when a player cannot make a valid move. This happens when:
-	1.	The player has no cards that can be declared according to the rules.
-	2.	They cannot place a token on the research board.
+1. Basic Trump Rules:
+- Red is always trump
+- Trump cards beat any non-trump card
+- Cannot lead with red until "broken"
 
-When a Paradox Occurs:
-	•	The trick phase ends immediately.
-	•	No one wins the trick that caused the paradox.
-	•	The player who caused the paradox loses 1 point for each trick they’ve won in the round.
+2. Breaking Trump:
+- Occurs when player who can't follow suit plays red
+- Once broken, red can be led
+- Exception: Can lead red if it's your only color option
 
-3. Scoring Phase Logic:
+3. Trump Priority:
+- Highest red card wins trick
+- Red wins against any other color
+- Multiple red cards: highest wins
 
-At the end of the round, players score points based on:
-	1.	Tricks Won:
-	•	Each trick won is worth 1 point.
-	2.	Bonus for Accurate Prediction:
-	•	If a player predicted their number of tricks correctly, they earn bonus points based on their connected tokens on the research board.
+### Winning Tricks
 
-Bonus Scoring Logic:
-	•	Players earn 1 point for each connected token in their largest group on the research board.
-	•	Tokens must be horizontally or vertically adjacent.
-	•	Diagonal connections do not count.
+1. Determining Winner:
+- Highest number of led color wins unless trump played
+- If trump played, highest trump wins
+- Cards of other colors cannot win
 
-End of Game Logic:
+2. Collecting Tricks:
+- Winner collects all cards face-down
+- Keep tricks separate and visible
+- Important for final scoring
+- Track number of tricks vs prediction
 
-The game ends after all players have been the Start Player once.
+### PARADOX RULES
 
-The player with the most points after all rounds wins the game.
+A paradox occurs when a player cannot legally play any card because:
 
-If there is a tie, the player with the highest score in the final round wins.
-If still tied, the victory is shared.
+1. Trigger Conditions:
+- All possible color/number combinations for their cards are taken
+- They have no legal colors remaining to declare
+- Must prove no legal play exists
 
-Special Rules for 2 Players:
+2. Paradox Effects:
+- Round ends immediately
+- Paradox player loses 1 point per trick won
+- Cannot earn bonus points
+- Other players score normally
 
-When playing with 2 players, follow these modified rules:
-	1.	Deal 10 cards to each player.
-	2.	Place the remaining 5 cards in the center of the table.
-	3.	Reveal 3 cards from the center pile and place tokens on the green row of the research board for those numbers.
+3. Avoiding Paradox:
+- Carefully manage color declarations
+- Watch research board spaces
+- Consider keeping color options open
+- Plan ahead for late-round plays
 
-If a duplicate number is revealed, place tokens on both the green and yellow rows.
+### RESEARCH BOARD STRATEGY
 
-Summary of Key Game Logic for Implementation:
+1. Token Placement:
+- Tokens should be placed immediately when declaring
+- Cannot be moved once placed
+- Try to create connected groups
+- Consider both horizontal and vertical connections
 
-Game Phase	Key Actions
-Preparation Phase	Deal cards, predict tricks, place tokens
-Trick Phase	Play cards, declare colors, follow observation rules
-Scoring Phase	Score points for tricks won and accurate predictions
-End of Game	Determine the winner based on total points
+2. Connected Groups:
+- Must be orthogonally adjacent (no diagonals)
+- Larger groups = more bonus points
+- Only count if prediction matched exactly
+- Plan placement carefully
 
-Key Validation Rules for Implementation:
-	1.	Color Declaration Validation:
-Ensure the space on the research board is empty and the player has a token on the X space of their board.
-	2.	Trick-Winning Logic:
-Compare the declared colors and card numbers to determine the trick winner.
-	3.	Paradox Handling:
-Stop the trick phase if a paradox occurs and apply penalties.
+3. Strategic Considerations:
+- Balance between winning tricks and creating groups
+- Watch opponents' patterns
+- Block potential connections
+- Keep track of available spaces
 
+## SCORING PHASE
+
+### Regular Scoring
+
+1. Trick Points:
+- One point per trick won
+- Applies even if prediction not met
+- Exception: Paradox penalties
+
+2. Paradox Penalties:
+- Lose one point per trick won
+- No bonus points possible
+- Example: 3 tricks won = -3 points
+
+### Bonus Scoring
+
+Only awarded if:
+1. Exactly matched prediction AND
+2. Did not cause paradox
+
+Calculation:
+1. Find largest group of connected tokens
+2. Count orthogonally connected tokens
+3. Score one point per token
+4. Multiple groups: only largest counts
+
+Example:
+```
+Research Board Pattern:
+R B Y G
+1 ■ □ ■ □
+2 ■ ■ □ □
+3 □ ■ □ □
+4 □ □ □ □
+
+■ = Player's tokens
+Largest connected group = 4 tokens
+Bonus score = 4 points
+```
+
+### GAME END CONDITIONS
+
+The round (and game) ends when either:
+1. Each player has one card remaining in hand
+   - Do not play final cards
+   - Proceed directly to scoring
+OR
+2. A paradox occurs
+   - Immediate end
+   - Score as described above
+
+### TWO-PLAYER VARIANT
+
+Special Rules:
+1. Components:
+   - Use only numbers 1-5
+   - 5 copies of each number
+   - Deal 10 cards per player
+
+2. Setup:
+   - Reveal 3 cards from remainder
+   - Block those numbers in green
+   - Remove those cards from play
+
+3. Gameplay Changes:
+   - No predictions made
+   - Must win 4 or fewer tricks for bonus
+   - Otherwise, same rules apply
+
+### CRITICAL REMINDERS
+
+1. Mandatory Actions:
+- Must play if able
+- Cannot pass
+- Must declare a color when playing
+
+2. Color Declaration:
+- Once removed, color cannot be "rediscovered"
+- Each number exists once per color
+- Must be valid on both boards
+
+3. Trick Management:
+- Keep tricks visible
+- Count carefully
+- Affects final scoring
+
+4. Research Board:
+- Cannot move tokens once placed
+- Plan connections carefully
+- Watch for blocking moves
 
 ---------
 
