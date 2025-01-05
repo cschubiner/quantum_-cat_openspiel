@@ -31,8 +31,8 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("num_players", 3, "Number of players in Quantum Cat (3..5).")
 # flags.DEFINE_integer("num_episodes", 20000, "Number of full games to train for.")
-flags.DEFINE_integer("num_episodes", 3000, "Number of full games to train for.") 
-flags.DEFINE_integer("episodes_per_batch", 8, "Number of full episodes to gather before each PPO update.")
+flags.DEFINE_integer("num_episodes", 3000, "Number of full games to train for.")
+flags.DEFINE_integer("steps_per_batch", 2048, "Environment steps per PPO update.")
 flags.DEFINE_integer("seed", 1234, "Random seed.")
 flags.DEFINE_integer("num_envs", 8, "Number of vectorized envs.")
 flags.DEFINE_string("save_path", "quantum_cat_agent.pth", "Where to save the agent.")
@@ -51,7 +51,7 @@ def make_env(game, seed, num_players):
 def run_ppo_on_quantum_cat(
     num_players=3,
     num_episodes=1000,
-    episodes_per_batch=8,
+    steps_per_batch=16,
     player_id=0,
     seed=1234,
     num_envs=1,
@@ -63,7 +63,7 @@ def run_ppo_on_quantum_cat(
     Args:
       num_players: how many total players in the game (3..5)
       num_episodes: how many episodes (full games) of training
-      episodes_per_batch: number of full episodes to collect before each PPO update
+      steps_per_batch: environment steps before each PPO update
       player_id: which seat the 'main' PPO agent occupies
       seed: random seed
       num_envs: how many synchronous envs for parallel training
@@ -102,7 +102,7 @@ def run_ppo_on_quantum_cat(
         num_players=num_players,
         player_id=player_id,
         num_envs=num_envs,
-        steps_per_batch=16,  # Fixed size since we're episode-based now
+        steps_per_batch=steps_per_batch,
         update_epochs=4,
         learning_rate=2.5e-4,
         gae=True,
@@ -122,7 +122,7 @@ def run_ppo_on_quantum_cat(
                 num_players=num_players,
                 player_id=opp_id,
                 num_envs=num_envs,
-                steps_per_batch=16,  # Fixed size since we're episode-based now
+                steps_per_batch=steps_per_batch,
                 update_epochs=4,
                 learning_rate=2.5e-4,
                 gae=True,
@@ -143,25 +143,27 @@ def run_ppo_on_quantum_cat(
     # We'll use tqdm to track progress in terms of completed episodes
     with tqdm(total=num_episodes, desc="Training Episodes") as pbar:
         while episodes_done < num_episodes:
-            # Collect entire episodes until we reach episodes_per_batch
-            local_episodes = 0
-            while local_episodes < episodes_per_batch and episodes_done < num_episodes:
-                # Single vector-env step across all envs
+            # step until we fill up agent's batch
+            for _ in range(steps_per_batch):
                 env_actions = []
                 for i in range(num_envs):
                     ts = time_step[i]
                     current_p = ts.current_player()
                     if ts.last():
-                        env_actions.append(0)  # dummy if terminal
+                        # If terminal, no action needed (use dummy 0)
+                        env_actions.append(0)
                     elif current_p == player_id:
+                        # main agent
                         agent_output = agent.step([ts], is_evaluation=False)
                         env_actions.append(agent_output[0].action)
                     else:
+                        # PPO opponent or random
                         opp = opponents.get(current_p, None)
                         if opp:
                             opp_out = opp.step([ts], is_evaluation=False)
                             env_actions.append(opp_out[0].action)
                         else:
+                            # fallback random
                             legal_acts = ts.observations["legal_actions"][current_p]
                             env_actions.append(random.choice(legal_acts) if legal_acts else 0)
 
@@ -170,6 +172,7 @@ def run_ppo_on_quantum_cat(
 
                 # post_step for main agent & opponents
                 for pid in range(num_players):
+                    # gather each player's reward from vector env
                     if pid == player_id:
                         agent_rewards = [r[pid] if r is not None else 0.0 for r in reward]
                         agent.post_step(agent_rewards, done)
@@ -177,15 +180,17 @@ def run_ppo_on_quantum_cat(
                         opp_rewards = [r[pid] if r is not None else 0.0 for r in reward]
                         opponents[pid].post_step(opp_rewards, done)
 
-                # Count newly finished episodes
-                finished_episodes = sum(int(d) for d in done)
+                # count finished episodes
+                finished_episodes = sum(1 for d in done if d)
                 episodes_done += finished_episodes
-                local_episodes += finished_episodes
                 pbar.update(finished_episodes)
+
+                if episodes_done >= num_episodes:
+                    break
 
                 time_step = next_time_step
 
-            # After we have gathered enough full episodes, do an update
+            # Once we have a full batch, do learning
             agent_timesteps = [ts for ts in time_step]
             agent.learn(agent_timesteps)
             for opp in opponents.values():
@@ -208,6 +213,7 @@ def run_ppo_on_quantum_cat(
 def main(_):
     num_players = FLAGS.num_players
     num_episodes = FLAGS.num_episodes
+    steps_per_batch = FLAGS.steps_per_batch
     seed = FLAGS.seed
     num_envs = FLAGS.num_envs
     save_path = FLAGS.save_path
@@ -217,7 +223,7 @@ def main(_):
     agent, opponents = run_ppo_on_quantum_cat(
         num_players=num_players,
         num_episodes=num_episodes,
-        episodes_per_batch=FLAGS.episodes_per_batch,
+        steps_per_batch=steps_per_batch,
         player_id=0,
         seed=seed,
         num_envs=num_envs,
