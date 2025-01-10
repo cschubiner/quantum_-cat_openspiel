@@ -237,7 +237,8 @@ def run_ppo_on_quantum_cat(
                         agent.post_step(agent_rewards, done)
                     elif pid in opponents:
                         opp_rewards = [r[pid] if r is not None else 0.0 for r in reward]
-                        opponents[pid].post_step(opp_rewards, done)
+                        if isinstance(opponents[pid], PPO):
+                            opponents[pid].post_step(opp_rewards, done)
 
                 # count finished episodes
                 finished_episodes = sum(1 for d in done if d)
@@ -264,7 +265,8 @@ def run_ppo_on_quantum_cat(
             agent_timesteps = [ts for ts in time_step]
             agent.learn(agent_timesteps)
             for opp in opponents.values():
-                opp.learn(agent_timesteps)
+                if isinstance(opponents[pid], PPO):
+                    opp.learn(agent_timesteps)
 
             # Optionally log something
             if writer is not None:
