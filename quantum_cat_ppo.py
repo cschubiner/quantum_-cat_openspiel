@@ -135,6 +135,11 @@ def run_ppo_on_quantum_cat(
     info_state_shape = (len(obs_spec),)
     num_actions = game.num_distinct_actions()
 
+    # Setup tensorboard
+    writer = None
+    if use_tensorboard:
+        writer = SummaryWriter()
+
     # Initialize main agent
     agent = PPO(
         input_shape=info_state_shape,
@@ -180,10 +185,6 @@ def run_ppo_on_quantum_cat(
         else:
             # Store just the string: "random" or "follow_suit"
             opponents[opp_id] = opp_type
-
-    writer = None
-    if use_tensorboard:
-        writer = SummaryWriter()
 
     episodes_done = 0
     time_step = envs.reset()
