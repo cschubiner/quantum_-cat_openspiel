@@ -80,6 +80,17 @@ def run_ppo_on_quantum_cat(
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+    # Setup device - try to use MPS (M1 GPU) if available, else CUDA, else CPU
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("Using Apple M1 GPU (MPS)")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("Using CUDA GPU")
+    else:
+        device = torch.device("cpu")
+        print("Using CPU")
+
     # Load the quantum_cat game with N players
     game = pyspiel.load_game("python_quantum_cat", {"players": num_players})
 
@@ -110,7 +121,7 @@ def run_ppo_on_quantum_cat(
         gae=True,
         gamma=0.99,
         gae_lambda=0.95,
-        device="cpu",  # or "cuda" if GPU available
+        device=device,
         agent_fn=PPOAgent,
     )
 
@@ -130,7 +141,7 @@ def run_ppo_on_quantum_cat(
                 gae=True,
                 gamma=0.99,
                 gae_lambda=0.95,
-                device="cpu",
+                device=device,
                 agent_fn=PPOAgent,
             )
             opponents[opp_id] = opp
