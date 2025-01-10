@@ -111,8 +111,18 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
                         out = agent.step([ts], is_evaluation=True)
                         chosen_action = out[0].action
                     else:
-                        # Other players (not 'player_id') act randomly.
-                        chosen_action = random.choice(legal) if legal else 0
+                        # Either follow suit or random
+                        legal_acts = ts.observations["legal_actions"][current_p]
+                        if not legal_acts:
+                            chosen_action = 0
+                        elif FLAGS.follow_suit_agent:
+                            chosen_action = pick_follow_suit_action(
+                                legal_acts,
+                                ts.observations["info_state"][current_p],
+                                game.num_distinct_actions() // 4  # Rough estimate of num_card_types
+                            )
+                        else:
+                            chosen_action = random.choice(legal_acts)
 
             # print(f" => chosen_action={chosen_action}")
             actions.append(chosen_action)
