@@ -26,12 +26,13 @@ from open_spiel.python.games import quantum_cat
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_players", 3, "Number of players.")
-flags.DEFINE_integer("num_episodes", 600, "Number of episodes to evaluate.")
-flags.DEFINE_string("agent_path", "quantum_cat_agent_2880001.pth", "Path to saved agent.")
+flags.DEFINE_integer("num_episodes", 1700, "Number of episodes to evaluate.")
+flags.DEFINE_string("agent_path", "quantum_cat_agent_3160000.pth", "Path to saved agent.")
 flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
 flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
-flags.DEFINE_bool("follow_suit_agent", False, 
-                 "If True, for non-agent players, follow suit if possible, else random.")
+# flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random play.")
+# flags.DEFINE_bool("follow_suit_agent", False, "If True, for non-agent players, follow suit if possible, else random.")
+flags.DEFINE_bool("follow_suit_agent", True, "If True, for non-agent players, follow suit if possible, else random.")
 
 
 def pick_follow_suit_action(legal_actions, info_state, num_card_types):
@@ -206,7 +207,7 @@ def main(_):
     # Evaluate
     if FLAGS.random_vs_random:
         print("Evaluating random vs random play...")
-        evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes,
+        evaluate(agent, envs, game, player_id=0, num_episodes=FLAGS.num_episodes,
                  self_play=False, random_vs_random=True)
     else:
         evaluate(agent, envs, game, player_id=0, num_episodes=FLAGS.num_episodes,
