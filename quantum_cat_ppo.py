@@ -27,6 +27,7 @@ from open_spiel.python.pytorch.ppo import PPO, PPOAgent
 
 from open_spiel.python.games import quantum_cat
 
+EVALUATE_EVERY_X_EPISODES = 5000
 
 FLAGS = flags.FLAGS
 
@@ -186,9 +187,9 @@ def run_ppo_on_quantum_cat(
                 episodes_done += finished_episodes
                 pbar.update(finished_episodes)
 
-                # Checkpoint every 20000 episodes
-                # (only triggers when we actually cross a multiple of 20000)
-                if episodes_done // 20000 != (episodes_done - finished_episodes) // 20000:
+                # Checkpoint every X episodes
+                # (only triggers when we actually cross a multiple of X)
+                if episodes_done // EVALUATE_EVERY_X_EPISODES != (episodes_done - finished_episodes) // EVALUATE_EVERY_X_EPISODES:
                     ckpt_path = f"quantum_cat_agent_{episodes_done}.pth"
                     torch.save(agent.state_dict(), ckpt_path)
                     print(f"Checkpoint saved: {ckpt_path}")
