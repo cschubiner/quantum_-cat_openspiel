@@ -32,7 +32,19 @@ flags.DEFINE_bool("self_play", False, "If True, use same agent for all players."
 flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
 # flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random play.")
 # flags.DEFINE_bool("follow_suit_agent", False, "If True, for non-agent players, follow suit if possible, else random.")
-flags.DEFINE_bool("follow_suit_agent", True, "If True, for non-agent players, follow suit if possible, else random.")
+flags.DEFINE_enum(
+    "player0_type",
+    "ppo",
+    ["ppo", "random", "follow_suit"],
+    "Controls the policy for player_id=0. Options: ppo, random, follow_suit."
+)
+
+flags.DEFINE_enum(
+    "opponent_type",
+    "random",
+    ["random", "follow_suit"],
+    "Controls the policy for all players != 0. Options: random, follow_suit."
+)
 
 
 def pick_follow_suit_action(legal_actions, info_state, num_card_types):
@@ -99,31 +111,31 @@ def evaluate(agent, envs, game, player_id=0, num_episodes=20, self_play=False, r
             # Debug print: see the environment's current player, legal actions, and chosen action
             # print(f"[DEBUG] Env idx={i}, current_player={p}, legal={legal}", end="")
 
-            if random_vs_random:
-                # Everyone plays random in this mode.
-                chosen_action = random.choice(legal) if legal else 0
-            else:
-                if p == player_id:
+            if p == 0:  # Player 0
+                if FLAGS.player0_type == "ppo":
                     out = agent.step([ts], is_evaluation=True)
                     chosen_action = out[0].action
+                elif FLAGS.player0_type == "random":
+                    chosen_action = random.choice(legal) if legal else 0
+                elif FLAGS.player0_type == "follow_suit":
+                    chosen_action = pick_follow_suit_action(
+                        legal,
+                        ts.observations["info_state"][p],
+                        game.num_distinct_actions() // 4  # Rough estimate of num_card_types
+                    ) if legal else 0
                 else:
-                    if self_play:
-                        # Same agent for all players.
-                        out = agent.step([ts], is_evaluation=True)
-                        chosen_action = out[0].action
-                    else:
-                        # Either follow suit or random
-                        legal_acts = ts.observations["legal_actions"][p]
-                        if not legal_acts:
-                            chosen_action = 0
-                        elif FLAGS.follow_suit_agent:
-                            chosen_action = pick_follow_suit_action(
-                                legal_acts,
-                                ts.observations["info_state"][p],
-                                game.num_distinct_actions() // 4  # Rough estimate of num_card_types
-                            )
-                        else:
-                            chosen_action = random.choice(legal_acts)
+                    raise ValueError(f"Unknown player0_type={FLAGS.player0_type}")
+            else:  # Other players
+                if FLAGS.opponent_type == "random":
+                    chosen_action = random.choice(legal) if legal else 0
+                elif FLAGS.opponent_type == "follow_suit":
+                    chosen_action = pick_follow_suit_action(
+                        legal,
+                        ts.observations["info_state"][p],
+                        game.num_distinct_actions() // 4  # Rough estimate of num_card_types
+                    ) if legal else 0
+                else:
+                    raise ValueError(f"Unknown opponent_type={FLAGS.opponent_type}")
 
             # print(f" => chosen_action={chosen_action}")
             actions.append(chosen_action)
@@ -205,13 +217,9 @@ def main(_):
                          f"trained for {FLAGS.num_players} players?")
 
     # Evaluate
-    if FLAGS.random_vs_random:
-        print("Evaluating random vs random play...")
-        evaluate(agent, envs, game, player_id=0, num_episodes=FLAGS.num_episodes,
-                 self_play=False, random_vs_random=True)
-    else:
-        evaluate(agent, envs, game, player_id=0, num_episodes=FLAGS.num_episodes,
-                 self_play=FLAGS.self_play, random_vs_random=False)
+    print(f"Evaluating with player0={FLAGS.player0_type}, opponents={FLAGS.opponent_type}...")
+    evaluate(agent, envs, game, player_id=0, num_episodes=FLAGS.num_episodes,
+             self_play=FLAGS.self_play, random_vs_random=False)
 
 
 if __name__ == "__main__":
