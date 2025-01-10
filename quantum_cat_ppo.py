@@ -30,12 +30,12 @@ from open_spiel.python.games import quantum_cat
 FLAGS = flags.FLAGS
 
 flags.DEFINE_integer("num_players", 3, "Number of players in Quantum Cat (3..5).")
-flags.DEFINE_integer("num_episodes", 40000, "Number of full games to train for.")
+flags.DEFINE_integer("num_episodes", 250000000, "Number of full games to train for.")
 # flags.DEFINE_integer("num_episodes", 3000, "Number of full games to train for.")
 flags.DEFINE_integer("steps_per_batch", 2048, "Environment steps per PPO update.")
 flags.DEFINE_integer("seed", 1234, "Random seed.")
-flags.DEFINE_integer("num_envs", 8, "Number of vectorized envs.")
-flags.DEFINE_string("save_path", "quantum_cat_agent.pth", "Where to save the agent.")
+flags.DEFINE_integer("num_envs", 12, "Number of vectorized envs.")
+flags.DEFINE_string("save_path", "quantum_cat_agent_v2.pth", "Where to save the agent.")
 flags.DEFINE_bool("use_tensorboard", False, "Whether to log to TensorBoard.")
 
 # If you want to run from CLI: python quantum_cat_ppo.py --num_players=3 --num_episodes=1000 ...
