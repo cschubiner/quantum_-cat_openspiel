@@ -30,8 +30,40 @@ flags.DEFINE_integer("num_episodes", 600, "Number of episodes to evaluate.")
 flags.DEFINE_string("agent_path", "quantum_cat_agent_2880001.pth", "Path to saved agent.")
 flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
 flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
-# flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random play.")
+flags.DEFINE_bool("follow_suit_agent", False, 
+                 "If True, for non-agent players, follow suit if possible, else random.")
 
+
+def pick_follow_suit_action(legal_actions, info_state, num_card_types):
+    """Tries to find an action that matches the led color, if any.
+    
+    Args:
+        legal_actions: list of legal action IDs
+        info_state: the observation tensor 
+        num_card_types: how many ranks exist in the game
+    """
+    # Led color is encoded as one-hot of length 5 (R,B,Y,G,None)
+    # It starts after current_player (num_players) and phase (5) slots
+    num_players = len(info_state) // 20  # Rough estimate from tensor layout
+    led_color_start = num_players + 5
+    led_color = info_state[led_color_start:led_color_start + 5]
+    led_color_idx = int(np.argmax(led_color))  # 0..3 => R,B,Y,G, 4 => None
+    
+    if led_color_idx == 4 or 999 in legal_actions:  # No led color or paradox
+        return random.choice(legal_actions)
+        
+    # Try to find actions that follow suit
+    follow_suit = []
+    for action in legal_actions:
+        if action == 999:  # PARADOX
+            continue
+        color_idx = action // num_card_types
+        if color_idx == led_color_idx:
+            follow_suit.append(action)
+            
+    if follow_suit:
+        return random.choice(follow_suit)
+    return random.choice(legal_actions)
 
 def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
     """Evaluates an agent for a specified number of episodes using synchronous evaluation.
