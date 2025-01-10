@@ -16,6 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 from absl import app, flags
 from tqdm import tqdm
 import pyspiel
+from evaluate_quantum_cat import evaluate
 
 from open_spiel.python import rl_environment
 from open_spiel.python.rl_agent import StepOutput
@@ -191,6 +192,10 @@ def run_ppo_on_quantum_cat(
                     ckpt_path = f"quantum_cat_agent_{episodes_done}.pth"
                     torch.save(agent.state_dict(), ckpt_path)
                     print(f"Checkpoint saved: {ckpt_path}")
+                    
+                    # Evaluate vs random opponents
+                    avg_rew = evaluate_checkpoint(agent, num_episodes=600, num_players=num_players)
+                    print(f"[Checkpoint Eval] episodes_done={episodes_done}, avg reward vs random={avg_rew:.2f}")
 
                 if episodes_done >= num_episodes:
                     break
@@ -216,6 +221,23 @@ def run_ppo_on_quantum_cat(
 
     return agent, opponents
 
+
+def evaluate_checkpoint(agent, num_episodes=600, num_players=3):
+    """Evaluates current agent vs random opponents."""
+    game = pyspiel.load_game("python_quantum_cat", {"players": num_players})
+    num_eval_envs = 8
+    envs = SyncVectorEnv([
+        rl_environment.Environment(game=game)
+        for _ in range(num_eval_envs)
+    ])
+    
+    # Configure evaluation settings via flags
+    from absl import flags
+    FLAGS.opponent_type = "random"
+    FLAGS.player0_type = "ppo"
+    
+    avg_rew = evaluate(agent, envs, game, player_id=0, num_episodes=num_episodes)
+    return avg_rew
 
 def main(_):
     num_players = FLAGS.num_players
