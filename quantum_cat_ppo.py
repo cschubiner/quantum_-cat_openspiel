@@ -81,10 +81,10 @@ def run_ppo_on_quantum_cat(
     torch.manual_seed(seed)
 
     # Setup device - try to use MPS (M1 GPU) if available, else CUDA, else CPU
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("Using Apple M1 GPU (MPS)")
-    elif torch.cuda.is_available():
+    # if torch.backends.mps.is_available():
+    #     device = torch.device("mps")
+    #     print("Using Apple M1 GPU (MPS)")
+    if torch.cuda.is_available():
         device = torch.device("cuda")
         print("Using CUDA GPU")
     else:
