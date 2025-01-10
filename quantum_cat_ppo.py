@@ -27,6 +27,33 @@ from open_spiel.python.pytorch.ppo import PPO, PPOAgent
 
 from open_spiel.python.games import quantum_cat
 
+def pick_opponent_type():
+    """Randomly choose from PPO, random, or follow_suit."""
+    return random.choice(["ppo", "random", "follow_suit"])
+
+def pick_follow_suit_action(legal_actions, info_state, num_card_types):
+    """Tries to match the led color if possible."""
+    num_players = 3  # Hardcoded for now
+    led_color_start = num_players + 5
+    led_color = info_state[led_color_start:led_color_start + 5]
+    led_color_idx = int(np.argmax(led_color))  # 0..3 => R,B,Y,G, 4 => None
+    
+    if led_color_idx == 4 or 999 in legal_actions:  # No led color or paradox
+        return random.choice(legal_actions)
+        
+    # Try to find actions that follow suit
+    follow_suit = []
+    for action in legal_actions:
+        if action == 999:  # PARADOX
+            continue
+        color_idx = action // num_card_types
+        if color_idx == led_color_idx:
+            follow_suit.append(action)
+            
+    if follow_suit:
+        return random.choice(follow_suit)
+    return random.choice(legal_actions)
+
 EVALUATE_EVERY_X_EPISODES = 5000
 
 FLAGS = flags.FLAGS
@@ -125,10 +152,13 @@ def run_ppo_on_quantum_cat(
         agent_fn=PPOAgent,
     )
 
-    # Initialize opponents as PPO or random
+    # Initialize opponents as PPO, random, or follow_suit
     opponents = {}
     for opp_id in range(num_players):
-        if opp_id != player_id:
+        if opp_id == player_id:
+            continue
+        opp_type = pick_opponent_type()
+        if opp_type == "ppo":
             opp = PPO(
                 input_shape=info_state_shape,
                 num_actions=num_actions,
@@ -145,6 +175,9 @@ def run_ppo_on_quantum_cat(
                 agent_fn=PPOAgent,
             )
             opponents[opp_id] = opp
+        else:
+            # Store just the string: "random" or "follow_suit"
+            opponents[opp_id] = opp_type
 
     writer = None
     if use_tensorboard:
@@ -170,13 +203,26 @@ def run_ppo_on_quantum_cat(
                         agent_output = agent.step([ts], is_evaluation=False)
                         env_actions.append(agent_output[0].action)
                     else:
-                        # PPO opponent or random
                         opp = opponents.get(current_p, None)
-                        if opp:
+                        if isinstance(opp, PPO):
+                            # PPO opponent
                             opp_out = opp.step([ts], is_evaluation=False)
                             env_actions.append(opp_out[0].action)
+                        elif opp == "random":
+                            # Random opponent
+                            legal_acts = ts.observations["legal_actions"][current_p]
+                            env_actions.append(random.choice(legal_acts) if legal_acts else 0)
+                        elif opp == "follow_suit":
+                            # Follow suit opponent
+                            legal_acts = ts.observations["legal_actions"][current_p]
+                            info_st = ts.observations["info_state"][current_p]
+                            num_card_types = game.num_distinct_actions() // 4
+                            env_actions.append(
+                                pick_follow_suit_action(legal_acts, info_st, num_card_types)
+                                if legal_acts else 0
+                            )
                         else:
-                            # fallback random
+                            # Fallback random
                             legal_acts = ts.observations["legal_actions"][current_p]
                             env_actions.append(random.choice(legal_acts) if legal_acts else 0)
 
