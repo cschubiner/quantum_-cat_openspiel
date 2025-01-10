@@ -34,19 +34,19 @@ flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random 
 
 
 def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
-    """Evaluates an agent for a specified number of episodes.
-
-    Once an environment is done, we reset it immediately (unless we've already
-    finished the total desired number of episodes). This ensures that each
-    environment contributes fully to the episode count.
+    """Evaluates an agent for a specified number of episodes using synchronous evaluation.
+    
+    All environments run until completion before any are reset. This prevents mixing
+    of stale actions with newly reset environments.
     """
-    # Number of episodes completed so far across all environments.
+    # Track completed episodes and total reward
     episodes_done = 0
-
-    # Sum of rewards earned by 'player_id' across all episodes.
     total_reward = 0
-
-    # Initialize all environments.
+    
+    # Track which envs are finished
+    done_mask = [False] * len(envs.envs)
+    
+    # Initialize all environments together
     time_step = envs.reset()
 
     # Keep stepping until we've completed 'num_episodes' in total.
@@ -54,9 +54,9 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
         actions = []
         # Compute actions for all environments.
         for i, ts in enumerate(time_step):
-            if ts.last():
-                # If an environment is already in a terminal state, it just needs
-                # a dummy action for now.
+            # If this environment is done or in terminal state,
+            # just append a dummy action
+            if done_mask[i] or ts.last():
                 actions.append(0)
                 continue
 
@@ -89,28 +89,31 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
         step_out = [StepOutput(action=a, probs=None) for a in actions]
         next_time_step, reward, done, _ = envs.step(step_out)
 
-        # Process any environments that have finished.
+        # Mark finished envs, accumulate reward, count episodes
         for i, dval in enumerate(done):
-            if dval:
-                # If reward[i] is not None, accumulate the agent's reward.
+            if dval and not done_mask[i]:
                 if reward[i] is not None:
                     total_reward += reward[i][player_id]
-
                 episodes_done += 1
+                done_mask[i] = True
 
-                # If we still need more episodes, reset just this environment.
-                if episodes_done < num_episodes:
-                    # Reset all environments and update just the one we need
-                    temp_reset = envs.reset()
-                    next_time_step[i] = temp_reset[i]
+        # Synchronous approach: if all envs are done OR we've hit the episode target,
+        # reset everything (if there are still episodes left). Otherwise continue.
+        if all(done_mask) or episodes_done >= num_episodes:
+            if episodes_done < num_episodes:
+                time_step = envs.reset()
+                done_mask = [False] * len(envs.envs)
+            else:
+                # we've done enough episodes
+                break
+        else:
+            # some envs still running
+            time_step = next_time_step
 
-        # Update time steps for the next loop iteration.
-        time_step = next_time_step
-
-    # Average reward per episode.
+    # Average reward per episode
     avg_rew = total_reward / num_episodes
-
-    print(f"[Evaluate] player_id={player_id}, episodes={num_episodes}, "
+    
+    print(f"[Sync Eval] player_id={player_id}, episodes={num_episodes}, "
           f"avg reward={avg_rew:.2f}, episodes_done={episodes_done}")
     return avg_rew
 
