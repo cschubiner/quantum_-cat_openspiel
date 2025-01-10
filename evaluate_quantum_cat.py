@@ -29,7 +29,8 @@ flags.DEFINE_integer("num_players", 3, "Number of players.")
 flags.DEFINE_integer("num_episodes", 600, "Number of episodes to evaluate.")
 flags.DEFINE_string("agent_path", "quantum_cat_agent_2880001.pth", "Path to saved agent.")
 flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
-flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
+# flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
+flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random play.")
 
 
 def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
