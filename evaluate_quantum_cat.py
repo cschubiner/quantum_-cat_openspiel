@@ -29,8 +29,8 @@ flags.DEFINE_integer("num_players", 3, "Number of players.")
 flags.DEFINE_integer("num_episodes", 600, "Number of episodes to evaluate.")
 flags.DEFINE_string("agent_path", "quantum_cat_agent_2880001.pth", "Path to saved agent.")
 flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
-# flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
-flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random play.")
+flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
+# flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random play.")
 
 
 def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
@@ -64,7 +64,7 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
             legal = ts.observations["legal_actions"][p]
 
             # Debug print: see the environment's current player, legal actions, and chosen action
-            print(f"[DEBUG] Env idx={i}, current_player={p}, legal={legal}", end="")
+            # print(f"[DEBUG] Env idx={i}, current_player={p}, legal={legal}", end="")
 
             if random_vs_random:
                 # Everyone plays random in this mode.
@@ -82,7 +82,7 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
                         # Other players (not 'player_id') act randomly.
                         chosen_action = random.choice(legal) if legal else 0
 
-            print(f" => chosen_action={chosen_action}")
+            # print(f" => chosen_action={chosen_action}")
             actions.append(chosen_action)
 
         # Step all environments together.
