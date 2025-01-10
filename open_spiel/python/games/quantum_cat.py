@@ -578,6 +578,7 @@ class QuantumCatObserver:
         ("cards_played_in_trick", 2 * num_players, (2 * num_players,)),  # pairs of (rank,color_idx)
         ("predictions", num_players, (num_players,)),
         ("tricks_won", num_players, (num_players,)),
+        ("board_ownership", num_colors * num_card_types, (num_colors, num_card_types)),
     ]
     if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(("hand", num_card_types, (num_card_types,)))
@@ -641,6 +642,11 @@ class QuantumCatObserver:
     for p in range(self.num_players):
         self.dict["predictions"][p] = state._predictions[p]
         self.dict["tricks_won"][p] = state._tricks_won[p]
+
+    # Board ownership
+    for c_idx in range(state._num_colors):
+        for r_idx in range(state._num_card_types):
+            self.dict["board_ownership"][c_idx][r_idx] = float(state._board_ownership[c_idx][r_idx])
 
     # If single-player private info => store your hand + your color tokens
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
