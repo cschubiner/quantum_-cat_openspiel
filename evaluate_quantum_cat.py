@@ -147,6 +147,12 @@ def main(_):
     agent.load_state_dict(torch.load(FLAGS.agent_path, map_location="cpu"))
     agent.eval()
 
+    # Make sure the environment shape matches the agent's shape
+    if info_state_shape != agent.input_shape:
+        raise ValueError(f"Mismatched environment shape {info_state_shape} vs "
+                         f"agent shape {agent.input_shape}. Are you using an agent "
+                         f"trained for {FLAGS.num_players} players?")
+
     # Evaluate
     if FLAGS.random_vs_random:
         print("Evaluating random vs random play...")
