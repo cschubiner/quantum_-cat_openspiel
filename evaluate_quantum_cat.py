@@ -65,7 +65,7 @@ def pick_follow_suit_action(legal_actions, info_state, num_card_types):
         return random.choice(follow_suit)
     return random.choice(legal_actions)
 
-def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
+def evaluate(agent, envs, game, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
     """Evaluates an agent for a specified number of episodes using synchronous evaluation.
     
     All environments run until completion before any are reset. This prevents mixing
@@ -112,13 +112,13 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
                         chosen_action = out[0].action
                     else:
                         # Either follow suit or random
-                        legal_acts = ts.observations["legal_actions"][current_p]
+                        legal_acts = ts.observations["legal_actions"][p]
                         if not legal_acts:
                             chosen_action = 0
                         elif FLAGS.follow_suit_agent:
                             chosen_action = pick_follow_suit_action(
                                 legal_acts,
-                                ts.observations["info_state"][current_p],
+                                ts.observations["info_state"][p],
                                 game.num_distinct_actions() // 4  # Rough estimate of num_card_types
                             )
                         else:
@@ -209,7 +209,7 @@ def main(_):
         evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes,
                  self_play=False, random_vs_random=True)
     else:
-        evaluate(agent, envs, player_id=0, num_episodes=FLAGS.num_episodes,
+        evaluate(agent, envs, game, player_id=0, num_episodes=FLAGS.num_episodes,
                  self_play=FLAGS.self_play, random_vs_random=False)
 
 
