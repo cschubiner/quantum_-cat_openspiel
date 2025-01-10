@@ -63,6 +63,9 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
             p = ts.current_player()
             legal = ts.observations["legal_actions"][p]
 
+            # Debug print: see the environment's current player, legal actions, and chosen action
+            print(f"[DEBUG] Env idx={i}, current_player={p}, legal={legal}", end="")
+
             if random_vs_random:
                 # Everyone plays random in this mode.
                 chosen_action = random.choice(legal) if legal else 0
