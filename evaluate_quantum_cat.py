@@ -27,7 +27,7 @@ from open_spiel.python.games import quantum_cat
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_players", 3, "Number of players.")
 flags.DEFINE_integer("num_episodes", 600, "Number of episodes to evaluate.")
-flags.DEFINE_string("agent_path", "quantum_cat_agent_2500000.pth", "Path to saved agent.")
+flags.DEFINE_string("agent_path", "quantum_cat_agent_2880001.pth", "Path to saved agent.")
 flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
 flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
 
