@@ -79,6 +79,7 @@ def evaluate(agent, envs, player_id=0, num_episodes=20, self_play=False, random_
                         # Other players (not 'player_id') act randomly.
                         chosen_action = random.choice(legal) if legal else 0
 
+            print(f" => chosen_action={chosen_action}")
             actions.append(chosen_action)
 
         # Step all environments together.

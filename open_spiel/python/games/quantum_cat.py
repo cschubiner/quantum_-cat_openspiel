@@ -302,6 +302,8 @@ class QuantumCatGameState(pyspiel.State):
   # -------------------------------------------------------------------
   def _apply_discard(self, action):
     player = self._current_player
+    print(f"[DEBUG] _apply_discard: player={player}, discard_action={action}, "
+          f"hand_before={self._hands[player].tolist()}")
     self._hands[player][action] -= 1
     self._has_discarded[player] = True
     self._advance_discard_phase()
