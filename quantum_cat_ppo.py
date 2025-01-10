@@ -150,6 +150,7 @@ def run_ppo_on_quantum_cat(
         gae_lambda=0.95,
         device=device,
         agent_fn=PPOAgent,
+        writer=writer,
     )
 
     # Initialize opponents as PPO, random, or follow_suit
@@ -173,6 +174,7 @@ def run_ppo_on_quantum_cat(
                 gae_lambda=0.95,
                 device=device,
                 agent_fn=PPOAgent,
+                writer=writer,
             )
             opponents[opp_id] = opp
         else:
