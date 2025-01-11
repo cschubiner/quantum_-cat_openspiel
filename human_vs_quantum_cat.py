@@ -28,6 +28,9 @@ def main(_):
 
     game = pyspiel.load_game("python_quantum_cat", {"players": num_players})
     state = game.new_initial_state()
+    observer = game.make_py_observer(
+        pyspiel.IIGObservationType(perfect_recall=False)
+    )
 
     # Create PPO agent for player 0 and random bot for player 1
     agents = {}
@@ -44,7 +47,11 @@ def main(_):
     while not state.is_terminal():
         cur_player = state.current_player()
         print("\n---------------------------------")
-        print(f"Current State:\n{state}")
+        # Get observation string for current player
+        obs_str = observer.string_from(state, cur_player)
+        print(f"Observation for player {cur_player}:")
+        print(f"  {obs_str}")
+        print(f"Tricks won: {state._tricks_won}")  # Show tricks for all players
         if cur_player == pyspiel.PlayerId.CHANCE:
             # If chance node, apply uniform random outcome
             # Usually the state will do that automatically
