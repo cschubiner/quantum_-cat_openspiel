@@ -665,6 +665,7 @@ class QuantumCatObserver:
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(f"hand={state._hands[player]}")
       pieces.append(f"color_tokens={state._color_tokens[player]}")
+    pieces.append(f"board_ownership=\n{state._board_ownership}")
     return " ".join(str(p) for p in pieces)
 
 
