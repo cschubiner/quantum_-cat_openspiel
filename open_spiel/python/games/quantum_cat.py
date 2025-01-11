@@ -666,6 +666,7 @@ class QuantumCatObserver:
       pieces.append(f"hand={state._hands[player]}")
       pieces.append(f"color_tokens={state._color_tokens[player]}")
       pieces.append(f"my_prediction={state._predictions[player]}")
+      pieces.append(f"led_color={state._led_color}")
       
       # Show any partial trick plays by other players
       trick_plays = []
