@@ -149,11 +149,10 @@ def run_ppo_on_quantum_cat(
         num_envs=num_envs,
         steps_per_batch=steps_per_batch,
         update_epochs=8,
-        learning_rate=5e-4,
+        learning_rate=2.5e-4,
         gae=True,
         gamma=0.99,
         gae_lambda=0.95,
-        value_coef=1.0,  # Up-weight the critic
         device=device,
         agent_fn=PPOAgent,
         writer=writer,
