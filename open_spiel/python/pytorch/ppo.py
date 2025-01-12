@@ -61,20 +61,18 @@ class PPOAgent(nn.Module):
     super().__init__()
     self.critic = nn.Sequential(
         layer_init(nn.Linear(np.array(observation_shape).prod(), 128)),
-        nn.ReLU(),
+        nn.Tanh(),
         layer_init(nn.Linear(128, 128)),
-        nn.ReLU(),
-        layer_init(nn.Linear(128, 128)),
-        nn.ReLU(),
+        nn.Tanh(),
         layer_init(nn.Linear(128, 1), std=1.0),
     )
+
+    # Actor (policy) network
     self.actor = nn.Sequential(
         layer_init(nn.Linear(np.array(observation_shape).prod(), 128)),
-        nn.ReLU(),
+        nn.Tanh(),
         layer_init(nn.Linear(128, 128)),
-        nn.ReLU(),
-        layer_init(nn.Linear(128, 128)),
-        nn.ReLU(),
+        nn.Tanh(),
         layer_init(nn.Linear(128, num_actions), std=0.01),
     )
     self.device = device
@@ -186,7 +184,7 @@ class PPO(nn.Module):
       normalize_advantages=True,
       clip_coef=0.2,
       clip_vloss=True,
-      entropy_coef=0.05,
+      entropy_coef=0.025,
       value_coef=0.5,
       max_grad_norm=0.5,
       target_kl=None,

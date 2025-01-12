@@ -25,16 +25,12 @@ from open_spiel.python.pytorch.ppo import PPO, PPOAgent  # or wherever your PPO 
 from open_spiel.python.games import quantum_cat
 
 FLAGS = flags.FLAGS
-flags.DEFINE_integer("num_players", 3, "Number of players.")
-flags.DEFINE_integer("num_episodes", 1700, "Number of episodes to evaluate.")
-flags.DEFINE_string("agent_path", "quantum_cat_agent_3160000.pth", "Path to saved agent.")
-flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
-flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
-# flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random play.")
-# flags.DEFINE_bool("follow_suit_agent", False, "If True, for non-agent players, follow suit if possible, else random.")
+
 flags.DEFINE_enum(
     "player0_type",
     "ppo",
+    # "random",
+    # "follow_suit",
     ["ppo", "random", "follow_suit"],
     "Controls the policy for player_id=0. Options: ppo, random, follow_suit."
 )
@@ -42,10 +38,10 @@ flags.DEFINE_enum(
 flags.DEFINE_enum(
     "opponent_type",
     "random",
+    # "follow_suit",
     ["random", "follow_suit"],
     "Controls the policy for all players != 0. Options: random, follow_suit."
 )
-
 
 def pick_follow_suit_action(legal_actions, info_state, num_card_types):
     """Tries to find an action that matches the led color, if any.
@@ -57,7 +53,7 @@ def pick_follow_suit_action(legal_actions, info_state, num_card_types):
     """
     # Led color is encoded as one-hot of length 5 (R,B,Y,G,None)
     # It starts after current_player (num_players) and phase (5) slots
-    num_players = len(info_state) // 20  # Rough estimate from tensor layout
+    num_players = 3
     led_color_start = num_players + 5
     led_color = info_state[led_color_start:led_color_start + 5]
     led_color_idx = int(np.argmax(led_color))  # 0..3 => R,B,Y,G, 4 => None
@@ -78,7 +74,7 @@ def pick_follow_suit_action(legal_actions, info_state, num_card_types):
         return random.choice(follow_suit)
     return random.choice(legal_actions)
 
-def evaluate(agent, envs, game, player_id=0, num_episodes=20, self_play=False, random_vs_random=False):
+def evaluate(agent, envs, game, player_id=0, num_episodes=20):
     """Evaluates an agent for a specified number of episodes using synchronous evaluation.
     
     All environments run until completion before any are reset. This prevents mixing
@@ -218,9 +214,17 @@ def main(_):
 
     # Evaluate
     print(f"Evaluating with player0={FLAGS.player0_type}, opponents={FLAGS.opponent_type}...")
-    evaluate(agent, envs, game, player_id=0, num_episodes=FLAGS.num_episodes,
-             self_play=FLAGS.self_play, random_vs_random=False)
+    evaluate(agent, envs, game, player_id=0, num_episodes=FLAGS.num_episodes)
 
 
 if __name__ == "__main__":
+    flags.DEFINE_integer("num_players", 3, "Number of players.")
+    flags.DEFINE_integer("num_episodes", 600, "Number of episodes to evaluate.")
+    flags.DEFINE_string("agent_path", "quantum_cat_agent_615001.pth", "Path to saved agent.")
+    flags.DEFINE_bool("self_play", False, "If True, use same agent for all players.")
+    flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
+    # flags.DEFINE_bool("random_vs_random", True, "If True, evaluate random vs random play.")
+    # flags.DEFINE_bool("follow_suit_agent", False, "If True, for non-agent players, follow suit if possible, else random.")
+
+
     app.run(main)

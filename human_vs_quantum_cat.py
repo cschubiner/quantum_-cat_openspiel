@@ -19,7 +19,7 @@ from open_spiel.python.games import quantum_cat
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_players", 3, "Number of players in the game.")
-flags.DEFINE_string("agent_path", "quantum_cat_agent_1415000.pth", "Path to saved PPO agent.")
+flags.DEFINE_string("agent_path", "quantum_cat_agent_3115002.pth", "Path to saved PPO agent.")
 flags.DEFINE_integer("human_player", 2, "Which seat the human controls (0..N-1).")
 
 def main(_):
