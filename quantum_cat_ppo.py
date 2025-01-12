@@ -188,6 +188,7 @@ def run_ppo_on_quantum_cat(
             opponents[opp_id] = opp_type
 
     episodes_done = 0
+    train_steps = 0  # counts environment steps, used for tensorboard logging
     time_step = envs.reset()
 
     # We'll use tqdm to track progress in terms of completed episodes
@@ -232,6 +233,19 @@ def run_ppo_on_quantum_cat(
 
                 step_outputs = [StepOutput(action=a, probs=None) for a in env_actions]
                 next_time_step, reward, done, _ = envs.step(step_outputs)
+
+                # Log per-step rewards to TensorBoard
+                if writer is not None:
+                    for i in range(num_envs):
+                        # If reward[i] is None, it means no reward returned this step
+                        if reward[i] is not None:
+                            # If done[i] is False, this is an incremental step reward
+                            if not done[i]:
+                                writer.add_scalar("rewards/incremental", reward[i][player_id], train_steps)
+                            else:
+                                # If done[i] is True, it includes the final "lump sum" from the environment
+                                writer.add_scalar("rewards/final", reward[i][player_id], train_steps)
+                train_steps += num_envs
 
                 # post_step for main agent & opponents
                 for pid in range(num_players):
