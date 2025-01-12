@@ -84,6 +84,10 @@ def evaluate(agent, envs, game, player_id=0, num_episodes=20):
     episodes_done = 0
     total_reward = 0
     
+    # Track paradox and prediction accuracy
+    paradox_count = 0
+    correct_pred_count = 0
+    
     # Track which envs are finished
     done_mask = [False] * len(envs.envs)
     
@@ -147,6 +151,14 @@ def evaluate(agent, envs, game, player_id=0, num_episodes=20):
                     total_reward += reward[i][player_id]
                 episodes_done += 1
                 done_mask[i] = True
+        
+                # Track paradox and prediction accuracy
+                final_state = envs.envs[i]._state
+                if final_state._has_paradoxed[player_id]:
+                    paradox_count += 1
+                else:
+                    if final_state._tricks_won[player_id] == final_state._predictions[player_id]:
+                        correct_pred_count += 1
 
         # Synchronous approach: if all envs are done OR we've hit the episode target,
         # reset everything (if there are still episodes left). Otherwise continue.
@@ -164,9 +176,15 @@ def evaluate(agent, envs, game, player_id=0, num_episodes=20):
     # Average reward per episode
     avg_rew = total_reward / num_episodes
     
+    # Calculate rates
+    paradox_rate = paradox_count / num_episodes
+    correct_pred_rate = correct_pred_count / num_episodes
+    
     print(f"[Sync Eval] player_id={player_id}, episodes={num_episodes}, "
-          f"avg reward={avg_rew:.2f}, episodes_done={episodes_done}")
-    return avg_rew
+          f"avg reward={avg_rew:.2f}, episodes_done={episodes_done}, "
+          f"paradox_rate={paradox_rate:.1%}, "
+          f"correct_pred_rate={correct_pred_rate:.1%}")
+    return avg_rew, paradox_rate, correct_pred_rate
 
 
 def main(_):

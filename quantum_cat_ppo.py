@@ -256,8 +256,13 @@ def run_ppo_on_quantum_cat(
                     print(f"Checkpoint saved: {ckpt_path}")
                     
                     # Evaluate vs random opponents
-                    avg_rew = evaluate_checkpoint(agent, num_episodes=600, num_players=num_players)
-                    print(f"[Checkpoint Eval] episodes_done={episodes_done}, avg reward vs random={avg_rew:.2f}")
+                    avg_rew, paradox_rate, correct_pred_rate = evaluate_checkpoint(
+                        agent, num_episodes=600, num_players=num_players
+                    )
+                    print(f"[Checkpoint Eval] episodes_done={episodes_done}, "
+                          f"avg reward vs random={avg_rew:.2f}, "
+                          f"paradox_rate={paradox_rate:.1%}, "
+                          f"correct_pred_rate={correct_pred_rate:.1%}")
 
                 if episodes_done >= num_episodes:
                     break
@@ -299,8 +304,10 @@ def evaluate_checkpoint(agent, num_episodes=600, num_players=3):
     FLAGS.opponent_type = "random"
     FLAGS.player0_type = "ppo"
     
-    avg_rew = evaluate(agent, envs, game, player_id=0, num_episodes=num_episodes)
-    return avg_rew
+    avg_rew, paradox_rate, correct_pred_rate = evaluate(
+        agent, envs, game, player_id=0, num_episodes=num_episodes
+    )
+    return avg_rew, paradox_rate, correct_pred_rate
 
 def main(_):
     num_players = FLAGS.num_players
