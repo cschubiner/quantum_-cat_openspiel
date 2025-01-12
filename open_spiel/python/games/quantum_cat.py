@@ -499,6 +499,45 @@ class QuantumCatGameState(pyspiel.State):
         self._compute_final_scores()
         self._game_over = True
 
+  def resample_from_infostate(self, player_id, sampler):
+    """Returns a new state with all hidden information re-sampled
+    consistently with 'player_id's' perspective."""
+    # 1) Create a full deep clone of this state (just like 'clone()').
+    cloned = self.clone()
+
+    # 2) Identify which cards are KNOWN to player_id:
+    #    - The player's own hand is fully known.
+    #    - Possibly the discards if your game reveals them? Or partially known?
+    #    - The color tokens on the board do not reveal ranks unless your logic does so.
+    #    Keep track of these known cards so they don't get re-randomized.
+
+    # Let's gather a list/array of all possible ranks:
+    # ranks = range(1, self._game.max_card_value+1)
+    # Make a multi-set of how many copies exist globally. For example, 5 copies per rank.
+
+    # 3) Remove from that multi-set all the cards that 'player_id' definitely knows.
+    #    This includes your own hand in 'cloned._hands[player_id]'.
+
+    # 4) Also remove from that multi-set any public knowledge. If you reveal discards to everyone,
+    #    remove those. If the discards are hidden, they remain part of the unknown distribution.
+
+    # 5) Now we have a set of "unassigned" cards. We also have to figure out how many cards
+    #    each other player must still hold (and how many are in the discard) in order to match
+    #    the visible counts or other constraints.
+
+    # 6) We'll do a random shuffle of that "unassigned" deck and then distribute them
+    #    among the other players and discards, consistent with the known counts.
+    #    For example, if we know that player2 has 6 cards left, we assign them 6 random cards
+    #    from the unknown set. If we know 1 card was discarded face-down by player2
+    #    but we don't know which it was, we choose from the unknown set, etc.
+
+    # This is the main logic you must fill. The goal is that from 'player_id's perspective,
+    # everything in 'cloned' is consistent with the partial info they had.
+
+    # 7) Return the final 'cloned' state.
+    return cloned
+
+
   def _evaluate_trick_winner(self):
     # If at least one red => highest red
     red_plays = [(p, v) for p,(v,c) in enumerate(self._cards_played_this_trick) if c == "R"]
