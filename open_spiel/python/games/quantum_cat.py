@@ -484,9 +484,9 @@ class QuantumCatGameState(pyspiel.State):
               # Penalty for first trick over prediction
               step_reward += -0.2
               
-      # Apply the unified step reward (add to both rewards and returns)
-      self._rewards[winner] += step_reward  # Use += to accumulate any existing step rewards
-      self._returns[winner] += step_reward
+      # Apply the unified step reward
+      self._rewards[winner] = step_reward  # Set directly, don't accumulate
+      self._returns[winner] += step_reward  # But do accumulate in returns
               
       self._start_player = winner
       self._current_player = winner
@@ -527,6 +527,7 @@ class QuantumCatGameState(pyspiel.State):
     # Apply paradox penalty
     self._rewards = [0.0] * self._num_players
     self._rewards[player] = -1.0  # Immediate paradox penalty
+    self._returns[player] += -1.0  # Don't forget to accumulate in returns
 
     # End game
     self._phase = 4
