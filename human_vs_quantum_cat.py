@@ -16,6 +16,7 @@ from absl import flags
 from open_spiel.python.algorithms.ismcts import (
     ISMCTSBot, ChildSelectionPolicy, ISMCTSFinalPolicyType, UNLIMITED_NUM_WORLD_SAMPLES
 )
+from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
 from open_spiel.python.rl_environment import TimeStep
 from open_spiel.python.games import quantum_cat
 
@@ -108,7 +109,7 @@ def main(_):
 
 def make_ismcts_agent(game, player_id=0):
     """Builds an ISMCTS bot for seat player_id."""
-    evaluator = pyspiel.RandomRolloutEvaluator(n_rollouts=2, seed=1234)
+    evaluator = RandomRolloutEvaluator(n_rollouts=2, seed=1234)
     bot = ISMCTSBot(
         game=game,
         evaluator=evaluator,
