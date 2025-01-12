@@ -54,7 +54,9 @@ def pick_follow_suit_action(legal_actions, info_state, num_card_types):
         return random.choice(follow_suit)
     return random.choice(legal_actions)
 
-EVALUATE_EVERY_X_EPISODES = 5000
+# First evaluation at 1000 episodes, then every 20000 after that
+FIRST_EVAL_EPISODE = 1000
+EVALUATE_EVERY_X_EPISODES = 20000
 
 FLAGS = flags.FLAGS
 
@@ -261,9 +263,17 @@ def run_ppo_on_quantum_cat(
                 episodes_done += finished_episodes
                 pbar.update(finished_episodes)
 
-                # Checkpoint every X episodes
-                # (only triggers when we actually cross a multiple of X)
-                if episodes_done // EVALUATE_EVERY_X_EPISODES != (episodes_done - finished_episodes) // EVALUATE_EVERY_X_EPISODES:
+                # First evaluation at FIRST_EVAL_EPISODE, then every EVALUATE_EVERY_X_EPISODES after that
+                should_eval = False
+                if episodes_done >= FIRST_EVAL_EPISODE:
+                    if episodes_done < EVALUATE_EVERY_X_EPISODES:
+                        # We've hit the first evaluation point
+                        should_eval = episodes_done // FIRST_EVAL_EPISODE != (episodes_done - finished_episodes) // FIRST_EVAL_EPISODE
+                    else:
+                        # We're past the first evaluation, check regular intervals
+                        should_eval = episodes_done // EVALUATE_EVERY_X_EPISODES != (episodes_done - finished_episodes) // EVALUATE_EVERY_X_EPISODES
+                
+                if should_eval:
                     ckpt_path = f"quantum_cat_agent_{episodes_done}.pth"
                     torch.save(agent.state_dict(), ckpt_path)
                     print(f"Checkpoint saved: {ckpt_path}")
