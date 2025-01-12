@@ -266,6 +266,10 @@ class QuantumCatGameState(pyspiel.State):
     )
 
   def _apply_action(self, action):
+    # Reset step rewards at start of each non-chance action
+    if not self.is_chance_node():
+      self._rewards = [0.0] * self._num_players
+
     if self.is_chance_node():
       self._apply_deal(action)
     else:
@@ -480,8 +484,8 @@ class QuantumCatGameState(pyspiel.State):
               # Penalty for first trick over prediction
               step_reward += -0.2
               
-      # Apply the unified step reward
-      self._rewards[winner] = step_reward
+      # Apply the unified step reward (add to both rewards and returns)
+      self._rewards[winner] += step_reward  # Use += to accumulate any existing step rewards
       self._returns[winner] += step_reward
               
       self._start_player = winner
