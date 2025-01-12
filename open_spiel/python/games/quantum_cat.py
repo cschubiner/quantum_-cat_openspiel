@@ -29,7 +29,7 @@ _GAME_TYPE = pyspiel.GameType(
     chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
     information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
     utility=pyspiel.GameType.Utility.GENERAL_SUM,
-    reward_model=pyspiel.GameType.RewardModel.REWARDS,
+    reward_model=pyspiel.GameType.RewardModel.TERMINAL,
     max_num_players=5,
     min_num_players=3,
     provides_information_state_string=True,
@@ -266,10 +266,6 @@ class QuantumCatGameState(pyspiel.State):
     )
 
   def _apply_action(self, action):
-    # Reset step rewards at start of each non-chance action
-    if not self.is_chance_node():
-      self._rewards = [0.0] * self._num_players
-
     if self.is_chance_node():
       self._apply_deal(action)
     else:
@@ -433,13 +429,6 @@ class QuantumCatGameState(pyspiel.State):
     old_largest = self._largest_cluster_coords_for_player(player)
     self._board_ownership[color_idx][rank_idx] = player  # Restore
 
-    # Award small bonus if placed adjacent to largest block
-    for (c0, r0) in old_largest:
-      if abs(c0 - color_idx) + abs(r0 - rank_idx) == 1:
-        # Adjacent to largest block - give small reward
-        self._rewards[player] += 0.1
-        break
-
     rank_val = rank_idx + 1
     color_str = _COLORS[color_idx]
     self._cards_played_this_trick[player] = (rank_val, color_str)
@@ -464,30 +453,8 @@ class QuantumCatGameState(pyspiel.State):
     if self._current_player == self._start_player:
       winner = self._evaluate_trick_winner()
       
-      # Clear incremental rewards for this step
-      self._rewards = [0.0] * self._num_players
-      
       self._tricks_won[winner] += 1
       self._trick_number += 1
-      
-      # Start with base reward for winning trick
-      step_reward = 0.1
-      
-      # Add prediction-based rewards
-      predicted = self._predictions[winner]
-      if predicted >= 1:  # if player has valid prediction
-          current_tricks = self._tricks_won[winner]
-          if current_tricks <= predicted:
-              # Additional reward for staying within prediction
-              step_reward += 0.2
-          elif current_tricks == predicted + 1:
-              # Penalty for first trick over prediction
-              step_reward += -0.2
-              
-      # Apply the unified step reward
-      self._rewards[winner] = step_reward  # Set directly, don't accumulate
-      self._returns[winner] += step_reward  # But do accumulate in returns
-              
       self._start_player = winner
       self._current_player = winner
       self._led_color = None
@@ -562,11 +529,6 @@ class QuantumCatGameState(pyspiel.State):
   def _apply_paradox(self):
     player = self._current_player
     self._has_paradoxed[player] = True
-
-    # Apply paradox penalty
-    self._rewards = [0.0] * self._num_players
-    self._rewards[player] = -1.0  # Immediate paradox penalty
-    self._returns[player] += -1.0  # Don't forget to accumulate in returns
 
     # End game
     self._phase = 4
