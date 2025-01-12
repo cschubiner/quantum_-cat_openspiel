@@ -257,7 +257,11 @@ def run_ppo_on_quantum_cat(
                     
                     # Evaluate vs random opponents
                     avg_rew, paradox_rate, correct_pred_rate = evaluate_checkpoint(
-                        agent, num_episodes=600, num_players=num_players
+                        agent, 
+                        num_episodes=600, 
+                        num_players=num_players,
+                        writer=writer,
+                        global_step=episodes_done
                     )
                     print(f"[Checkpoint Eval] episodes_done={episodes_done}, "
                           f"avg reward vs random={avg_rew:.2f}, "
@@ -290,8 +294,16 @@ def run_ppo_on_quantum_cat(
     return agent, opponents
 
 
-def evaluate_checkpoint(agent, num_episodes=600, num_players=3):
-    """Evaluates current agent vs random opponents."""
+def evaluate_checkpoint(agent, num_episodes=600, num_players=3, writer=None, global_step=0):
+    """Evaluates current agent vs random opponents.
+    
+    Args:
+        agent: The PPO agent to evaluate
+        num_episodes: Number of episodes to evaluate
+        num_players: Number of players in the game
+        writer: Optional TensorBoard writer
+        global_step: Current training step for TensorBoard logging
+    """
     game = pyspiel.load_game("python_quantum_cat", {"players": num_players})
     num_eval_envs = 8
     envs = SyncVectorEnv([
@@ -307,6 +319,12 @@ def evaluate_checkpoint(agent, num_episodes=600, num_players=3):
     avg_rew, paradox_rate, correct_pred_rate = evaluate(
         agent, envs, game, player_id=0, num_episodes=num_episodes
     )
+    
+    if writer is not None:
+        writer.add_scalar("evaluation/avg_reward", avg_rew, global_step)
+        writer.add_scalar("evaluation/paradox_rate", paradox_rate, global_step)
+        writer.add_scalar("evaluation/correct_pred_rate", correct_pred_rate, global_step)
+    
     return avg_rew, paradox_rate, correct_pred_rate
 
 def main(_):
