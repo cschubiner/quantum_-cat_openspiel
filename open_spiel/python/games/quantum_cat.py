@@ -466,16 +466,23 @@ class QuantumCatGameState(pyspiel.State):
       self._tricks_won[winner] += 1
       self._trick_number += 1
       
-      # Calculate incremental rewards
+      # Start with base reward for winning trick
+      step_reward = 0.1
+      
+      # Add prediction-based rewards
       predicted = self._predictions[winner]
       if predicted >= 1:  # if player has valid prediction
           current_tricks = self._tricks_won[winner]
           if current_tricks <= predicted:
-              # Small positive reward for each trick up to prediction
-              self._rewards[winner] = 0.2
+              # Additional reward for staying within prediction
+              step_reward += 0.2
           elif current_tricks == predicted + 1:
-              # One-time negative reward only for first trick over
-              self._rewards[winner] = -0.2
+              # Penalty for first trick over prediction
+              step_reward += -0.2
+              
+      # Apply the unified step reward
+      self._rewards[winner] = step_reward
+      self._returns[winner] += step_reward
               
       self._start_player = winner
       self._current_player = winner
@@ -487,10 +494,6 @@ class QuantumCatGameState(pyspiel.State):
         self._phase = 4
         self._compute_final_scores()
         self._game_over = True
-      else:
-        # Give a small partial reward for winning each trick
-        partial_reward = 0.1  # Small intermediate reward
-        self._returns[winner] += partial_reward  # Add to winner's running total
 
   def _evaluate_trick_winner(self):
     # If at least one red => highest red
