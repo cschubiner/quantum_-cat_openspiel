@@ -61,7 +61,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_players", 3, "Number of players in Quantum Cat (3..5).")
 flags.DEFINE_integer("num_episodes", 250000000, "Number of full games to train for.")
 # flags.DEFINE_integer("num_episodes", 3000, "Number of full games to train for.")
-flags.DEFINE_integer("steps_per_batch", 2048, "Environment steps per PPO update.")
+flags.DEFINE_integer("steps_per_batch", 4096, "Environment steps per PPO update.")
 flags.DEFINE_integer("seed", 1234, "Random seed.")
 flags.DEFINE_integer("num_envs", 12, "Number of vectorized envs.")
 flags.DEFINE_string("save_path", "quantum_cat_agent_v2.pth", "Where to save the agent.")
@@ -148,11 +148,12 @@ def run_ppo_on_quantum_cat(
         player_id=player_id,
         num_envs=num_envs,
         steps_per_batch=steps_per_batch,
-        update_epochs=4,
-        learning_rate=2.5e-4,
+        update_epochs=8,
+        learning_rate=5e-4,
         gae=True,
         gamma=0.99,
         gae_lambda=0.95,
+        value_coef=1.0,  # Up-weight the critic
         device=device,
         agent_fn=PPOAgent,
         writer=writer,

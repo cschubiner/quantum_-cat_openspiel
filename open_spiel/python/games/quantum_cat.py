@@ -454,6 +454,10 @@ class QuantumCatGameState(pyspiel.State):
         self._phase = 4
         self._compute_final_scores()
         self._game_over = True
+      else:
+        # Give a small partial reward for winning each trick
+        partial_reward = 0.1  # Small intermediate reward
+        self._returns[winner] += partial_reward  # Add to winner's running total
 
   def _evaluate_trick_winner(self):
     # If at least one red => highest red
