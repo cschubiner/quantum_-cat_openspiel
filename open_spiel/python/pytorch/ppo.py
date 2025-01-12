@@ -60,20 +60,24 @@ class PPOAgent(nn.Module):
   def __init__(self, num_actions, observation_shape, device):
     super().__init__()
     self.critic = nn.Sequential(
-        layer_init(nn.Linear(np.array(observation_shape).prod(), 128)),
+        layer_init(nn.Linear(np.array(observation_shape).prod(), 256)),
         nn.Tanh(),
-        layer_init(nn.Linear(128, 128)),
+        layer_init(nn.Linear(256, 256)),
         nn.Tanh(),
-        layer_init(nn.Linear(128, 1), std=1.0),
+        layer_init(nn.Linear(256, 256)),
+        nn.Tanh(),
+        layer_init(nn.Linear(256, 1), std=1.0),
     )
 
     # Actor (policy) network
     self.actor = nn.Sequential(
-        layer_init(nn.Linear(np.array(observation_shape).prod(), 128)),
+        layer_init(nn.Linear(np.array(observation_shape).prod(), 256)),
         nn.Tanh(),
-        layer_init(nn.Linear(128, 128)),
+        layer_init(nn.Linear(256, 256)),
         nn.Tanh(),
-        layer_init(nn.Linear(128, num_actions), std=0.01),
+        layer_init(nn.Linear(256, 256)),
+        nn.Tanh(),
+        layer_init(nn.Linear(256, num_actions), std=0.01),
     )
     self.device = device
     self.num_actions = num_actions
