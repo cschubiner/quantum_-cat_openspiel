@@ -22,7 +22,6 @@ from open_spiel.python.games import quantum_cat
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_players", 3, "Number of players in the game.")
-flags.DEFINE_string("agent_path", "quantum_cat_agent_3115002.pth", "Path to saved PPO agent.")
 flags.DEFINE_integer("human_player", 2, "Which seat the human controls (0..N-1).")
 
 def main(_):
@@ -35,14 +34,21 @@ def main(_):
         pyspiel.IIGObservationType(perfect_recall=False)
     )
 
-    # Create ISMCTS agent for player 0 and random bot for player 1
-    agents = {}
-    
-    # ISMCTS agent plays as player 0
-    ismcts_agent = make_ismcts_agent(game, 0)
-    agents[0] = ismcts_agent
-    
-    # Player 1 will be a random bot (handled in the main loop)
+    # Create ISMCTS agent for player 0
+    evaluator = RandomRolloutEvaluator(n_rollouts=2, seed=1234)
+    ismcts_bot = ISMCTSBot(
+        game=game,
+        evaluator=evaluator,
+        uct_c=2.0,
+        max_simulations=1000,
+        max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
+        random_state=np.random.RandomState(123),
+        final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+        use_observation_string=False,
+        allow_inconsistent_action_sets=False,
+        child_selection_policy=ChildSelectionPolicy.PUCT
+    )
+    agents = {0: ismcts_bot}  # Only ISMCTS agent needs to be stored
 
     # Step through the game
     while not state.is_terminal():
@@ -107,22 +113,6 @@ def main(_):
     for pid in range(num_players):
         print(f"Player {pid} final return: {returns[pid]}")
 
-def make_ismcts_agent(game, player_id=0):
-    """Builds an ISMCTS bot for seat player_id."""
-    evaluator = RandomRolloutEvaluator(n_rollouts=2, seed=1234)
-    bot = ISMCTSBot(
-        game=game,
-        evaluator=evaluator,
-        uct_c=2.0,
-        max_simulations=1000,
-        max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
-        random_state=np.random.RandomState(123 + player_id),
-        final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
-        use_observation_string=False,
-        allow_inconsistent_action_sets=False,
-        child_selection_policy=ChildSelectionPolicy.PUCT
-    )
-    return bot
 
 if __name__ == "__main__":
     app.run(main)
