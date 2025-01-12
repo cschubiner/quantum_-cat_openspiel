@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """
-Play Quantum Cat vs. a PPO agent in a text-based loop.
+Play Quantum Cat vs. an ISMCTS agent in a text-based loop.
 
 Usage:
-  python human_vs_quantum_cat.py --num_players=3 --agent_path=quantum_cat_agent.pth
+  python human_vs_quantum_cat.py --num_players=3
 """
 
 import random
-import torch
 import pyspiel
+import numpy as np
 
 from absl import app
 from absl import flags
 
-from open_spiel.python.pytorch.ppo import PPO, PPOAgent
+from open_spiel.python.algorithms.ismcts import (
+    ISMCTSBot, ChildSelectionPolicy, ISMCTSFinalPolicyType, UNLIMITED_NUM_WORLD_SAMPLES
+)
 from open_spiel.python.rl_environment import TimeStep
 from open_spiel.python.games import quantum_cat
 
