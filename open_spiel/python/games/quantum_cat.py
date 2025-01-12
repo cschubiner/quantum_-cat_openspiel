@@ -29,7 +29,7 @@ _GAME_TYPE = pyspiel.GameType(
     chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
     information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
     utility=pyspiel.GameType.Utility.GENERAL_SUM,
-    reward_model=pyspiel.GameType.RewardModel.TERMINAL,
+    reward_model=pyspiel.GameType.RewardModel.REWARDS,
     max_num_players=5,
     min_num_players=3,
     provides_information_state_string=True,
@@ -182,9 +182,10 @@ class QuantumCatGameState(pyspiel.State):
     # Indexed by [player][color_idx]
     self._color_tokens = np.ones((self._num_players, self._num_colors), dtype=bool)
 
-    # Terminal
+    # Terminal and rewards
     self._game_over = False
     self._returns = [0.0] * self._num_players
+    self._rewards = [0.0] * self._num_players  # per-step rewards
     
     # Track if trump has been broken
     self._trump_broken = False
@@ -215,6 +216,10 @@ class QuantumCatGameState(pyspiel.State):
     if not self._game_over:
       return [0.0] * self._game.num_players()
     return list(self._returns)
+
+  def rewards(self):
+    """Returns rewards for the current step."""
+    return list(self._rewards)
 
   def legal_actions(self, player=None):
     if player is None:
@@ -442,8 +447,24 @@ class QuantumCatGameState(pyspiel.State):
     # If we loop back to start_player => trick ends
     if self._current_player == self._start_player:
       winner = self._evaluate_trick_winner()
+      
+      # Clear incremental rewards for this step
+      self._rewards = [0.0] * self._num_players
+      
       self._tricks_won[winner] += 1
       self._trick_number += 1
+      
+      # Calculate incremental rewards
+      predicted = self._predictions[winner]
+      if predicted >= 1:  # if player has valid prediction
+          current_tricks = self._tricks_won[winner]
+          if current_tricks <= predicted:
+              # Small positive reward for each trick up to prediction
+              self._rewards[winner] = 0.2
+          elif current_tricks == predicted + 1:
+              # One-time negative reward only for first trick over
+              self._rewards[winner] = -0.2
+              
       self._start_player = winner
       self._current_player = winner
       self._led_color = None
@@ -484,6 +505,10 @@ class QuantumCatGameState(pyspiel.State):
     player = self._current_player
     self._has_paradoxed[player] = True
 
+    # Apply paradox penalty
+    self._rewards = [0.0] * self._num_players
+    self._rewards[player] = -1.0  # Immediate paradox penalty
+
     # End game
     self._phase = 4
     self._game_over = True
@@ -510,9 +535,11 @@ class QuantumCatGameState(pyspiel.State):
         else:
           raw_scores[p] = base
 
-    # Apply reward scaling
+    # Apply reward scaling and add to final step rewards
     for p in range(self._num_players):
-      self._returns[p] = 5.0 * raw_scores[p]
+      final_reward = 5.0 * raw_scores[p]
+      self._returns[p] = final_reward
+      self._rewards[p] += final_reward  # Add to any existing step reward
 
   # -------------------------------------------------------------------
   # Adjacency Logic
