@@ -14,10 +14,12 @@ from absl import app
 from absl import flags
 
 from open_spiel.python.algorithms.ismcts import (
-    ISMCTSBot, ChildSelectionPolicy, ISMCTSFinalPolicyType, UNLIMITED_NUM_WORLD_SAMPLES
+    ISMCTSBot,
+    ChildSelectionPolicy,
+    ISMCTSFinalPolicyType,
+    UNLIMITED_NUM_WORLD_SAMPLES
 )
 from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
-from open_spiel.python.rl_environment import TimeStep
 from open_spiel.python.games import quantum_cat
 
 FLAGS = flags.FLAGS
