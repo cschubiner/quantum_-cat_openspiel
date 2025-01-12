@@ -558,7 +558,7 @@ class QuantumCatGameState(pyspiel.State):
 
     # Apply reward scaling and add to final step rewards
     for p in range(self._num_players):
-      final_reward = 5.0 * raw_scores[p]
+      final_reward = raw_scores[p]
       self._returns[p] += final_reward
       self._rewards[p] += final_reward  # Add to any existing step reward
 
