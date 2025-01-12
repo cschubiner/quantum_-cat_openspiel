@@ -160,6 +160,7 @@ class QuantumCatGameState(pyspiel.State):
 
     # Discard tracking
     self._has_discarded = [False] * self._num_players
+    self._discarded_cards = [-1] * self._num_players
 
     # Predictions
     self._predictions = [-1] * self._num_players
@@ -307,6 +308,7 @@ class QuantumCatGameState(pyspiel.State):
     player = self._current_player
     # print(f"[DEBUG] _apply_discard: player={player}, discard_action={action}, hand_before={self._hands[player].tolist()}")
     self._hands[player][action] -= 1
+    self._discarded_cards[player] = action + 1
     self._has_discarded[player] = True
     self._advance_discard_phase()
 
@@ -658,6 +660,7 @@ class QuantumCatObserver:
     ]
     if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(("hand", num_card_types, (num_card_types,)))
+      pieces.append(("discarded_rank", 1, (1,)))
 
     # Build the single flat tensor
     total_size = sum(size for name, size, shape in pieces)
@@ -733,6 +736,7 @@ class QuantumCatObserver:
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       for i in range(self.num_card_types):
         self.dict["hand"][i] = state._hands[player][i]
+      self.dict["discarded_rank"][0] = float(state._discarded_cards[player])
 
   def string_from(self, state, player):
     """Observation of `state` from the POV of `player`, as a string."""
