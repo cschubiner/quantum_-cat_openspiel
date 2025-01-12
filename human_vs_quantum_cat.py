@@ -32,14 +32,12 @@ def main(_):
         pyspiel.IIGObservationType(perfect_recall=False)
     )
 
-    # Create PPO agent for player 0 and random bot for player 1
+    # Create ISMCTS agent for player 0 and random bot for player 1
     agents = {}
     
-    # PPO agent always plays as player 0 (as it was trained)
-    ppo_agent = make_agent(game, 0)  # player_id=0 to match training
-    ppo_agent.load_state_dict(torch.load(FLAGS.agent_path, map_location="cpu"))
-    ppo_agent.eval()
-    agents[0] = ppo_agent
+    # ISMCTS agent plays as player 0
+    ismcts_agent = make_ismcts_agent(game, 0)
+    agents[0] = ismcts_agent
     
     # Player 1 will be a random bot (handled in the main loop)
 
@@ -87,21 +85,10 @@ def main(_):
             state.apply_action(chosen_action)
         else:
             if cur_player == 0:
-                # PPO Agent's turn
-                agent = agents[cur_player]
-                obs = state.observation_tensor(cur_player)
-                fake_ts = TimeStep(
-                    observations={
-                        "info_state": {cur_player: obs},
-                        "legal_actions": {cur_player: state.legal_actions(cur_player)}
-                    },
-                    rewards=None,
-                    discounts=None,
-                    step_type=None
-                )
-                action_out = agent.step([fake_ts], is_evaluation=True)
-                chosen_action = action_out[0].action
-                print(f"PPO Agent picks: {state.action_to_string(cur_player, chosen_action)}")
+                # ISMCTS Agent's turn
+                bot = agents[cur_player]
+                chosen_action = bot.step(state)
+                print(f"ISMCTS Agent picks: {state.action_to_string(cur_player, chosen_action)}")
                 state.apply_action(chosen_action)
             else:
                 # Random bot's turn (player 1)
@@ -117,26 +104,22 @@ def main(_):
     for pid in range(num_players):
         print(f"Player {pid} final return: {returns[pid]}")
 
-def make_agent(game, pid):
-    """Builds a PPO agent (same hyperparams as training) for seat pid."""
-    obs_size = len(game.new_initial_state().observation_tensor(pid))
-    info_state_shape = (obs_size,)
-    agent = PPO(
-        input_shape=info_state_shape,
-        num_actions=game.num_distinct_actions(),
-        num_players=game.num_players(),
-        player_id=pid,
-        num_envs=1,  # not relevant here
-        steps_per_batch=16,
-        update_epochs=4,
-        learning_rate=2.5e-4,
-        gae=True,
-        gamma=0.99,
-        gae_lambda=0.95,
-        device="cpu",
-        agent_fn=PPOAgent,
+def make_ismcts_agent(game, player_id=0):
+    """Builds an ISMCTS bot for seat player_id."""
+    evaluator = pyspiel.RandomRolloutEvaluator(n_rollouts=2, seed=1234)
+    bot = ISMCTSBot(
+        game=game,
+        evaluator=evaluator,
+        uct_c=2.0,
+        max_simulations=1000,
+        max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
+        random_state=np.random.RandomState(123 + player_id),
+        final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+        use_observation_string=False,
+        allow_inconsistent_action_sets=False,
+        child_selection_policy=ChildSelectionPolicy.PUCT
     )
-    return agent
+    return bot
 
 if __name__ == "__main__":
     app.run(main)
