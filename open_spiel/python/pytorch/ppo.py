@@ -343,6 +343,21 @@ class PPO(nn.Module):
               t] = self.rewards[t] + self.gamma * nextnonterminal * next_return
         advantages = returns - self.values
 
+    # Log advantage statistics
+    if self.writer is not None:
+      self.writer.add_scalar("debug/advantages_mean", 
+                            advantages.mean().item(),
+                            self.total_steps_done)
+      self.writer.add_scalar("debug/advantages_std",
+                            advantages.std().item(), 
+                            self.total_steps_done)
+      self.writer.add_scalar("debug/returns_mean",
+                            returns.mean().item(),
+                            self.total_steps_done)
+      self.writer.add_scalar("debug/values_mean", 
+                            self.values.mean().item(),
+                            self.total_steps_done)
+
     # flatten the batch
     b_legal_actions_mask = self.legal_actions_mask.reshape(
         (-1, self.num_actions))
@@ -370,6 +385,20 @@ class PPO(nn.Module):
         ratio = logratio.exp()
 
         with torch.no_grad():
+          # Log policy statistics
+          if self.writer is not None:
+            self.writer.add_scalar("debug/ratio_mean",
+                                 ratio.mean().item(),
+                                 self.total_steps_done)
+            self.writer.add_scalar("debug/ratio_std",
+                                 ratio.std().item(),
+                                 self.total_steps_done)
+            self.writer.add_scalar("debug/logprob_mean",
+                                 newlogprob.mean().item(),
+                                 self.total_steps_done)
+            self.writer.add_scalar("debug/value_mean",
+                                 newvalue.mean().item(),
+                                 self.total_steps_done)
           # calculate approx_kl http://joschu.net/blog/kl-approx.html
           old_approx_kl = (-logratio).mean()
           approx_kl = ((ratio - 1) - logratio).mean()
