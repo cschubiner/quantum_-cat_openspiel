@@ -28,7 +28,7 @@ _GAME_TYPE = pyspiel.GameType(
     dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
     chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
     information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
-    utility=pyspiel.GameType.Utility.ZERO_SUM,
+    utility=pyspiel.GameType.Utility.GENERAL_SUM,
     reward_model=pyspiel.GameType.RewardModel.TERMINAL,
     max_num_players=5,
     min_num_players=3,
@@ -506,11 +506,9 @@ class QuantumCatGameState(pyspiel.State):
         else:
           raw_scores[p] = base
 
-    # Normalize scores to ensure zero-sum
-    total = sum(raw_scores)
-    avg = total / self._num_players
+    # Apply reward scaling
     for p in range(self._num_players):
-      self._returns[p] = raw_scores[p] - avg
+      self._returns[p] = 5.0 * raw_scores[p]
 
   # -------------------------------------------------------------------
   # Adjacency Logic
