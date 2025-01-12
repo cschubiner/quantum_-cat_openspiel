@@ -18,6 +18,7 @@ from tqdm import tqdm
 import pyspiel
 from evaluate_quantum_cat import evaluate
 
+import subprocess
 from open_spiel.python import rl_environment
 from open_spiel.python.rl_agent import StepOutput
 from open_spiel.python.vector_env import SyncVectorEnv
@@ -141,6 +142,9 @@ def run_ppo_on_quantum_cat(
     writer = None
     if use_tensorboard:
         writer = SummaryWriter()
+        # Log git commit SHA
+        commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
+        writer.add_text("metadata/git_commit", commit_sha)
 
     # Initialize main agent
     agent = PPO(
