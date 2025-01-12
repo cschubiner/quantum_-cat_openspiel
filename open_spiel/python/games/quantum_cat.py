@@ -656,10 +656,10 @@ class QuantumCatObserver:
         ("predictions", num_players, (num_players,)),
         ("tricks_won", num_players, (num_players,)),
         ("board_ownership", num_colors * num_card_types, (num_colors, num_card_types)),
+        ("color_tokens", num_players * num_colors, (num_players, num_colors)),  # Public info for all players
     ]
     if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(("hand", num_card_types, (num_card_types,)))
-      pieces.append(("color_tokens", num_colors, (num_colors,)))
 
     # Build the single flat tensor
     total_size = sum(size for name, size, shape in pieces)
@@ -725,12 +725,16 @@ class QuantumCatObserver:
         for r_idx in range(state._num_card_types):
             self.dict["board_ownership"][c_idx][r_idx] = float(state._board_ownership[c_idx][r_idx])
 
-    # If single-player private info => store your hand + your color tokens
+    # Store all players' color tokens (public info)
+    color_tokens_mat = self.dict["color_tokens"]
+    for p in range(self.num_players):
+        for c_idx in range(self.num_colors):
+            color_tokens_mat[p, c_idx] = float(state._color_tokens[p][c_idx])
+
+    # If single-player private info => store your hand
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       for i in range(self.num_card_types):
         self.dict["hand"][i] = state._hands[player][i]
-      for c_idx in range(self.num_colors):
-        self.dict["color_tokens"][c_idx] = float(state._color_tokens[player][c_idx])
 
   def string_from(self, state, player):
     """Observation of `state` from the POV of `player`, as a string."""
@@ -741,9 +745,13 @@ class QuantumCatObserver:
     pieces.append(f"phase={state._phase}")
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(f"hand={state._hands[player]}")
-      pieces.append(f"color_tokens={state._color_tokens[player]}")
       pieces.append(f"my_prediction={state._predictions[player]}")
       pieces.append(f"led_color={state._led_color}")
+    
+    # Always show all players' color tokens (public info)
+    pieces.append("color_tokens=" + "\n".join(
+        f"p{p}: {state._color_tokens[p]}" for p in range(self.num_players)
+    ))
       
       # Show any partial trick plays by other players
       trick_plays = []
