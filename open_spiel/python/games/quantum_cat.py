@@ -424,6 +424,18 @@ class QuantumCatGameState(pyspiel.State):
     # Mark board ownership => adjacency
     self._board_ownership[color_idx][rank_idx] = player
 
+    # Check for adjacency reward by finding largest block before this placement
+    self._board_ownership[color_idx][rank_idx] = -1  # Temporarily remove
+    old_largest = self._largest_cluster_coords_for_player(player)
+    self._board_ownership[color_idx][rank_idx] = player  # Restore
+
+    # Award small bonus if placed adjacent to largest block
+    for (c0, r0) in old_largest:
+      if abs(c0 - color_idx) + abs(r0 - rank_idx) == 1:
+        # Adjacent to largest block - give small reward
+        self._rewards[player] += 0.1
+        break
+
     rank_val = rank_idx + 1
     color_str = _COLORS[color_idx]
     self._cards_played_this_trick[player] = (rank_val, color_str)
@@ -580,6 +592,42 @@ class QuantumCatGameState(pyspiel.State):
             max_cluster = size
 
     return max_cluster
+
+  def _largest_cluster_coords_for_player(self, player):
+    """
+    Returns a list of (color_idx, rank_idx) squares that form the
+    single largest connected cluster owned by `player`.
+    """
+    visited = np.zeros((self._num_colors, self._num_card_types), dtype=bool)
+    best_cluster = []
+    best_size = 0
+
+    def neighbors(c, r):
+      for dc, dr in [(1,0),(-1,0),(0,1),(0,-1)]:
+        cc, rr = c+dc, r+dr
+        if 0 <= cc < self._num_colors and 0 <= rr < self._num_card_types:
+          yield (cc, rr)
+
+    for c_idx in range(self._num_colors):
+      for r_idx in range(self._num_card_types):
+        if self._board_ownership[c_idx][r_idx] == player and not visited[c_idx][r_idx]:
+          # BFS or DFS to find connected cluster from this square
+          queue = [(c_idx, r_idx)]
+          visited[c_idx][r_idx] = True
+          cluster_coords = []
+          while queue:
+            c0, r0 = queue.pop()
+            cluster_coords.append((c0, r0))
+            for (cc, rr) in neighbors(c0, r0):
+              if not visited[cc][rr] and self._board_ownership[cc][rr] == player:
+                visited[cc][rr] = True
+                queue.append((cc, rr))
+          # Check if this cluster is bigger than the current best
+          if len(cluster_coords) > best_size:
+            best_size = len(cluster_coords)
+            best_cluster = cluster_coords
+
+    return best_cluster
 
 # ---------------------------------------------------------------------
 # Observer
