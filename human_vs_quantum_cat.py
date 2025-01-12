@@ -37,7 +37,7 @@ def main(_):
     )
 
     # Create ISMCTS agent for player 0
-    evaluator = RandomRolloutEvaluator(n_rollouts=2, seed=1234)
+    evaluator = RandomRolloutEvaluator(n_rollouts=2, random_state=np.random.RandomState(1234))
     ismcts_bot = ISMCTSBot(
         game=game,
         evaluator=evaluator,
