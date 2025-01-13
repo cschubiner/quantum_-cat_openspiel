@@ -1,7 +1,19 @@
 #!/usr/bin/env python3
+"""
+multi_human_vs_ismcts.py
 
+Allows multiple humans and multiple ISMCTS bots to play Quantum Cat simultaneously.
+Usage example:
+  python multi_human_vs_ismcts.py --num_humans=2 --num_bots=2
+"""
+
+import os
+import random
 import pyspiel
 import numpy as np
+from absl import app
+from absl import flags
+
 from open_spiel.python.algorithms.ismcts import (
     ISMCTSBot,
     ChildSelectionPolicy,
@@ -10,60 +22,136 @@ from open_spiel.python.algorithms.ismcts import (
 )
 from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
 
-
 from open_spiel.python.games import quantum_cat
 
-def main():
-    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+FLAGS = flags.FLAGS
+flags.DEFINE_integer("num_humans", 2, "Number of human players.")
+flags.DEFINE_integer("num_bots", 1, "Number of ISMCTS bot players.")
+flags.DEFINE_integer("max_simulations", 1000, "Max simulations for each ISMCTS bot.")
+flags.DEFINE_integer("random_seed", 1234, "Random seed for reproducibility.")
+flags.DEFINE_bool("clear_screen", True, "If True, prints many blank lines between turns.")
 
-    # Create an ISMCTS bot for player 0
-    ismcts_evaluator = RandomRolloutEvaluator(n_rollouts=2, random_state=np.random.RandomState(42))
-    ismcts_bot = ISMCTSBot(
-        game=game,
-        evaluator=ismcts_evaluator,
-        uct_c=2.0,
-        max_simulations=100,
-        max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
-        random_state=np.random.RandomState(999),
-        final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
-        use_observation_string=False,
-        allow_inconsistent_action_sets=False,
-        child_selection_policy=ChildSelectionPolicy.PUCT
+def clear_or_separate():
+    """Optionally print many blank lines to hide the previous player's info."""
+    if FLAGS.clear_screen:
+        print("\n" * 50)
+    else:
+        print("\n---------------------------------\n")
+
+def main(_):
+    num_humans = FLAGS.num_humans
+    num_bots = FLAGS.num_bots
+    total_players = num_humans + num_bots
+    if total_players < 2:
+        raise ValueError("Need at least 2 total players (some combination of humans+bots).")
+    if total_players > 5:
+        raise ValueError("Quantum Cat only supports up to 5 total players.")
+
+    random_state = np.random.RandomState(FLAGS.random_seed)
+    game = pyspiel.load_game("python_quantum_cat", {"players": total_players})
+    observer = game.make_py_observer(
+        pyspiel.IIGObservationType(perfect_recall=False)
     )
 
-    # Create random bots for players 1 and 2
-    # random_bot0 = pyspiel.make_uniform_random_bot(0, 77)
-    random_bot1 = pyspiel.make_uniform_random_bot(1, 111)
-    random_bot2 = pyspiel.make_uniform_random_bot(2, 222)
+    # Decide seat assignment: which seats are humans vs. bots
+    # We'll do something simple: first num_humans seats are humans, next are bots.
+    # If you'd rather randomize seat order, you can shuffle a list and assign.
+    seat_types = ["human"] * num_humans + ["bot"] * num_bots
+    # e.g. for num_humans=2, num_bots=2 => seat_types=["human","human","bot","bot"]
 
-    num_episodes = 7
-    ismcts_returns = []
-    for _ in range(num_episodes):
-        state = game.new_initial_state()
-        bots = [ismcts_bot, random_bot1, random_bot2]
-        # bots = [random_bot0, random_bot1, random_bot2]
-        loop_count = 0
-        while not state.is_terminal():
-            loop_count += 1
-            print(f"Loop iteration: {loop_count}")
-            current_player = state.current_player()
-            if state.is_chance_node():
-                outcomes = state.chance_outcomes()
-                actions, probs = zip(*outcomes)
-                action = np.random.choice(actions, p=probs)
-                state.apply_action(action)
-            else:
-                action = bots[current_player].step(state)
-                if action is None:
-                    # Fallback: pick a random legal action
-                    action = np.random.choice(state.legal_actions(current_player))
-                state.apply_action(action)
+    # Build the ISMCTS bots
+    # We'll store them in a dict: seat -> ISMCTSBot object
+    # for each seat that is "bot".
+    bots = {}
+    for seat in range(total_players):
+        if seat_types[seat] == "bot":
+            evaluator = RandomRolloutEvaluator(
+                n_rollouts=2, random_state=np.random.RandomState(FLAGS.random_seed + seat)
+            )
+            bot = ISMCTSBot(
+                game=game,
+                evaluator=evaluator,
+                uct_c=2.0,
+                max_simulations=FLAGS.max_simulations,
+                max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
+                random_state=np.random.RandomState(FLAGS.random_seed + seat),
+                final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+                use_observation_string=False,
+                allow_inconsistent_action_sets=False,
+                child_selection_policy=ChildSelectionPolicy.PUCT
+            )
+            bots[seat] = bot
 
-        final_returns = state.returns()
-        ismcts_returns.append(final_returns[0])  # Track the ISMCTS player's return
-        print(f"Game over. Returns: {final_returns}")
+    # Create the initial state
+    state = game.new_initial_state()
 
-    print(f"ISMCTS average return over {num_episodes} episodes: {np.mean(ismcts_returns)}")
+    while not state.is_terminal():
+        current_player = state.current_player()
+
+        if current_player == pyspiel.PlayerId.CHANCE:
+            # Chance node -> pick an outcome randomly
+            outcomes = state.chance_outcomes()
+            print('outcomes:', outcomes)
+            action, _ = random_state.choice(outcomes)
+            state.apply_action(action)
+            continue
+
+        # Observe
+        observer_str = observer.string_from(state, current_player)
+
+        # Show partial info
+        print(f"--- Player {current_player}'s Turn ---")
+        print("Observation:")
+        print(observer_str)
+        print(f"Tricks won so far (all players): {state._tricks_won}")
+        print()
+
+        if seat_types[current_player] == "human":
+            # Human turn
+            legal_moves = state.legal_actions(current_player)
+            # Display action menu
+            print("Legal actions:")
+            for idx, act in enumerate(legal_moves):
+                print(f"  {idx}: {state.action_to_string(current_player, act)}")
+
+            # Prompt user
+            choice = None
+            while choice is None:
+                user_input = input("Choose action index: ")
+                try:
+                    val = int(user_input)
+                    if 0 <= val < len(legal_moves):
+                        choice = legal_moves[val]
+                    else:
+                        print("Invalid index, try again.")
+                except ValueError:
+                    print("Invalid input, must be an integer index.")
+
+            chosen_action = choice
+            print(f"You chose: {state.action_to_string(current_player, chosen_action)}")
+            state.apply_action(chosen_action)
+
+            input("(Press ENTER to continue...)")
+            clear_or_separate()
+
+        else:
+            # Bot turn
+            ismcts_bot = bots[current_player]
+            chosen_action = ismcts_bot.step(state)
+            print(f"ISMCTS Bot {current_player} chooses: {state.action_to_string(current_player, chosen_action)}")
+            state.apply_action(chosen_action)
+
+            input("(Bot finished. Press ENTER to continue...)")
+            clear_or_separate()
+
+    # Terminal
+    print("=========================================")
+    print("Game finished! Final returns for each seat:")
+    for seat in range(total_players):
+        score = state.returns()[seat]
+        seat_role = "Human" if seat_types[seat] == "human" else "ISMCTS Bot"
+        print(f"Player {seat} ({seat_role}): {score}")
+    print("=========================================")
 
 if __name__ == "__main__":
-    main()
+    app.run(main)
