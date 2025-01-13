@@ -10,42 +10,50 @@ from open_spiel.python.algorithms.ismcts import (
 )
 from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
 
-
 from open_spiel.python.games import quantum_cat
+
 
 def main():
     game = pyspiel.load_game("python_quantum_cat", {"players": 3})
 
     # Create an ISMCTS bot for player 0
     ismcts_evaluator = RandomRolloutEvaluator(n_rollouts=2, random_state=np.random.RandomState(42))
-    ismcts_bot = ISMCTSBot(
-        game=game,
-        evaluator=ismcts_evaluator,
-        uct_c=2.0,
-        max_simulations=100,
-        max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
-        random_state=np.random.RandomState(999),
-        final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
-        use_observation_string=False,
-        allow_inconsistent_action_sets=False,
-        child_selection_policy=ChildSelectionPolicy.PUCT
-    )
 
     # Create random bots for players 1 and 2
-    # random_bot0 = pyspiel.make_uniform_random_bot(0, 77)
+    USE_ISMCTS_BOT = True
+    # USE_ISMCTS_BOT = False
+    if USE_ISMCTS_BOT:
+        bot0 = ISMCTSBot(
+            game=game,
+            evaluator=ismcts_evaluator,
+            uct_c=2.0,
+            max_simulations=30,
+            max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
+            random_state=np.random.RandomState(999),
+            final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+            use_observation_string=False,
+            allow_inconsistent_action_sets=False,
+            child_selection_policy=ChildSelectionPolicy.PUCT
+        )
+    else:
+        bot0 = pyspiel.make_uniform_random_bot(0, 77)
     random_bot1 = pyspiel.make_uniform_random_bot(1, 111)
     random_bot2 = pyspiel.make_uniform_random_bot(2, 222)
 
-    num_episodes = 7
+    if USE_ISMCTS_BOT:
+        num_episodes = 7
+    else:
+        num_episodes = 1500
+
     ismcts_returns = []
     for _ in range(num_episodes):
         state = game.new_initial_state()
-        bots = [ismcts_bot, random_bot1, random_bot2]
-        # bots = [random_bot0, random_bot1, random_bot2]
+        bots = [bot0, random_bot1, random_bot2]
         loop_count = 0
         while not state.is_terminal():
             loop_count += 1
-            print(f"Loop iteration: {loop_count}")
+            if USE_ISMCTS_BOT and loop_count % 10 == 0:
+                print(f"Loop iteration: {loop_count}")
             current_player = state.current_player()
             if state.is_chance_node():
                 outcomes = state.chance_outcomes()
@@ -64,6 +72,7 @@ def main():
         print(f"Game over. Returns: {final_returns}")
 
     print(f"ISMCTS average return over {num_episodes} episodes: {np.mean(ismcts_returns)}")
+
 
 if __name__ == "__main__":
     main()
