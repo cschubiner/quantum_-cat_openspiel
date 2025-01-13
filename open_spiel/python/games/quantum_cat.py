@@ -791,9 +791,11 @@ class QuantumCatObserver:
     if cp != pyspiel.PlayerId.TERMINAL and cp != pyspiel.PlayerId.CHANCE:
       pieces.append(f"p{cp}")
     pieces.append(f"phase={state._phase}")
+    # All predictions are public information
+    pieces.append(f"predictions={list(state._predictions)}")
+    
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(f"hand={state._hands[player]}")
-      pieces.append(f"my_prediction={state._predictions[player]}")
       pieces.append(f"led_color={state._led_color}")
 
     pieces.append("color_tokens=" + "\n".join(
