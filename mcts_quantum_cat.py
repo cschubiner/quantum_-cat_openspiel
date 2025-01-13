@@ -3,6 +3,7 @@
 import pyspiel
 import numpy as np
 from tqdm import tqdm
+from scipy import stats
 from open_spiel.python.algorithms.ismcts import (
     ISMCTSBot,
     ChildSelectionPolicy,
@@ -70,8 +71,18 @@ def main():
 
     mean_return = np.mean(ismcts_returns)
     std_return = np.std(ismcts_returns)
+    
+    # Calculate confidence interval for the true mean (if played infinite games)
+    confidence_interval = stats.t.interval(
+        alpha=0.90,  # 90% CI => 5th to 95th percentile
+        df=len(ismcts_returns)-1,
+        loc=mean_return,
+        scale=stats.sem(ismcts_returns)
+    )
+    
     print(f"ISMCTS results over {num_episodes} episodes:")
     print(f"  Average return: {mean_return:.3f} ± {std_return:.3f}")
+    print(f"  90% confidence interval for true mean: [{confidence_interval[0]:.3f}, {confidence_interval[1]:.3f}]")
 
 
 if __name__ == "__main__":
