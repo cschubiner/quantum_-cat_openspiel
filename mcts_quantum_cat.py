@@ -2,6 +2,7 @@
 
 import pyspiel
 import numpy as np
+from tqdm import tqdm
 from open_spiel.python.algorithms.ismcts import (
     ISMCTSBot,
     ChildSelectionPolicy,
@@ -46,14 +47,10 @@ def main():
         num_episodes = 1500
 
     ismcts_returns = []
-    for _ in range(num_episodes):
+    for _ in tqdm(range(num_episodes), desc="Playing episodes"):
         state = game.new_initial_state()
         bots = [bot0, random_bot1, random_bot2]
-        loop_count = 0
         while not state.is_terminal():
-            loop_count += 1
-            if USE_ISMCTS_BOT and loop_count % 10 == 0:
-                print(f"Loop iteration: {loop_count}")
             current_player = state.current_player()
             if state.is_chance_node():
                 outcomes = state.chance_outcomes()
@@ -71,7 +68,10 @@ def main():
         ismcts_returns.append(final_returns[0])  # Track the ISMCTS player's return
         print(f"Game over. Returns: {final_returns}")
 
-    print(f"ISMCTS average return over {num_episodes} episodes: {np.mean(ismcts_returns)}")
+    mean_return = np.mean(ismcts_returns)
+    std_return = np.std(ismcts_returns)
+    print(f"ISMCTS results over {num_episodes} episodes:")
+    print(f"  Average return: {mean_return:.3f} ± {std_return:.3f}")
 
 
 if __name__ == "__main__":
