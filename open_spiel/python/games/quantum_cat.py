@@ -756,8 +756,12 @@ class QuantumCatObserver:
     pieces.append(f"phase={state._phase}")
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(f"hand={state._hands[player]}")
-      pieces.append(f"my_prediction={state._predictions[player]}")
       pieces.append(f"led_color={state._led_color}")
+
+    # Show everyone's predictions (public info)
+    predictions_str = ", ".join(f"p{p}={state._predictions[p]}" 
+                              for p in range(self.num_players))
+    pieces.append(f"predictions=[{predictions_str}]")
     
     # Always show all players' color tokens (public info)
     pieces.append("color_tokens=" + "\n".join(
