@@ -74,7 +74,7 @@ def main():
     
     # Calculate confidence interval for the true mean (if played infinite games)
     confidence_interval = stats.t.interval(
-        alpha=0.90,  # 90% CI => 5th to 95th percentile
+        confidence=0.90,  # 90% CI => 5th to 95th percentile
         df=len(ismcts_returns)-1,
         loc=mean_return,
         scale=stats.sem(ismcts_returns)
