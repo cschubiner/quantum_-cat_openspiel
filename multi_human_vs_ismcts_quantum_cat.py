@@ -92,7 +92,9 @@ def main(_):
             # Chance node -> pick an outcome randomly
             outcomes = state.chance_outcomes()
             print('outcomes:', outcomes)
-            action, _ = random_state.choice(outcomes)
+            # Split outcomes into actions and probabilities
+            actions, probabilities = zip(*outcomes)
+            action = random_state.choice(actions, p=probabilities)
             state.apply_action(action)
             continue
 
