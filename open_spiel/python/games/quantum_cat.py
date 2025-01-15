@@ -263,7 +263,12 @@ class QuantumCatGameState(pyspiel.State):
       f"TricksWon={self._tricks_won}, LedColor={self._led_color}\n"
       f"Paradoxed={self._has_paradoxed}, GameOver={self._game_over}\n"
       f"ColorTokens={self._color_tokens}\n"
-      f"BoardOwnership=\n{self._board_ownership}\n"
+      "BoardOwnership=\n"
+      + "\n".join(
+          f"{_COLORS[c_idx]} {self._board_ownership[c_idx]}"
+          for c_idx in range(self._num_colors)
+        )
+      + "\n"
       f"CompletedTricks={self._completed_tricks}"
     )
 
