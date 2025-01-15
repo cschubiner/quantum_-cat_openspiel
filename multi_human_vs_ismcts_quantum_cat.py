@@ -134,7 +134,7 @@ def main(_):
 
             input("(Press ENTER to continue...)")
             clear_or_separate()
-            input("(Press ENTER to hand over to the next player...)")
+            input(f"(Press ENTER to hand over to the next player {state.current_player()}...)")
             clear_or_separate()
 
         else:
