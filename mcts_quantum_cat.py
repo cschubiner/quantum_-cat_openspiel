@@ -16,7 +16,8 @@ from open_spiel.python.games import quantum_cat
 
 
 def main():
-    game = pyspiel.load_game("python_quantum_cat", {"players": 5})
+    NUM_RANDOM_BOTS = 4  # Number of random bots to create
+    game = pyspiel.load_game("python_quantum_cat", {"players": 1 + NUM_RANDOM_BOTS})
 
     # Create an ISMCTS bot for player 0
     ismcts_evaluator = RandomRolloutEvaluator(n_rollouts=2, random_state=np.random.RandomState(42))
@@ -39,10 +40,10 @@ def main():
         )
     else:
         bot0 = pyspiel.make_uniform_random_bot(0, 77)
-    random_bot1 = pyspiel.make_uniform_random_bot(1, 111)
-    random_bot2 = pyspiel.make_uniform_random_bot(2, 222)
-    random_bot3 = pyspiel.make_uniform_random_bot(3, 333)
-    random_bot4 = pyspiel.make_uniform_random_bot(4, 444)
+    random_bots = [
+        pyspiel.make_uniform_random_bot(player_id, 100 + player_id*111)
+        for player_id in range(1, NUM_RANDOM_BOTS + 1)
+    ]
 
     if USE_ISMCTS_BOT:
         num_episodes = 1000
@@ -52,7 +53,7 @@ def main():
     ismcts_returns = []
     for _ in tqdm(range(num_episodes), desc="Playing episodes"):
         state = game.new_initial_state()
-        bots = [bot0, random_bot1, random_bot2, random_bot3, random_bot4]
+        bots = [bot0] + random_bots
         while not state.is_terminal():
             current_player = state.current_player()
             if state.is_chance_node():
