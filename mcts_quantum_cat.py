@@ -15,7 +15,7 @@ from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
 from open_spiel.python.games import quantum_cat
 
 
-NUM_RANDOM_BOTS = 4
+NUM_RANDOM_BOTS = 3
 
 def main():
     game = pyspiel.load_game("python_quantum_cat", {"players": 1 + NUM_RANDOM_BOTS})
@@ -82,10 +82,9 @@ def main():
                 loc=mean_return,
                 scale=stats.sem(ismcts_returns)
             )
-            half_width = (confidence_interval[1] - confidence_interval[0]) / 2.0
             print(f"ISMCTS results over {_ + 1} episodes:")
             print(f"  Average return: {mean_return:.3f} ± {std_return:.3f}")
-            print(f"  90% confidence interval: {mean_return:.3f} ± {half_width:.3f}")
+            print(f"  90% confidence interval: [{confidence_interval[0]:.3f}, {confidence_interval[1]:.3f}]")
             
         print(f"Game over. Returns: {final_returns}")
 
@@ -100,10 +99,9 @@ def main():
         scale=stats.sem(ismcts_returns)
     )
     
-    half_width = (confidence_interval[1] - confidence_interval[0]) / 2.0
     print(f"ISMCTS results over {num_episodes} episodes:")
     print(f"  Average return: {mean_return:.3f} ± {std_return:.3f}")
-    print(f"  90% confidence interval for true mean: {mean_return:.3f} ± {half_width:.3f}")
+    print(f"  90% confidence interval for true mean: [{confidence_interval[0]:.3f}, {confidence_interval[1]:.3f}]")
 
 
 if __name__ == "__main__":
