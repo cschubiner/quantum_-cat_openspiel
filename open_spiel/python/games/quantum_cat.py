@@ -816,7 +816,11 @@ class QuantumCatObserver:
     if trick_plays:
       pieces.append("Trick:" + ",".join(trick_plays))
 
-    pieces.append(f"board_ownership=\n{state._board_ownership}")
+    board_str = [
+        f"{_COLORS[c_idx]}: {state._board_ownership[c_idx]}"
+        for c_idx in range(state._num_colors)
+    ]
+    pieces.append("board_ownership=\n" + "\n".join(board_str))
     return " ".join(str(p) for p in pieces)
 
 
