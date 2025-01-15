@@ -130,6 +130,8 @@ def main(_):
             print(f"You chose: {state.action_to_string(current_player, chosen_action)}")
             state.apply_action(chosen_action)
 
+            print(f"Next turn: Player {state.current_player()}")
+
             input("(Press ENTER to continue...)")
             clear_or_separate()
             input("(Press ENTER to hand over to the next player...)")
@@ -145,6 +147,8 @@ def main(_):
                 action_str = "Discard a rank"
             print(f"ISMCTS Bot {current_player} chooses: {action_str}")
             state.apply_action(chosen_action)
+
+            print(f"Next turn: Player {state.current_player()}")
 
             input("(Bot finished. Press ENTER to continue...)")
             clear_or_separate()
