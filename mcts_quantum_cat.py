@@ -82,9 +82,10 @@ def main():
                 loc=mean_return,
                 scale=stats.sem(ismcts_returns)
             )
+            plus_minus_ci = (confidence_interval[1] - confidence_interval[0]) / 2
             print(f"ISMCTS results over {_ + 1} episodes:")
             print(f"  Average return: {mean_return:.3f} ± {std_return:.3f}")
-            print(f"  90% confidence interval: [{confidence_interval[0]:.3f}, {confidence_interval[1]:.3f}]")
+            print(f"  90% confidence interval: {mean_return:.3f} ± {plus_minus_ci:.3f}")
             
         print(f"Game over. Returns: {final_returns}")
 
@@ -98,10 +99,11 @@ def main():
         loc=mean_return,
         scale=stats.sem(ismcts_returns)
     )
+    plus_minus_ci = (confidence_interval[1] - confidence_interval[0]) / 2
     
     print(f"ISMCTS results over {num_episodes} episodes:")
     print(f"  Average return: {mean_return:.3f} ± {std_return:.3f}")
-    print(f"  90% confidence interval for true mean: [{confidence_interval[0]:.3f}, {confidence_interval[1]:.3f}]")
+    print(f"  90% confidence interval for true mean: {mean_return:.3f} ± {plus_minus_ci:.3f}")
 
 
 if __name__ == "__main__":
