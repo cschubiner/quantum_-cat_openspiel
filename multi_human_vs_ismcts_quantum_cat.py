@@ -140,6 +140,14 @@ def main(_):
         else:
             # Bot turn
             ismcts_bot = bots[current_player]
+
+            # Print bot's observer state
+            observer_str = observer.string_from(state, current_player)
+            print(f"--- Player {current_player}'s Turn (Bot) ---")
+            print("Bot Observer State (scroll up if you really want to read it):")
+            print(observer_str)
+            print("\n" * 50)
+
             chosen_action = ismcts_bot.step(state)
             action_str = state.action_to_string(current_player, chosen_action)
             if action_str.startswith("Discard: rank="):
