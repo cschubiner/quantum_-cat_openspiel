@@ -98,17 +98,14 @@ def main(_):
             state.apply_action(action)
             continue
 
-        # Observe
-        observer_str = observer.string_from(state, current_player)
-
-        # Show partial info
-        print(f"--- Player {current_player}'s Turn ---")
-        print("Observation:")
-        print(observer_str)
-        print(f"Tricks won so far (all players): {state._tricks_won}")
-        print()
-
+        # Show partial info only if current seat is human
         if seat_types[current_player] == "human":
+            observer_str = observer.string_from(state, current_player)
+            print(f"--- Player {current_player}'s Turn ---")
+            print("Observation:")
+            print(observer_str)
+            print(f"Tricks won so far (all players): {state._tricks_won}")
+            print()
             # Human turn
             legal_moves = state.legal_actions(current_player)
             # Display action menu
