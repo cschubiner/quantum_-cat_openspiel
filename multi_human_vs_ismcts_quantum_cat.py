@@ -142,7 +142,11 @@ def main(_):
             # Bot turn
             ismcts_bot = bots[current_player]
             chosen_action = ismcts_bot.step(state)
-            print(f"ISMCTS Bot {current_player} chooses: {state.action_to_string(current_player, chosen_action)}")
+            action_str = state.action_to_string(current_player, chosen_action)
+            if action_str.startswith("Discard: rank="):
+                # Hide the rank: just say "Discard a rank"
+                action_str = "Discard a rank"
+            print(f"ISMCTS Bot {current_player} chooses: {action_str}")
             state.apply_action(chosen_action)
 
             input("(Bot finished. Press ENTER to continue...)")
