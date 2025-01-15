@@ -43,7 +43,7 @@ def main():
     random_bot2 = pyspiel.make_uniform_random_bot(2, 222)
 
     if USE_ISMCTS_BOT:
-        num_episodes = 7
+        num_episodes = 1000
     else:
         num_episodes = 1500
 
@@ -67,6 +67,21 @@ def main():
 
         final_returns = state.returns()
         ismcts_returns.append(final_returns[0])  # Track the ISMCTS player's return
+        
+        # Print running stats every 5 episodes in ISMCTS mode
+        if USE_ISMCTS_BOT and (_ + 1) % 5 == 0:
+            mean_return = np.mean(ismcts_returns)
+            std_return = np.std(ismcts_returns)
+            confidence_interval = stats.t.interval(
+                confidence=0.90,
+                df=len(ismcts_returns)-1,
+                loc=mean_return,
+                scale=stats.sem(ismcts_returns)
+            )
+            print(f"ISMCTS results over {_ + 1} episodes:")
+            print(f"  Average return: {mean_return:.3f} ± {std_return:.3f}")
+            print(f"  90% confidence interval: [{confidence_interval[0]:.3f}, {confidence_interval[1]:.3f}]")
+            
         print(f"Game over. Returns: {final_returns}")
 
     mean_return = np.mean(ismcts_returns)
