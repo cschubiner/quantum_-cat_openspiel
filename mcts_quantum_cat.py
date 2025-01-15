@@ -15,8 +15,9 @@ from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
 from open_spiel.python.games import quantum_cat
 
 
+NUM_RANDOM_BOTS = 4
+
 def main():
-    NUM_RANDOM_BOTS = 4  # Number of random bots to create
     game = pyspiel.load_game("python_quantum_cat", {"players": 1 + NUM_RANDOM_BOTS})
 
     # Create an ISMCTS bot for player 0
