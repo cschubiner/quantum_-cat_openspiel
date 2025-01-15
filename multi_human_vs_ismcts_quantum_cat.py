@@ -27,7 +27,7 @@ from open_spiel.python.games import quantum_cat
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_humans", 2, "Number of human players.")
 flags.DEFINE_integer("num_bots", 1, "Number of ISMCTS bot players.")
-flags.DEFINE_integer("max_simulations", 3000, "Max simulations for each ISMCTS bot.")
+flags.DEFINE_integer("max_simulations", 8000, "Max simulations for each ISMCTS bot.")
 flags.DEFINE_integer("random_seed", 1234, "Random seed for reproducibility.")
 flags.DEFINE_bool("clear_screen", True, "If True, prints many blank lines between turns.")
 
@@ -72,7 +72,7 @@ def main(_):
                 game=game,
                 evaluator=evaluator,
                 uct_c=2.0,
-                max_simulations=20000,
+                max_simulations=FLAGS.max_simulations,
                 max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
                 random_state=np.random.RandomState(FLAGS.random_seed + seat),
                 final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
