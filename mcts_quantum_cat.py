@@ -22,14 +22,14 @@ def main():
     ismcts_evaluator = RandomRolloutEvaluator(n_rollouts=2, random_state=np.random.RandomState(42))
 
     # Create random bots for players 1 and 2
-    # USE_ISMCTS_BOT = True
-    USE_ISMCTS_BOT = False
+    USE_ISMCTS_BOT = True
+    # USE_ISMCTS_BOT = False
     if USE_ISMCTS_BOT:
         bot0 = ISMCTSBot(
             game=game,
             evaluator=ismcts_evaluator,
             uct_c=2.0,
-            max_simulations=70,
+            max_simulations=3000,
             max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
             random_state=np.random.RandomState(999),
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
