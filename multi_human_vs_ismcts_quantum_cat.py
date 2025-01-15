@@ -66,13 +66,13 @@ def main(_):
     for seat in range(total_players):
         if seat_types[seat] == "bot":
             evaluator = RandomRolloutEvaluator(
-                n_rollouts=2, random_state=np.random.RandomState(FLAGS.random_seed + seat)
+                n_rollouts=20, random_state=np.random.RandomState(FLAGS.random_seed + seat)
             )
             bot = ISMCTSBot(
                 game=game,
                 evaluator=evaluator,
                 uct_c=2.0,
-                max_simulations=FLAGS.max_simulations,
+                max_simulations=20000,
                 max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
                 random_state=np.random.RandomState(FLAGS.random_seed + seat),
                 final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
