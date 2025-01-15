@@ -29,7 +29,7 @@ def main():
             game=game,
             evaluator=ismcts_evaluator,
             uct_c=2.0,
-            max_simulations=3000,
+            max_simulations=500,
             max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
             random_state=np.random.RandomState(999),
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
