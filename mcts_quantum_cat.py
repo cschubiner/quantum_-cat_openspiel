@@ -66,30 +66,22 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
     def _compute_suit_following_distribution(self, state, legal_actions):
         """
         A helper that gives probabilities for each legal action, encouraging:
-          - If you haven't used the led color at all, always follow that color (prob=1).
-          - If you've used it once already, ~60% chance to follow suit, 40% to deviate.
-          - If deviating, 75% of those times pick Red (if possible), else pick from others.
+          - If you haven't used the led color at all, follow that color at 100% prob.
+          - Once you've removed that color token, follow suit 60%/deviate 40%.
+          - If you deviate, 75% trump vs. 25% other (but re-scale if no trump or no other).
         """
-        # Identify led color
         led_color = state._led_color  # e.g. "R", "B", "Y", "G", or None if no lead
         current_player = state.current_player()
-        color_tokens = state._color_tokens[current_player]  # bool array, shape [4]
-        # color index: 0=R,1=B,2=Y,3=G
+        color_tokens = state._color_tokens[current_player]  # shape [4]
         color_map = {"R": 0, "B": 1, "Y": 2, "G": 3}
 
-        # If no suit is led, we just pick uniform among legals
+        # If nothing is led, fallback to uniform among legals.
         if led_color is None:
             return np.ones(len(legal_actions)) / len(legal_actions)
 
         led_idx = color_map[led_color]
-        # Count how many times we've used that led color so far
-        # (We do it by scanning board_ownership or by seeing if color_tokens is still True.)
-        # But simpler logic: if color_tokens[led_idx] is still True, that means we
-        # haven't removed that color. We can interpret that as not having forced a color removal,
-        # which typically means we haven't "left" that suit in a prior trick.
-        # For the example requested, we'll treat "unused" as color_tokens[led_idx] == True.
 
-        # Step 1: gather subsets of legal actions
+        # Partition legal_actions by color
         follow_actions = []
         trump_actions = []
         other_actions = []
@@ -97,69 +89,94 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
             c_idx = a // state._num_card_types
             if c_idx == led_idx:
                 follow_actions.append(a)
-            elif c_idx == 0:  # 0 means "R"
+            elif c_idx == 0:  # 0 => "R"
                 trump_actions.append(a)
             else:
                 other_actions.append(a)
 
-        # If we cannot follow because we have no valid follow actions, then we just deviate:
+        # If no possible follow => must deviate (some mix of trump vs. other).
         if len(follow_actions) == 0:
-            # 75% trump, 25% everything else
-            if len(trump_actions) == 0 and len(other_actions) == 0:
-                # No choice
+            distribution = np.zeros(len(legal_actions), dtype=float)
+            t_count = len(trump_actions)
+            o_count = len(other_actions)
+
+            if t_count == 0 and o_count == 0:
+                # Shouldn't happen if legal_actions is nonempty, but just in case:
                 return np.ones(len(legal_actions)) / len(legal_actions)
 
-            # Weighted distribution among trump vs. others
-            distribution = np.zeros(len(legal_actions), dtype=float)
-            for i, a in enumerate(legal_actions):
-                if a in trump_actions:
-                    distribution[i] = 0.75 / len(trump_actions)
-                elif a in other_actions:
-                    distribution[i] = 0.25 / len(other_actions)
+            # We'll treat the "0.75 / 0.25" as a ratio, then re-scale if one portion is missing.
+            # Example approach: if no 'other_actions', all deviate-prob goes to trump (and vice versa).
+            deviate_prob = 1.0  # the entire probability goes to "deviate" scenario
+            # We'll keep the 75:25 ratio if both sets exist:
+            ratio_trump = 0.75
+            ratio_other = 0.25
+
+            if t_count > 0 and o_count > 0:
+                # normal 75/25 split
+                total_weight = ratio_trump + ratio_other  # 1.0
+                # portion for trump vs other:
+                portion_trump = (ratio_trump / total_weight) * deviate_prob
+                portion_other = (ratio_other / total_weight) * deviate_prob
+                # assign them
+                for i, a in enumerate(legal_actions):
+                    if a in trump_actions:
+                        distribution[i] = portion_trump / t_count
+                    elif a in other_actions:
+                        distribution[i] = portion_other / o_count
+            elif t_count > 0:
+                # only trump actions => entire deviate prob = 1 => all on trump
+                for i, a in enumerate(legal_actions):
+                    if a in trump_actions:
+                        distribution[i] = deviate_prob / t_count
+            else:
+                # only other actions => entire deviate prob = 1 => all on other
+                for i, a in enumerate(legal_actions):
+                    if a in other_actions:
+                        distribution[i] = deviate_prob / o_count
+
             return distribution
 
-        # If color_tokens[led_idx] is still True => treat that as "never left suit"
-        # => always follow suit with probability 1.0
+        # If color_tokens[led_idx] is still True => "never left suit", follow 100%:
         if color_tokens[led_idx]:
             distribution = np.zeros(len(legal_actions), dtype=float)
+            # all legal follow actions share probability 1
             for i, a in enumerate(legal_actions):
                 if a in follow_actions:
                     distribution[i] = 1.0 / len(follow_actions)
             return distribution
 
-        # Else, we must have used that color once (or removed that token).
-        # We'll follow suit 60% of the time, deviate 40% of the time.
-        # Among the deviate portion, 75% on trump, 25% on others.
+        # Else we have used/removed that suit. Follow ~60%, deviate ~40% (split 75/25 to trump/others).
         distribution = np.zeros(len(legal_actions), dtype=float)
+        f_count = len(follow_actions)
+        t_count = len(trump_actions)
+        o_count = len(other_actions)
 
-        if len(trump_actions) == 0 and len(other_actions) == 0:
-            # If we cannot deviate (no trump or other color),
-            # then we must follow 100% of the time
-            for i, a in enumerate(legal_actions):
-                if a in follow_actions:
-                    distribution[i] = 1.0 / len(follow_actions)
-            return distribution
-
-        # Normal scenario: some follow possible, some deviate possible
-        # portion for follow
         follow_prob = 0.60
-        # portion for deviate
         deviate_prob = 0.40
-        # within deviate => 75% trump, 25% others
-        dev_trump_prob = 0.75 * deviate_prob
-        dev_other_prob = 0.25 * deviate_prob
 
-        total_follow = len(follow_actions)
-        total_trump = len(trump_actions)
-        total_other = len(other_actions)
+        # among deviate portion => 75% to trump, 25% to other
+        ratio_trump = 0.75
+        ratio_other = 0.25
+        total_weight = ratio_trump + ratio_other  # 1.0
 
+        # if t_count>0 and o_count>0 => normal scenario
+        # if t_count=0 => all deviate to other
+        # if o_count=0 => all deviate to trump
         for i, a in enumerate(legal_actions):
             if a in follow_actions:
-                distribution[i] = follow_prob / total_follow
-            elif a in trump_actions:
-                distribution[i] = dev_trump_prob / total_trump
-            else:
-                distribution[i] = dev_other_prob / total_other
+                # follow-suit portion
+                distribution[i] = follow_prob / f_count
+            elif t_count > 0 and o_count > 0:
+                if a in trump_actions:
+                    distribution[i] = (deviate_prob * ratio_trump / total_weight) / t_count
+                elif a in other_actions:
+                    distribution[i] = (deviate_prob * ratio_other / total_weight) / o_count
+            elif t_count > 0:  # only trump
+                if a in trump_actions:
+                    distribution[i] = deviate_prob / t_count
+            else:  # only others
+                if a in other_actions:
+                    distribution[i] = deviate_prob / o_count
 
         return distribution
 
@@ -183,8 +200,8 @@ def main():
             game=game,
             evaluator=ismcts_evaluator,
             uct_c=2.0,
-            # max_simulations=500,
-            max_simulations=2200,
+            max_simulations=500,
+            # max_simulations=2200,
             max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
             random_state=np.random.RandomState(999),
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
