@@ -80,7 +80,7 @@ class QuantumCatGame(pyspiel.Game):
     assert 3 <= num_players <= 5, "Only 3..5 players supported."
 
     # Card range depends on #players
-    self.max_card_value = {3: 7, 4: 8, 5: 9}[num_players]
+    self.max_card_value = {3: 6, 4: 8, 5: 9}[num_players]
     # 5 copies of each rank
     self.total_cards = 5 * self.max_card_value
     self.num_card_types = self.max_card_value
@@ -96,8 +96,8 @@ class QuantumCatGame(pyspiel.Game):
       self.cards_per_player_initial = 10
       self.num_tricks = 8
     else:  # 3 players => each gets 11 => discards 1 => 10 => 10 tricks
-      self.cards_per_player_initial = 11
-      self.num_tricks = 10
+      self.cards_per_player_initial = 10 
+      self.num_tricks = 8
 
   def new_initial_state(self):
     return QuantumCatGameState(self)
