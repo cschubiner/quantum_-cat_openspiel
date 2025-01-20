@@ -92,12 +92,33 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
         max_count = max(hand_vec[r] for r in legal_actions)
         most_ranks = [r for r in legal_actions if hand_vec[r] == max_count]
         distribution = []
+        
+        # Check how many 'others' are left
+        others_count = len(legal_actions) - len(most_ranks)
+        
         for r in legal_actions:
             if r in most_ranks:
-                distribution.append(0.85 / len(most_ranks))
+                if others_count == 0:
+                    # If *all* ranks are "most," give them uniform probability
+                    distribution.append(1.0 / len(legal_actions))
+                else:
+                    # 85% portion among 'most_ranks'
+                    distribution.append(0.85 / len(most_ranks))
             else:
-                others_count = len(legal_actions) - len(most_ranks)
-                distribution.append(0.15 / others_count if others_count > 0 else 0.0)
+                # If there *are* others
+                if others_count > 0:
+                    distribution.append(0.15 / others_count)
+                else:
+                    distribution.append(0.0)
+
+        # Normalize if needed
+        s = sum(distribution)
+        if s > 1e-12:  # guard against divide by zero
+            distribution = [x / s for x in distribution]
+        else:
+            # fallback uniform if something went wrong
+            distribution = [1.0 / len(legal_actions)] * len(legal_actions)
+            
         return distribution
 
     def _get_prediction_distribution(self, state, legal_actions):
@@ -134,9 +155,19 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
                     i_near = legal_actions.index(a_val)
                     distribution[i_near] += share
 
-        # (C) 10% uniform
-        for i in range(len(legal_actions)):
-            distribution[i] += 0.10 / len(legal_actions)
+        # (C) 10% uniform among all legal predictions
+        if len(legal_actions) > 0:
+            each = 0.10 / len(legal_actions)
+            for i in range(len(legal_actions)):
+                distribution[i] += each
+
+        # Normalize so sum(distribution) == 1
+        s = sum(distribution)
+        if s > 1e-12:
+            distribution = [x / s for x in distribution]
+        else:
+            # fallback uniform
+            distribution = [1.0 / len(legal_actions)] * len(legal_actions)
 
         return distribution
         led_color = state._led_color  # e.g. "R", "B", "Y", "G", or None if no lead
