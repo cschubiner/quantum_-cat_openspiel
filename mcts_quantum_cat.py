@@ -29,7 +29,15 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
         if not legal_actions:
             return []
 
-        # Compute a simple distribution for 'suit-following' logic.
+        if state._phase == 1:
+            distribution = self._get_discard_distribution(state, legal_actions)
+            return list(zip(legal_actions, distribution))
+
+        elif state._phase == 2:
+            distribution = self._get_prediction_distribution(state, legal_actions)
+            return list(zip(legal_actions, distribution))
+
+        # else: trick-taking phase => existing fallback
         action_probs = self._compute_suit_following_distribution(state, legal_actions)
         return list(zip(legal_actions, action_probs))
 
@@ -53,8 +61,15 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
             else:
                 legals = working_state.legal_actions(current_player)
                 if legals:
-                    action_probs = self._compute_suit_following_distribution(working_state, legals)
-                    chosen = self._random_state.choice(legals, p=action_probs)
+                    if working_state._phase == 1:
+                        distribution = self._get_discard_distribution(working_state, legals)
+                    elif working_state._phase == 2:
+                        distribution = self._get_prediction_distribution(working_state, legals)
+                    else:
+                        # Trick-taking
+                        distribution = self._compute_suit_following_distribution(working_state, legals)
+
+                    chosen = self._random_state.choice(legals, p=distribution)
                     working_state.apply_action(chosen)
                 else:
                     # No moves: must paradox, or the game might handle it automatically.
@@ -70,6 +85,60 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
           - Once you've removed that color token, follow suit 60%/deviate 40%.
           - If you deviate, 75% trump vs. 25% other (but re-scale if no trump or no other).
         """
+
+    def _get_discard_distribution(self, state, legal_actions):
+        """Return 85%-most-frequent-rank, 15%-other discard distribution."""
+        hand_vec = state._hands[state.current_player()]
+        max_count = max(hand_vec[r] for r in legal_actions)
+        most_ranks = [r for r in legal_actions if hand_vec[r] == max_count]
+        distribution = []
+        for r in legal_actions:
+            if r in most_ranks:
+                distribution.append(0.85 / len(most_ranks))
+            else:
+                others_count = len(legal_actions) - len(most_ranks)
+                distribution.append(0.15 / others_count if others_count > 0 else 0.0)
+        return distribution
+
+    def _get_prediction_distribution(self, state, legal_actions):
+        """
+        Return distribution for [101..104] => 1..4:
+          - 70% on 'guess' = min(max(count_of_highest_rank,1),4),
+          - 20% on ±1 (if valid),
+          - 10% uniform among all 4 predictions.
+        """
+        # find highest rank in your hand, clamp how many copies to 1..4
+        current_player = state.current_player()
+        hand_vec = state._hands[current_player]
+        best_rank_idx = max((i for i in range(len(hand_vec)) if hand_vec[i] > 0), default=0)
+        best_count = hand_vec[best_rank_idx]
+        guess = min(max(best_count, 1), 4)
+
+        distribution = [0.0] * len(legal_actions)  # e.g. legal_actions = [101..104]
+
+        # (A) 70% on 'guess'
+        guess_action = 100 + guess  # e.g., guess=2 => 102
+        if guess_action in legal_actions:
+            i_guess = legal_actions.index(guess_action)
+            distribution[i_guess] += 0.70
+
+        # (B) 20% on ±1 if valid
+        near_candidates = []
+        if guess > 1: near_candidates.append(guess - 1)
+        if guess < 4: near_candidates.append(guess + 1)
+        if near_candidates:
+            share = 0.20 / len(near_candidates)
+            for c in near_candidates:
+                a_val = 100 + c
+                if a_val in legal_actions:
+                    i_near = legal_actions.index(a_val)
+                    distribution[i_near] += share
+
+        # (C) 10% uniform
+        for i in range(len(legal_actions)):
+            distribution[i] += 0.10 / len(legal_actions)
+
+        return distribution
         led_color = state._led_color  # e.g. "R", "B", "Y", "G", or None if no lead
         current_player = state.current_player()
         color_tokens = state._color_tokens[current_player]  # shape [4]
