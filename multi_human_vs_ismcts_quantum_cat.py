@@ -21,6 +21,7 @@ from open_spiel.python.algorithms.ismcts import (
     UNLIMITED_NUM_WORLD_SAMPLES
 )
 from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
+from mcts_quantum_cat import TrickFollowingEvaluator
 
 from open_spiel.python.games import quantum_cat
 
@@ -65,7 +66,7 @@ def main(_):
     bots = {}
     for seat in range(total_players):
         if seat_types[seat] == "bot":
-            evaluator = RandomRolloutEvaluator(
+            evaluator = TrickFollowingEvaluator(
                 n_rollouts=3, random_state=np.random.RandomState(FLAGS.random_seed + seat)
             )
             bot = ISMCTSBot(
