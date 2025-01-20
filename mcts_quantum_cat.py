@@ -21,7 +21,10 @@ def main():
     game = pyspiel.load_game("python_quantum_cat", {"players": 1 + NUM_RANDOM_BOTS})
 
     # Create an ISMCTS bot for player 0
-    ismcts_evaluator = RandomRolloutEvaluator(n_rollouts=2, random_state=np.random.RandomState(42))
+    ismcts_evaluator = TrickFollowingEvaluator(
+        n_rollouts=2,
+        random_state=np.random.RandomState(42)
+    )
 
     # Create random bots for players 1 and 2
     USE_ISMCTS_BOT = True
