@@ -22,6 +22,13 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
     they follow it with high probability. Otherwise they might deviate to trump
     or another suit.
     """
+    
+    def _normalize(self, distribution):
+        """Helper to ensure probability distributions sum to 1."""
+        s = np.sum(distribution)
+        if s > 1e-12:
+            return distribution / s
+        return np.ones_like(distribution) / len(distribution)
 
     def __init__(
         self,
@@ -129,15 +136,8 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
                 else:
                     distribution.append(0.0)
 
-        # Normalize if needed
-        s = sum(distribution)
-        if s > 1e-12:  # guard against divide by zero
-            distribution = [x / s for x in distribution]
-        else:
-            # fallback uniform if something went wrong
-            distribution = [1.0 / len(legal_actions)] * len(legal_actions)
-
-        return distribution
+        # Normalize the distribution
+        return self._normalize(np.array(distribution))
 
     def _get_prediction_distribution(self, state, legal_actions):
         """
@@ -179,15 +179,8 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
             for i in range(len(legal_actions)):
                 distribution[i] += each
 
-        # Normalize so sum(distribution) == 1
-        s = sum(distribution)
-        if s > 1e-12:
-            distribution = [x / s for x in distribution]
-        else:
-            # fallback uniform
-            distribution = [1.0 / len(legal_actions)] * len(legal_actions)
-
-        return distribution
+        # Normalize the distribution
+        return self._normalize(np.array(distribution))
 
     def _compute_suit_following_distribution(self, state, legal_actions):
         """
@@ -204,7 +197,7 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
 
         # If nothing is led, fallback to uniform among legals.
         if led_color is None:
-            return np.ones(len(legal_actions)) / len(legal_actions)
+            return self._normalize(np.ones(len(legal_actions)))
 
         led_idx = color_map[led_color]
 
@@ -229,7 +222,7 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
 
             if t_count == 0 and o_count == 0:
                 # Shouldn't happen if legal_actions is nonempty, but just in case:
-                return np.ones(len(legal_actions)) / len(legal_actions)
+                return self._normalize(np.ones(len(legal_actions)))
 
             # We'll treat the "0.75 / 0.25" as a ratio, then re-scale if one portion is missing.
             # Example approach: if no 'other_actions', all deviate-prob goes to trump (and vice versa).
@@ -261,7 +254,7 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
                     if a in other_actions:
                         distribution[i] = deviate_prob / o_count
 
-            return distribution
+            return self._normalize(distribution)
 
         # Check if the player has already placed any token in the led color on the board
         has_used_led_color = np.any(state._board_ownership[led_idx] == current_player)
@@ -301,7 +294,7 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
                 if a in other_actions:
                     distribution[i] += self._deviate_prob / o_count
 
-        return distribution
+        return self._normalize(distribution)
 
 
 NUM_RANDOM_BOTS = 2
