@@ -67,7 +67,7 @@ def main(_):
     for seat in range(total_players):
         if seat_types[seat] == "bot":
             evaluator = TrickFollowingEvaluator(
-                n_rollouts=3, random_state=np.random.RandomState(FLAGS.random_seed + seat)
+                n_rollouts=2, random_state=np.random.RandomState(FLAGS.random_seed + seat)
             )
             bot = ISMCTSBot(
                 game=game,
@@ -151,10 +151,9 @@ def main(_):
 
             chosen_action = ismcts_bot.step(state)
             action_str = state.action_to_string(current_player, chosen_action)
-            if action_str.startswith("Discard: rank="):
-                # Hide the rank: just say "Discard a rank"
-                action_str = "Discard a rank"
             print(f"ISMCTS Bot {current_player} chooses: {action_str}")
+
+            print("\n" * 50)
             state.apply_action(chosen_action)
 
             print(f"Next turn: Player {state.current_player()}")

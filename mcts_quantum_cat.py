@@ -78,13 +78,6 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
 
         return working_state.returns()
 
-    def _compute_suit_following_distribution(self, state, legal_actions):
-        """
-        A helper that gives probabilities for each legal action, encouraging:
-          - If you haven't used the led color at all, follow that color at 100% prob.
-          - Once you've removed that color token, follow suit 60%/deviate 40%.
-          - If you deviate, 75% trump vs. 25% other (but re-scale if no trump or no other).
-        """
 
     def _get_discard_distribution(self, state, legal_actions):
         """Return 85%-most-frequent-rank, 15%-other discard distribution."""
@@ -92,10 +85,10 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
         max_count = max(hand_vec[r] for r in legal_actions)
         most_ranks = [r for r in legal_actions if hand_vec[r] == max_count]
         distribution = []
-        
+
         # Check how many 'others' are left
         others_count = len(legal_actions) - len(most_ranks)
-        
+
         for r in legal_actions:
             if r in most_ranks:
                 if others_count == 0:
@@ -118,7 +111,7 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
         else:
             # fallback uniform if something went wrong
             distribution = [1.0 / len(legal_actions)] * len(legal_actions)
-            
+
         return distribution
 
     def _get_prediction_distribution(self, state, legal_actions):
@@ -170,6 +163,15 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
             distribution = [1.0 / len(legal_actions)] * len(legal_actions)
 
         return distribution
+
+    def _compute_suit_following_distribution(self, state, legal_actions):
+        """
+        A helper that gives probabilities for each legal action, encouraging:
+          - If you haven't used the led color at all, follow that color at 100% prob.
+          - Once you've removed that color token, follow suit 60%/deviate 40%.
+          - If you deviate, 75% trump vs. 25% other (but re-scale if no trump or no other).
+        """
+
         led_color = state._led_color  # e.g. "R", "B", "Y", "G", or None if no lead
         current_player = state.current_player()
         color_tokens = state._color_tokens[current_player]  # shape [4]
@@ -287,10 +289,12 @@ def main():
     game = pyspiel.load_game("python_quantum_cat", {"players": 1 + NUM_RANDOM_BOTS})
 
     # Create an ISMCTS bot for player 0
-    ismcts_evaluator = TrickFollowingEvaluator(
-        n_rollouts=2,
-        random_state=np.random.RandomState(42)
-    )
+    # ismcts_evaluator = TrickFollowingEvaluator(
+    #     n_rollouts=2,
+    #     random_state=np.random.RandomState(42)
+    # )
+    ismcts_evaluator = RandomRolloutEvaluator(n_rollouts=2, random_state=np.random.RandomState(42))
+
 
     # Create random bots for players 1 and 2
     USE_ISMCTS_BOT = True
@@ -341,7 +345,7 @@ def main():
 
         final_returns = state.returns()
         ismcts_returns.append(final_returns[0])  # Track the ISMCTS player's return
-        
+
         # Print running stats every 5 episodes in ISMCTS mode
         if USE_ISMCTS_BOT and (_ + 1) % 5 == 0:
             mean_return = np.mean(ismcts_returns)
@@ -356,7 +360,7 @@ def main():
             print(f"ISMCTS results over {_ + 1} episodes:")
             print(f"  Average return: {mean_return:.3f} ± {std_return:.3f}")
             print(f"  90% confidence interval: {mean_return:.3f} ± {plus_minus_ci:.3f}")
-            
+
         print(f"Game over. Returns: {final_returns}")
 
 

@@ -35,18 +35,18 @@ from open_spiel.python.games import quantum_cat
 ###############################################################################
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_episodes", type=int, default=50,
+    parser.add_argument("--num_episodes", type=int, default=50000,
                         help="Number of episodes to run.")
-    parser.add_argument("--x_random_rollout_bots", type=int, default=1,
+    parser.add_argument("--x_random_rollout_bots", type=int, default=2,
                         help="Number of ISMCTS bots using RandomRolloutEvaluator.")
-    parser.add_argument("--y_random_bots", type=int, default=1,
+    parser.add_argument("--y_random_bots", type=int, default=2,
                         help="Number of purely random bots.")
-    parser.add_argument("--players", type=int, default=3,
+    parser.add_argument("--players", type=int, default=5,
                         help="Total players = 1 (TrickFollowingISMCTS) + X + Y. "
                              "If this is set, we override X+Y to match (players-1).")
     parser.add_argument("--uct_c", type=float, default=2.0,
                         help="UCT exploration constant for all MCTS bots.")
-    parser.add_argument("--max_sims", type=int, default=500,
+    parser.add_argument("--max_sims", type=int, default=250,
                         help="Number of simulations for each ISMCTS bot per move.")
     parser.add_argument("--seed", type=int, default=999,
                         help="Random seed for reproducibility.")
