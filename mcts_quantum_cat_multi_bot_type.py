@@ -130,13 +130,14 @@ def main():
         rr_bots.append(new_bot)
 
     # Next Y => "UniformRandom"
-    ur_bots = [
-        pyspiel.make_uniform_random_bot(
-            -1,  # we will set the correct ID later
-            args.seed + 2000 + i
-        )
-        for i in range(args.y_random_bots)
-    ]
+    ur_bots = []
+    for i in range(args.y_random_bots):
+        # Assign each uniform-random bot a valid player_id, in sequence.
+        # First player is 0 (TrickFollowingISMCTS), next X players are the random-rollout
+        # MCTS bots, so these Y uniform-random bots start at 1 + X.
+        player_id = 1 + len(rr_bots) + i
+        bot = pyspiel.make_uniform_random_bot(player_id, args.seed + 2000 + i)
+        ur_bots.append(bot)
 
     # Construct the final bot array in order:
     # [bot0, rr_bots..., ur_bots...]
