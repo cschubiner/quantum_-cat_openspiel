@@ -263,8 +263,10 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
 
             return distribution
 
-        # If color_tokens[led_idx] is still True => "never left suit", follow 100%:
-        if color_tokens[led_idx]:
+        # Check if the player has already placed any token in the led color on the board
+        has_used_led_color = np.any(state._board_ownership[led_idx] == current_player)
+        # If the player has NOT used that color yet on the board => follow 100%
+        if not has_used_led_color:
             distribution = np.zeros(len(legal_actions), dtype=float)
             # all legal follow actions share probability 1
             for i, a in enumerate(legal_actions):
@@ -272,7 +274,7 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
                     distribution[i] = 1.0 / len(follow_actions)
             return distribution
 
-        # Else we have used/removed that suit. Follow ~60%, deviate ~40% (split 75/25 to trump/others).
+        # Else they have used that color before => follow ~60%, deviate ~40%
         distribution = np.zeros(len(legal_actions), dtype=float)
         f_count = len(follow_actions)
         t_count = len(trump_actions)
