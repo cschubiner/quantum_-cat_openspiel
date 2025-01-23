@@ -95,7 +95,7 @@ class QuantumCatGame(pyspiel.Game):
       # 40 total => each gets 10 => discards 1 => 9 => we play 8 tricks
       self.cards_per_player_initial = 10
       self.num_tricks = 8
-    else:  # 3 players => each gets 11 => discards 1 => 10 => 10 tricks
+    else:  # 3 players => each gets 10 => discards 1 => 9 => 8 tricks
       self.cards_per_player_initial = 10 
       self.num_tricks = 8
 
