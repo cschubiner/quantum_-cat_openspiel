@@ -638,7 +638,7 @@ class QuantumCatGameState(pyspiel.State):
     elif self._num_players == 4:
       starting_in_hand_after_discard = 9
     elif self._num_players == 3:
-      starting_in_hand_after_discard = 10
+      starting_in_hand_after_discard = 9
     else:
       raise ValueError("Only 3..5 players supported in Cat in the Box")
 
