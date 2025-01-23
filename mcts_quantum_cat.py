@@ -23,6 +23,32 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
     or another suit.
     """
 
+    def __init__(
+        self,
+        n_rollouts=2,
+        random_state=None,
+        # Distribution parameters
+        discard_frequent_prob=0.85,
+        discard_infrequent_prob=0.15,
+        pred_main_prob=0.70,
+        pred_neighbor_prob=0.20,
+        pred_uniform_prob=0.10,
+        follow_suit_prob=0.60,      # when you *still* have suit
+        deviate_prob=0.40,          # 1 - follow_suit_prob
+        deviate_trump_ratio=0.75,   # portion of deviate-prob for trump
+        deviate_other_ratio=0.25,   # portion of deviate-prob for off-color
+    ):
+        super().__init__(n_rollouts=n_rollouts, random_state=random_state)
+        self._discard_frequent_prob = discard_frequent_prob
+        self._discard_infrequent_prob = discard_infrequent_prob
+        self._pred_main_prob = pred_main_prob
+        self._pred_neighbor_prob = pred_neighbor_prob
+        self._pred_uniform_prob = pred_uniform_prob
+        self._follow_suit_prob = follow_suit_prob
+        self._deviate_prob = deviate_prob
+        self._deviate_trump_ratio = deviate_trump_ratio
+        self._deviate_other_ratio = deviate_other_ratio
+
     def prior(self, state):
         """Returns a list of (action, probability) pairs for the root node expansion."""
         legal_actions = state.legal_actions(state.current_player())
@@ -95,12 +121,11 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
                     # If *all* ranks are "most," give them uniform probability
                     distribution.append(1.0 / len(legal_actions))
                 else:
-                    # 85% portion among 'most_ranks'
-                    distribution.append(0.85 / len(most_ranks))
+                    distribution.append(self._discard_frequent_prob / len(most_ranks))
             else:
                 # If there *are* others
                 if others_count > 0:
-                    distribution.append(0.15 / others_count)
+                    distribution.append(self._discard_infrequent_prob / others_count)
                 else:
                     distribution.append(0.0)
 
@@ -130,27 +155,27 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
 
         distribution = [0.0] * len(legal_actions)  # e.g. legal_actions = [101..104]
 
-        # (A) 70% on 'guess'
+        # (A) Main probability on 'guess'
         guess_action = 100 + guess  # e.g., guess=2 => 102
         if guess_action in legal_actions:
             i_guess = legal_actions.index(guess_action)
-            distribution[i_guess] += 0.70
+            distribution[i_guess] += self._pred_main_prob
 
-        # (B) 20% on ±1 if valid
+        # (B) Neighbor probability on ±1 if valid
         near_candidates = []
         if guess > 1: near_candidates.append(guess - 1)
         if guess < 4: near_candidates.append(guess + 1)
         if near_candidates:
-            share = 0.20 / len(near_candidates)
+            share = self._pred_neighbor_prob / len(near_candidates)
             for c in near_candidates:
                 a_val = 100 + c
                 if a_val in legal_actions:
                     i_near = legal_actions.index(a_val)
                     distribution[i_near] += share
 
-        # (C) 10% uniform among all legal predictions
+        # (C) Uniform portion among all legal predictions
         if len(legal_actions) > 0:
-            each = 0.10 / len(legal_actions)
+            each = self._pred_uniform_prob / len(legal_actions)
             for i in range(len(legal_actions)):
                 distribution[i] += each
 
@@ -253,32 +278,26 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
         t_count = len(trump_actions)
         o_count = len(other_actions)
 
-        follow_prob = 0.60
-        deviate_prob = 0.40
-
-        # among deviate portion => 75% to trump, 25% to other
-        ratio_trump = 0.75
-        ratio_other = 0.25
-        total_weight = ratio_trump + ratio_other  # 1.0
-
-        # if t_count>0 and o_count>0 => normal scenario
-        # if t_count=0 => all deviate to other
-        # if o_count=0 => all deviate to trump
+        # Follow portion
         for i, a in enumerate(legal_actions):
             if a in follow_actions:
-                # follow-suit portion
-                distribution[i] = follow_prob / f_count
-            elif t_count > 0 and o_count > 0:
+                distribution[i] = self._follow_suit_prob / f_count
+
+        # Deviate portion => split between trump and other
+        total_ratio = self._deviate_trump_ratio + self._deviate_other_ratio
+
+        for i, a in enumerate(legal_actions):
+            if t_count > 0 and o_count > 0:
                 if a in trump_actions:
-                    distribution[i] = (deviate_prob * ratio_trump / total_weight) / t_count
+                    distribution[i] += (self._deviate_prob * self._deviate_trump_ratio / total_ratio) / t_count
                 elif a in other_actions:
-                    distribution[i] = (deviate_prob * ratio_other / total_weight) / o_count
+                    distribution[i] += (self._deviate_prob * self._deviate_other_ratio / total_ratio) / o_count
             elif t_count > 0:  # only trump
                 if a in trump_actions:
-                    distribution[i] = deviate_prob / t_count
+                    distribution[i] += self._deviate_prob / t_count
             else:  # only others
                 if a in other_actions:
-                    distribution[i] = deviate_prob / o_count
+                    distribution[i] += self._deviate_prob / o_count
 
         return distribution
 

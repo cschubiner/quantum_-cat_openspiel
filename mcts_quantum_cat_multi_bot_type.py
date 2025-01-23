@@ -90,23 +90,70 @@ def main():
     randomrollout_returns = []
     pure_random_returns = []
 
-    # Bot #0 => TrickFollowingISMCTS
-    tf_evaluator = TrickFollowingEvaluator(
-        n_rollouts=2,
-        random_state=np.random.RandomState(args.seed + 123)
-    )
-    bot0 = ISMCTSBot(
-        game=game,
-        evaluator=tf_evaluator,
-        uct_c=args.uct_c,
-        max_simulations=args.max_sims,
-        max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
-        random_state=np.random.RandomState(args.seed + 999),
-        final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
-        use_observation_string=False,
-        allow_inconsistent_action_sets=False,
-        child_selection_policy=ChildSelectionPolicy.PUCT
-    )
+    # Define different parameter sets for TrickFollowingISMCTS bots
+    tf_param_sets = [
+        # Baseline/original parameters
+        dict(
+            discard_frequent_prob=0.85,
+            discard_infrequent_prob=0.15,
+            pred_main_prob=0.70,
+            pred_neighbor_prob=0.20,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.60,
+            deviate_prob=0.40,
+            deviate_trump_ratio=0.75,
+            deviate_other_ratio=0.25,
+        ),
+        # More aggressive trump usage
+        dict(
+            discard_frequent_prob=0.90,
+            discard_infrequent_prob=0.10,
+            pred_main_prob=0.80,
+            pred_neighbor_prob=0.15,
+            pred_uniform_prob=0.05,
+            follow_suit_prob=0.50,
+            deviate_prob=0.50,
+            deviate_trump_ratio=0.90,
+            deviate_other_ratio=0.10,
+        ),
+        # More conservative, suit-following focused
+        dict(
+            discard_frequent_prob=0.80,
+            discard_infrequent_prob=0.20,
+            pred_main_prob=0.60,
+            pred_neighbor_prob=0.30,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.80,
+            deviate_prob=0.20,
+            deviate_trump_ratio=0.60,
+            deviate_other_ratio=0.40,
+        ),
+    ]
+
+    # Create TrickFollowing bots with different parameter sets
+    tf_bots = []
+    for i, params in enumerate(tf_param_sets):
+        tf_evaluator = TrickFollowingEvaluator(
+            n_rollouts=2,
+            random_state=np.random.RandomState(args.seed + 123 + i),
+            **params
+        )
+        bot = ISMCTSBot(
+            game=game,
+            evaluator=tf_evaluator,
+            uct_c=args.uct_c,
+            max_simulations=args.max_sims,
+            max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
+            random_state=np.random.RandomState(args.seed + 999 + i),
+            final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+            use_observation_string=False,
+            allow_inconsistent_action_sets=False,
+            child_selection_policy=ChildSelectionPolicy.PUCT
+        )
+        tf_bots.append(bot)
+
+    # Track returns by parameter set
+    tf_returns_by_params = [[] for _ in tf_param_sets]
 
     # Next X => "RandomRolloutISMCTS"
     rr_bots = []
@@ -140,12 +187,13 @@ def main():
         ur_bots.append(bot)
 
     # Construct the final bot array in order:
-    # [bot0, rr_bots..., ur_bots...]
+    # [tf_bots..., rr_bots..., ur_bots...]
     # Also keep track of which category each player belongs to.
-    all_bots = [bot0] + rr_bots + ur_bots
+    all_bots = tf_bots + rr_bots + ur_bots
     bot_types = []
-    # player=0 => trickfollow
-    bot_types.append("trickfollow")
+    # First N => different TrickFollow parameter sets
+    for i in range(len(tf_bots)):
+        bot_types.append(f"trickfollow_{i}")  # Numbered to track which param set
     # next X => randomrollout
     for _ in range(args.x_random_rollout_bots):
         bot_types.append("randomrollout")
@@ -190,8 +238,9 @@ def main():
         final_returns = state.returns()
         # Tally them by category
         for pid, r in enumerate(final_returns):
-            if bot_types[pid] == "trickfollow":
-                trickfollow_returns.append(r)
+            if bot_types[pid].startswith("trickfollow_"):
+                param_idx = int(bot_types[pid].split("_")[1])
+                tf_returns_by_params[param_idx].append(r)
             elif bot_types[pid] == "randomrollout":
                 randomrollout_returns.append(r)
             else:
@@ -215,7 +264,8 @@ def main():
                 print(f"  {label}: N={len(data)} mean={mean_r:.3f}, "
                       f"std={std_r:.3f}, 90%CI=({mean_r:.3f} ± {halfwidth:.3f})")
 
-            print_stats_for("TrickFollowingISMCTS", trickfollow_returns)
+            for i, returns in enumerate(tf_returns_by_params):
+                print_stats_for(f"TrickFollowingISMCTS_{i}", returns)
             print_stats_for("RandomRolloutISMCTS", randomrollout_returns)
             print_stats_for("UniformRandom", pure_random_returns)
 
