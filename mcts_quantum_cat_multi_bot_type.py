@@ -55,8 +55,9 @@ def main():
                         help="Random seed for reproducibility.")
     args = parser.parse_args()
 
+    # TrickFollowingEvaluator parameters
     tf_param_sets = [
-        # Baseline with conservative ISMCTS settings
+        # Baseline/conservative parameters
         dict(
             discard_frequent_prob=0.85,
             discard_infrequent_prob=0.15,
@@ -67,13 +68,8 @@ def main():
             deviate_prob=0.40,
             deviate_trump_ratio=0.75,
             deviate_other_ratio=0.25,
-            # ISMCTS params
-            uct_c=2.0,
-            max_simulations=300,
-            final_policy_type="MAX_VISIT_COUNT",
-            child_selection_policy="PUCT",
         ),
-        # Aggressive follow-suit with exploration-focused ISMCTS
+        # Aggressive follow-suit
         dict(
             discard_frequent_prob=0.85,
             discard_infrequent_prob=0.15,
@@ -84,13 +80,8 @@ def main():
             deviate_prob=0.30,      # Less likely to deviate
             deviate_trump_ratio=0.80, # More likely to play trump when deviating
             deviate_other_ratio=0.20,
-            # ISMCTS params
-            uct_c=3.0,              # More exploration
-            max_simulations=400,
-            final_policy_type="NORMALIZED_VISITED_COUNT",
-            child_selection_policy="UCT",
         ),
-        # Deviate-heavy with deep-thinking ISMCTS
+        # Deviate-heavy
         dict(
             discard_frequent_prob=0.85,
             discard_infrequent_prob=0.15,
@@ -101,13 +92,8 @@ def main():
             deviate_prob=0.50,      # More likely to deviate
             deviate_trump_ratio=0.65, # Less likely to play trump when deviating
             deviate_other_ratio=0.35,
-            # ISMCTS params
-            uct_c=1.5,              # More exploitation
-            max_simulations=600,     # More thinking time
-            final_policy_type="MAX_VALUE",
-            child_selection_policy="PUCT",
         ),
-        # Balanced approach with quick ISMCTS
+        # Balanced approach
         dict(
             discard_frequent_prob=0.85,
             discard_infrequent_prob=0.15,
@@ -118,7 +104,34 @@ def main():
             deviate_prob=0.45,      # Slightly more likely to deviate
             deviate_trump_ratio=0.85, # Much more likely to play trump when deviating
             deviate_other_ratio=0.15,
-            # ISMCTS params
+        ),
+    ]
+
+    # ISMCTS bot parameters
+    ismcts_param_sets = [
+        # Conservative settings
+        dict(
+            uct_c=2.0,
+            max_simulations=300,
+            final_policy_type="MAX_VISIT_COUNT",
+            child_selection_policy="PUCT",
+        ),
+        # Exploration-focused
+        dict(
+            uct_c=3.0,              # More exploration
+            max_simulations=400,
+            final_policy_type="NORMALIZED_VISITED_COUNT",
+            child_selection_policy="UCT",
+        ),
+        # Deep-thinking exploiter
+        dict(
+            uct_c=1.5,              # More exploitation
+            max_simulations=600,     # More thinking time
+            final_policy_type="MAX_VALUE",
+            child_selection_policy="PUCT",
+        ),
+        # Quick decisions
+        dict(
             uct_c=2.5,
             max_simulations=250,     # Faster decisions
             final_policy_type="MAX_VISIT_COUNT",
@@ -157,13 +170,18 @@ def main():
     # Create TrickFollowing bots with different parameter sets
     tf_bots = []
     for i, params in enumerate(tf_param_sets):
+        # Create evaluator with TrickFollowing parameters
         tf_evaluator = TrickFollowingEvaluator(
             n_rollouts=2,
             random_state=np.random.RandomState(args.seed + 123 + i),
-            **params
+            **tf_param_sets[i]
         )
+
+        # Get corresponding ISMCTS parameters
+        ismcts_params = ismcts_param_sets[i]
+        
         # Convert string parameters to enums
-        csp_str = params.get("child_selection_policy", "PUCT")
+        csp_str = ismcts_params["child_selection_policy"]
         if csp_str == "PUCT":
             csp = ChildSelectionPolicy.PUCT
         elif csp_str == "UCT":
@@ -171,7 +189,7 @@ def main():
         else:
             raise ValueError(f"Unsupported child_selection_policy: {csp_str}")
 
-        fpt_str = params.get("final_policy_type", "MAX_VISIT_COUNT")
+        fpt_str = ismcts_params["final_policy_type"]
         if fpt_str == "MAX_VISIT_COUNT":
             fpt = ISMCTSFinalPolicyType.MAX_VISIT_COUNT
         elif fpt_str == "NORMALIZED_VISITED_COUNT":
@@ -184,8 +202,8 @@ def main():
         bot = ISMCTSBot(
             game=game,
             evaluator=tf_evaluator,
-            uct_c=params.get("uct_c", args.uct_c),
-            max_simulations=params.get("max_simulations", args.max_sims),
+            uct_c=ismcts_params["uct_c"],
+            max_simulations=ismcts_params["max_simulations"],
             max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
             random_state=np.random.RandomState(args.seed + 999 + i),
             final_policy_type=fpt,
