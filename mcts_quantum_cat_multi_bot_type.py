@@ -16,7 +16,6 @@ import numpy as np
 from tqdm import tqdm
 from scipy import stats
 import pandas as pd
-import statsmodels.api as sm
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from itertools import combinations
 
