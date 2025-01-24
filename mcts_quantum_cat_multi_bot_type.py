@@ -37,11 +37,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_episodes", type=int, default=50000,
                         help="Number of episodes to run.")
-    parser.add_argument("--x_random_rollout_bots", type=int, default=2,
+    parser.add_argument("--x_random_rollout_bots", type=int, default=0,
                         help="Number of ISMCTS bots using RandomRolloutEvaluator.")
-    parser.add_argument("--y_random_bots", type=int, default=2,
+    parser.add_argument("--y_random_bots", type=int, default=0,
                         help="Number of purely random bots.")
-    parser.add_argument("--players", type=int, default=5,
+    parser.add_argument("--players", type=int, default=4,
                         help="Total players = 1 (TrickFollowingISMCTS) + X + Y. "
                              "If this is set, we override X+Y to match (players-1).")
     parser.add_argument("--uct_c", type=float, default=2.0,
@@ -52,27 +52,63 @@ def main():
                         help="Random seed for reproducibility.")
     args = parser.parse_args()
 
+    tf_param_sets = [
+        # Baseline/original parameters
+        dict(
+            discard_frequent_prob=0.85,
+            discard_infrequent_prob=0.15,
+            pred_main_prob=0.70,
+            pred_neighbor_prob=0.20,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.60,
+            deviate_prob=0.40,
+            deviate_trump_ratio=0.75,
+            deviate_other_ratio=0.25,
+        ),
+        dict(
+            discard_frequent_prob=0.85,
+            discard_infrequent_prob=0.15,
+            pred_main_prob=0.70,
+            pred_neighbor_prob=0.20,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.70,  # More likely to follow suit
+            deviate_prob=0.30,      # Less likely to deviate
+            deviate_trump_ratio=0.80, # More likely to play trump when deviating
+            deviate_other_ratio=0.20,
+        ),
+        dict(
+            discard_frequent_prob=0.85,
+            discard_infrequent_prob=0.15,
+            pred_main_prob=0.70,
+            pred_neighbor_prob=0.20,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.50,  # Less likely to follow suit
+            deviate_prob=0.50,      # More likely to deviate
+            deviate_trump_ratio=0.65, # Less likely to play trump when deviating
+            deviate_other_ratio=0.35,
+        ),
+        dict(
+            discard_frequent_prob=0.85,
+            discard_infrequent_prob=0.15,
+            pred_main_prob=0.70,
+            pred_neighbor_prob=0.20,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.55,  # Slightly less likely to follow suit
+            deviate_prob=0.45,      # Slightly more likely to deviate
+            deviate_trump_ratio=0.85, # Much more likely to play trump when deviating
+            deviate_other_ratio=0.15,
+        ),
+    ]
+
+
     # If user sets --players, we interpret that as 1 + X + Y = players
     # So X+Y = players-1. We'll guess that X=... user might want a specific ratio
     # For now let's just enforce X+Y=players-1.
     # If user also specified x_random_rollout_bots and y_random_bots,
     # we won't break them, but if there's a mismatch we override.
-    if (1 + args.x_random_rollout_bots + args.y_random_bots) != args.players:
-        # override x+y:
-        new_val = args.players - 1
-        # We'll keep the ratio of x:y if possible
-        total_xy = args.x_random_rollout_bots + args.y_random_bots
-        if total_xy > 0:
-            ratio_x = args.x_random_rollout_bots / total_xy
-            ratio_y = args.y_random_bots / total_xy
-            args.x_random_rollout_bots = int(round(ratio_x * new_val))
-            args.y_random_bots = new_val - args.x_random_rollout_bots
-        else:
-            # If x_random_rollout_bots + y_random_bots was 0, then let's just put all to X
-            args.x_random_rollout_bots = new_val
-            args.y_random_bots = 0
-        print(f"Adjusted X+Y to match total players. Now X={args.x_random_rollout_bots}, "
-              f"Y={args.y_random_bots} for a total of {args.players} players.")
+    if (len(tf_param_sets) + args.x_random_rollout_bots + args.y_random_bots) != args.players:
+        raise ValueError(f"Mismatch in specified players vs. X+Y bots: {args.players}, "
+                         f"{args.x_random_rollout_bots}, {args.y_random_bots}")
 
     np.random.seed(args.seed)
 
@@ -91,44 +127,6 @@ def main():
     pure_random_returns = []
 
     # Define different parameter sets for TrickFollowingISMCTS bots
-    tf_param_sets = [
-        # Baseline/original parameters
-        dict(
-            discard_frequent_prob=0.85,
-            discard_infrequent_prob=0.15,
-            pred_main_prob=0.70,
-            pred_neighbor_prob=0.20,
-            pred_uniform_prob=0.10,
-            follow_suit_prob=0.60,
-            deviate_prob=0.40,
-            deviate_trump_ratio=0.75,
-            deviate_other_ratio=0.25,
-        ),
-        # More aggressive trump usage
-        dict(
-            discard_frequent_prob=0.90,
-            discard_infrequent_prob=0.10,
-            pred_main_prob=0.80,
-            pred_neighbor_prob=0.15,
-            pred_uniform_prob=0.05,
-            follow_suit_prob=0.50,
-            deviate_prob=0.50,
-            deviate_trump_ratio=0.90,
-            deviate_other_ratio=0.10,
-        ),
-        # More conservative, suit-following focused
-        dict(
-            discard_frequent_prob=0.80,
-            discard_infrequent_prob=0.20,
-            pred_main_prob=0.60,
-            pred_neighbor_prob=0.30,
-            pred_uniform_prob=0.10,
-            follow_suit_prob=0.80,
-            deviate_prob=0.20,
-            deviate_trump_ratio=0.60,
-            deviate_other_ratio=0.40,
-        ),
-    ]
 
     # Create TrickFollowing bots with different parameter sets
     tf_bots = []
@@ -182,7 +180,7 @@ def main():
         # Assign each uniform-random bot a valid player_id, in sequence.
         # First player is 0 (TrickFollowingISMCTS), next X players are the random-rollout
         # MCTS bots, so these Y uniform-random bots start at 1 + X.
-        player_id = 1 + len(rr_bots) + i
+        player_id = len(tf_bots) + len(rr_bots) + i
         bot = pyspiel.make_uniform_random_bot(player_id, args.seed + 2000 + i)
         ur_bots.append(bot)
 
@@ -201,8 +199,13 @@ def main():
     for _ in range(args.y_random_bots):
         bot_types.append("uniform")
 
+    if not (3 <= len(bot_types) <= 5):
+        raise ValueError(f"wrong num bot types: {bot_types}")
+
+
     if len(bot_types) != args.players:
         raise ValueError("Mismatch in constructed bot types vs players")
+
 
     # We'll run episodes
     for episode_idx in tqdm(range(args.num_episodes), desc="Running episodes"):
