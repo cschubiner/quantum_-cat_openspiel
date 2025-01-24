@@ -69,76 +69,106 @@ def main():
             deviate_trump_ratio=0.75,
             deviate_other_ratio=0.25,
         ),
+        dict(
+            discard_frequent_prob=0.85,
+            discard_infrequent_prob=0.15,
+            pred_main_prob=0.70,
+            pred_neighbor_prob=0.20,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.60,
+            deviate_prob=0.40,
+            deviate_trump_ratio=0.75,
+            deviate_other_ratio=0.25,
+        ),
+        dict(
+            discard_frequent_prob=0.85,
+            discard_infrequent_prob=0.15,
+            pred_main_prob=0.70,
+            pred_neighbor_prob=0.20,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.60,
+            deviate_prob=0.40,
+            deviate_trump_ratio=0.75,
+            deviate_other_ratio=0.25,
+        ),
+        dict(
+            discard_frequent_prob=0.85,
+            discard_infrequent_prob=0.15,
+            pred_main_prob=0.70,
+            pred_neighbor_prob=0.20,
+            pred_uniform_prob=0.10,
+            follow_suit_prob=0.60,
+            deviate_prob=0.40,
+            deviate_trump_ratio=0.75,
+            deviate_other_ratio=0.25,
+        ),
         # Aggressive follow-suit
-        dict(
-            discard_frequent_prob=0.85,
-            discard_infrequent_prob=0.15,
-            pred_main_prob=0.70,
-            pred_neighbor_prob=0.20,
-            pred_uniform_prob=0.10,
-            follow_suit_prob=0.70,  # More likely to follow suit
-            deviate_prob=0.30,      # Less likely to deviate
-            deviate_trump_ratio=0.80, # More likely to play trump when deviating
-            deviate_other_ratio=0.20,
-        ),
-        # Deviate-heavy
-        dict(
-            discard_frequent_prob=0.85,
-            discard_infrequent_prob=0.15,
-            pred_main_prob=0.70,
-            pred_neighbor_prob=0.20,
-            pred_uniform_prob=0.10,
-            follow_suit_prob=0.50,  # Less likely to follow suit
-            deviate_prob=0.50,      # More likely to deviate
-            deviate_trump_ratio=0.65, # Less likely to play trump when deviating
-            deviate_other_ratio=0.35,
-        ),
-        # Balanced approach
-        dict(
-            discard_frequent_prob=0.85,
-            discard_infrequent_prob=0.15,
-            pred_main_prob=0.70,
-            pred_neighbor_prob=0.20,
-            pred_uniform_prob=0.10,
-            follow_suit_prob=0.55,  # Slightly less likely to follow suit
-            deviate_prob=0.45,      # Slightly more likely to deviate
-            deviate_trump_ratio=0.85, # Much more likely to play trump when deviating
-            deviate_other_ratio=0.15,
-        ),
+        # dict(
+        #     discard_frequent_prob=0.85,
+        #     discard_infrequent_prob=0.15,
+        #     pred_main_prob=0.70,
+        #     pred_neighbor_prob=0.20,
+        #     pred_uniform_prob=0.10,
+        #     follow_suit_prob=0.70,  # More likely to follow suit
+        #     deviate_prob=0.30,      # Less likely to deviate
+        #     deviate_trump_ratio=0.80, # More likely to play trump when deviating
+        #     deviate_other_ratio=0.20,
+        # ),
+        # # Deviate-heavy
+        # dict(
+        #     discard_frequent_prob=0.85,
+        #     discard_infrequent_prob=0.15,
+        #     pred_main_prob=0.70,
+        #     pred_neighbor_prob=0.20,
+        #     pred_uniform_prob=0.10,
+        #     follow_suit_prob=0.50,  # Less likely to follow suit
+        #     deviate_prob=0.50,      # More likely to deviate
+        #     deviate_trump_ratio=0.65, # Less likely to play trump when deviating
+        #     deviate_other_ratio=0.35,
+        # ),
+        # # Balanced approach
+        # dict(
+        #     discard_frequent_prob=0.85,
+        #     discard_infrequent_prob=0.15,
+        #     pred_main_prob=0.70,
+        #     pred_neighbor_prob=0.20,
+        #     pred_uniform_prob=0.10,
+        #     follow_suit_prob=0.55,  # Slightly less likely to follow suit
+        #     deviate_prob=0.45,      # Slightly more likely to deviate
+        #     deviate_trump_ratio=0.85, # Much more likely to play trump when deviating
+        #     deviate_other_ratio=0.15,
+        # ),
     ]
 
     # ISMCTS bot parameters
     ismcts_param_sets = [
-        # Conservative settings
         dict(
-            uct_c=2.0,
-            max_simulations=300,
-            final_policy_type="MAX_VISIT_COUNT",
-            child_selection_policy="PUCT",
+            uct_c=2.2,
+            max_simulations=125,
+            final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+            child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
-        # Exploration-focused
         dict(
-            uct_c=3.0,              # More exploration
-            max_simulations=400,
-            final_policy_type="NORMALIZED_VISITED_COUNT",
-            child_selection_policy="UCT",
+            uct_c=1.4,
+            max_simulations=125,
+            final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+            child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
-        # Deep-thinking exploiter
         dict(
-            uct_c=1.5,              # More exploitation
-            max_simulations=600,     # More thinking time
-            final_policy_type="MAX_VALUE",
-            child_selection_policy="PUCT",
+            uct_c=3.2,
+            max_simulations=125,
+            final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+            child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
-        # Quick decisions
         dict(
-            uct_c=2.5,
-            max_simulations=250,     # Faster decisions
-            final_policy_type="MAX_VISIT_COUNT",
-            child_selection_policy="UCT",
+            uct_c=2.2,
+            max_simulations=125,
+            final_policy_type=ISMCTSFinalPolicyType.NORMALIZED_VISITED_COUNT,
+            child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
     ]
 
+    assert len(tf_param_sets) == len(ismcts_param_sets)
 
     # If user sets --players, we interpret that as 1 + X + Y = players
     # So X+Y = players-1. We'll guess that X=... user might want a specific ratio
@@ -177,39 +207,15 @@ def main():
             **tf_param_sets[i]
         )
 
-        # Get corresponding ISMCTS parameters
-        ismcts_params = ismcts_param_sets[i]
-        
-        # Convert string parameters to enums
-        csp_str = ismcts_params["child_selection_policy"]
-        if csp_str == "PUCT":
-            csp = ChildSelectionPolicy.PUCT
-        elif csp_str == "UCT":
-            csp = ChildSelectionPolicy.UCT
-        else:
-            raise ValueError(f"Unsupported child_selection_policy: {csp_str}")
-
-        fpt_str = ismcts_params["final_policy_type"]
-        if fpt_str == "MAX_VISIT_COUNT":
-            fpt = ISMCTSFinalPolicyType.MAX_VISIT_COUNT
-        elif fpt_str == "NORMALIZED_VISITED_COUNT":
-            fpt = ISMCTSFinalPolicyType.NORMALIZED_VISITED_COUNT
-        elif fpt_str == "MAX_VALUE":
-            fpt = ISMCTSFinalPolicyType.MAX_VALUE
-        else:
-            raise ValueError(f"Unsupported final_policy_type: {fpt_str}")
-
+        # Get corresponding ISMCTS parameters and create bot
         bot = ISMCTSBot(
             game=game,
             evaluator=tf_evaluator,
-            uct_c=ismcts_params["uct_c"],
-            max_simulations=ismcts_params["max_simulations"],
             max_world_samples=UNLIMITED_NUM_WORLD_SAMPLES,
             random_state=np.random.RandomState(args.seed + 999 + i),
-            final_policy_type=fpt,
             use_observation_string=False,
             allow_inconsistent_action_sets=False,
-            child_selection_policy=csp
+            **ismcts_param_sets[i]
         )
         tf_bots.append(bot)
 
@@ -338,16 +344,16 @@ def main():
             # Statistical comparisons
             combined_data = []
             combined_groups = []
-            
+
             # Gather data from all groups
             for i, ret_list in enumerate(tf_returns_by_params):
                 combined_data.extend(ret_list)
                 combined_groups.extend([f"TrickFollowingISMCTS_{i}"] * len(ret_list))
-            
+
             if randomrollout_returns:
                 combined_data.extend(randomrollout_returns)
                 combined_groups.extend(["RandomRolloutISMCTS"] * len(randomrollout_returns))
-            
+
             if pure_random_returns:
                 combined_data.extend(pure_random_returns)
                 combined_groups.extend(["UniformRandom"] * len(pure_random_returns))
@@ -356,13 +362,13 @@ def main():
             unique_groups = sorted(set(combined_groups))
             if len(unique_groups) > 1:
                 print("\nPairwise Statistical Tests:")
-                
+
                 # Tukey HSD test
                 df = pd.DataFrame({"score": combined_data, "group": combined_groups})
                 tukey = pairwise_tukeyhsd(df["score"], df["group"])
                 print("\nTukey HSD Results:")
                 print(tukey)
-                
+
                 # Pairwise t-tests
                 print("\nPairwise t-tests (Welch's):")
                 for g1, g2 in combinations(unique_groups, 2):
