@@ -315,20 +315,46 @@ def main():
                     state.apply_action(action)
 
         final_returns = state.returns()
+
+        # Get final game statistics
+        has_paradoxed = state._has_paradoxed
+        adjacency_bonuses = state._player_adjacency_bonus
+        tricks_won = state._tricks_won
+
         # Tally them by category
         for pid, r in enumerate(final_returns):
+            # Get stats for this player
+            paradoxed = 1 if has_paradoxed[pid] else 0
+            adj_bonus = adjacency_bonuses[pid]
+            tricks = tricks_won[pid]
+
             if bot_types[pid].startswith("trickfollow_"):
                 param_idx = int(bot_types[pid].split("_")[1])
                 tf_returns_by_params[param_idx].append(r)
+                tf_paradox_counts[param_idx] += paradoxed
+                tf_game_counts[param_idx] += 1
+                tf_adj_sums[param_idx] += adj_bonus
+                tf_trick_sums[param_idx] += tricks
             elif bot_types[pid] == "randomrollout":
                 randomrollout_returns.append(r)
+                rr_paradox_count += paradoxed
+                rr_game_count += 1
+                rr_adj_sum += adj_bonus
+                rr_trick_sum += tricks
             else:
                 pure_random_returns.append(r)
+                ur_paradox_count += paradoxed
+                ur_game_count += 1
+                ur_adj_sum += adj_bonus
+                ur_trick_sum += tricks
 
         # Every 5 episodes, print out stats
         if (episode_idx + 1) % 5 == 0:
             print("=" * 60)
             print(f"Episode {episode_idx+1} completed. Intermediate stats:")
+
+            def safe_div(x, y):
+                return x / y if y > 0 else 0.0
 
             def print_stats_for(label, data):
                 if len(data) == 0:
@@ -343,10 +369,35 @@ def main():
                 print(f"  {label}: N={len(data)} mean={mean_r:.3f}, "
                       f"std={std_r:.3f}, 90%CI=({mean_r:.3f} ± {halfwidth:.3f})")
 
+            # Print stats for each TrickFollowing parameter set
             for i, returns in enumerate(tf_returns_by_params):
                 print_stats_for(f"TrickFollowingISMCTS_{i}", returns)
+                
+                # Additional statistics
+                paradox_rate = safe_div(tf_paradox_counts[i], tf_game_counts[i]) * 100
+                avg_adj = safe_div(tf_adj_sums[i], tf_game_counts[i])
+                avg_tricks = safe_div(tf_trick_sums[i], tf_game_counts[i])
+                
+                print(f"    Paradox%={paradox_rate:.1f}%, AdjBonus={avg_adj:.3f}, "
+                      f"AvgTricks={avg_tricks:.3f}")
+
+            # RandomRollout stats
             print_stats_for("RandomRolloutISMCTS", randomrollout_returns)
+            if rr_game_count > 0:
+                paradox_rate = (rr_paradox_count / rr_game_count) * 100
+                avg_adj = rr_adj_sum / rr_game_count
+                avg_tricks = rr_trick_sum / rr_game_count
+                print(f"    Paradox%={paradox_rate:.1f}%, AdjBonus={avg_adj:.3f}, "
+                      f"AvgTricks={avg_tricks:.3f}")
+
+            # UniformRandom stats
             print_stats_for("UniformRandom", pure_random_returns)
+            if ur_game_count > 0:
+                paradox_rate = (ur_paradox_count / ur_game_count) * 100
+                avg_adj = ur_adj_sum / ur_game_count
+                avg_tricks = ur_trick_sum / ur_game_count
+                print(f"    Paradox%={paradox_rate:.1f}%, AdjBonus={avg_adj:.3f}, "
+                      f"AvgTricks={avg_tricks:.3f}")
 
             # Statistical comparisons
             combined_data = []

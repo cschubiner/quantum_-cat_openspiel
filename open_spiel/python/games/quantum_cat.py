@@ -183,6 +183,7 @@ class QuantumCatGameState(pyspiel.State):
     self._game_over = False
     self._returns = [0.0] * self._num_players
     self._rewards = [0.0] * self._num_players  # per-step immediate rewards
+    self._player_adjacency_bonus = [0.0] * self._num_players  # Track adjacency bonus per player
 
     # Keep track if trump is broken
     self._trump_broken = False
@@ -521,6 +522,7 @@ class QuantumCatGameState(pyspiel.State):
           # adjacency bonus
           cluster_bonus = self._largest_cluster_for_player(p)
           raw_scores[p] = base + cluster_bonus
+          self._player_adjacency_bonus[p] = cluster_bonus  # Store for stats
         else:
           raw_scores[p] = base
 
