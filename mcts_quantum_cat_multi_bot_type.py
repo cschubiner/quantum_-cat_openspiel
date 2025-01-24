@@ -15,6 +15,10 @@ import argparse
 import numpy as np
 from tqdm import tqdm
 from scipy import stats
+import pandas as pd
+import statsmodels.api as sm
+from statsmodels.stats.multicomp import pairwise_tukeyhsd
+from itertools import combinations
 
 import pyspiel
 
@@ -271,6 +275,42 @@ def main():
                 print_stats_for(f"TrickFollowingISMCTS_{i}", returns)
             print_stats_for("RandomRolloutISMCTS", randomrollout_returns)
             print_stats_for("UniformRandom", pure_random_returns)
+
+            # Statistical comparisons
+            combined_data = []
+            combined_groups = []
+            
+            # Gather data from all groups
+            for i, ret_list in enumerate(tf_returns_by_params):
+                combined_data.extend(ret_list)
+                combined_groups.extend([f"TrickFollowingISMCTS_{i}"] * len(ret_list))
+            
+            if randomrollout_returns:
+                combined_data.extend(randomrollout_returns)
+                combined_groups.extend(["RandomRolloutISMCTS"] * len(randomrollout_returns))
+            
+            if pure_random_returns:
+                combined_data.extend(pure_random_returns)
+                combined_groups.extend(["UniformRandom"] * len(pure_random_returns))
+
+            # Only proceed if we have at least 2 groups with data
+            unique_groups = sorted(set(combined_groups))
+            if len(unique_groups) > 1:
+                print("\nPairwise Statistical Tests:")
+                
+                # Tukey HSD test
+                df = pd.DataFrame({"score": combined_data, "group": combined_groups})
+                tukey = pairwise_tukeyhsd(df["score"], df["group"])
+                print("\nTukey HSD Results:")
+                print(tukey)
+                
+                # Pairwise t-tests
+                print("\nPairwise t-tests (Welch's):")
+                for g1, g2 in combinations(unique_groups, 2):
+                    data1 = df[df["group"] == g1]["score"]
+                    data2 = df[df["group"] == g2]["score"]
+                    tstat, pval = stats.ttest_ind(data1, data2, equal_var=False)
+                    print(f"{g1} vs {g2}: t={tstat:.3f}, p={pval:.3e}")
 
     # Final summary
     print("\nFinal results across all episodes:")
