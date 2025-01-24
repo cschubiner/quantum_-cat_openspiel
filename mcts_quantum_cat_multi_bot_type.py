@@ -144,25 +144,25 @@ def main():
     ismcts_param_sets = [
         dict(
             uct_c=2.2,
-            max_simulations=635,
+            max_simulations=875,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=1.6,
-            max_simulations=635,
+            max_simulations=875,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=3.2,
-            max_simulations=635,
+            max_simulations=875,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=2.2,
-            max_simulations=635,
+            max_simulations=875,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
@@ -226,8 +226,28 @@ def main():
         )
         tf_bots.append(bot)
 
-    # Track returns by parameter set
+    # We'll track returns by parameter set
     tf_returns_by_params = [[] for _ in tf_param_sets]
+    # Track statistics by parameter set
+    tf_paradox_counts = [0] * len(tf_param_sets)
+    tf_game_counts = [0] * len(tf_param_sets)
+    tf_adj_sums = [0.0] * len(tf_param_sets)
+    tf_trick_sums = [0.0] * len(tf_param_sets)
+
+    # Statistics for random rollout bots
+    rr_paradox_count = 0
+    rr_game_count = 0
+    rr_adj_sum = 0.0
+    rr_trick_sum = 0.0
+
+    # Statistics for uniform random bots
+    ur_paradox_count = 0
+    ur_game_count = 0
+    ur_adj_sum = 0.0
+    ur_trick_sum = 0.0
+
+    randomrollout_returns = []
+    pure_random_returns = []
 
     # Next X => "RandomRolloutISMCTS"
     rr_bots = []
