@@ -21,7 +21,7 @@ from itertools import combinations
 
 import pyspiel
 
-from mcts_quantum_cat import TrickFollowingEvaluator
+from mcts_quantum_cat import TrickFollowingEvaluator, TrickFollowingEvaluatorV2
 from open_spiel.python.algorithms.ismcts import (
     ISMCTSBot,
     ChildSelectionPolicy,
@@ -144,26 +144,26 @@ def main():
     ismcts_param_sets = [
         dict(
             uct_c=2.2,
-            max_simulations=275,
+            max_simulations=635,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=1.6,
-            max_simulations=275,
+            max_simulations=635,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=3.2,
-            max_simulations=275,
+            max_simulations=635,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
-            uct_c=2.6,
-            max_simulations=275,
-            final_policy_type=ISMCTSFinalPolicyType.NORMALIZED_VISITED_COUNT,
+            uct_c=2.2,
+            max_simulations=635,
+            final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
     ]
@@ -201,11 +201,18 @@ def main():
     tf_bots = []
     for i, params in enumerate(tf_param_sets):
         # Create evaluator with TrickFollowing parameters
-        tf_evaluator = TrickFollowingEvaluator(
-            n_rollouts=2,
-            random_state=np.random.RandomState(args.seed + 123 + i),
-            **tf_param_sets[i]
-        )
+        if i == 0:
+            tf_evaluator = TrickFollowingEvaluatorV2(
+                n_rollouts=2,
+                random_state=np.random.RandomState(args.seed + 123 + i),
+                **tf_param_sets[i]
+            )
+        else:
+            tf_evaluator = TrickFollowingEvaluator(
+                n_rollouts=2,
+                random_state=np.random.RandomState(args.seed + 123 + i),
+                **tf_param_sets[i]
+            )
 
         # Get corresponding ISMCTS parameters and create bot
         bot = ISMCTSBot(
