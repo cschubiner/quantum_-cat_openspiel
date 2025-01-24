@@ -304,6 +304,9 @@ def main():
 
 
     # We'll run episodes
+    # Track how many games had at least one paradox by any player
+    any_paradox_count = 0
+
     for episode_idx in tqdm(range(args.num_episodes), desc="Running episodes"):
         state = game.new_initial_state()
 
@@ -338,6 +341,10 @@ def main():
 
         # Get final game statistics
         has_paradoxed = state._has_paradoxed
+        # Track if ANY player paradoxed this game
+        if any(has_paradoxed):
+            any_paradox_count += 1
+
         adjacency_bonuses = state._player_adjacency_bonus
         tricks_won = state._tricks_won
 
@@ -372,6 +379,10 @@ def main():
         if (episode_idx + 1) % 5 == 0:
             print("=" * 60)
             print(f"Episode {episode_idx+1} completed. Intermediate stats:")
+            
+            # Show overall paradox rate first
+            any_paradox_rate = 100.0 * any_paradox_count / (episode_idx + 1)
+            print(f"  ANY player paradox rate so far: {any_paradox_rate:.1f}%")
 
             def safe_div(x, y):
                 return x / y if y > 0 else 0.0
