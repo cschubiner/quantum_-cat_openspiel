@@ -192,7 +192,6 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
 
         led_color = state._led_color  # e.g. "R", "B", "Y", "G", or None if no lead
         current_player = state.current_player()
-        color_tokens = state._color_tokens[current_player]  # shape [4]
         color_map = {"R": 0, "B": 1, "Y": 2, "G": 3}
 
         # If nothing is led, fallback to uniform among legals.
