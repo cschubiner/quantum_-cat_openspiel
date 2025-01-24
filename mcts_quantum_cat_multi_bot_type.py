@@ -375,7 +375,8 @@ def main():
                     data1 = df[df["group"] == g1]["score"]
                     data2 = df[df["group"] == g2]["score"]
                     tstat, pval = stats.ttest_ind(data1, data2, equal_var=False)
-                    print(f"{g1} vs {g2}: t={tstat:.3f}, p={pval:.3e}")
+                    reject_null = pval < 0.05  # Using 0.05 significance level
+                    print(f"{g1} vs {g2}: t={tstat:.3f}, p={pval:.3e}, reject H0: {reject_null}")
 
     # Final summary
     print("\nFinal results across all episodes:")
