@@ -370,12 +370,18 @@ def main():
                 print(tukey)
 
                 # Pairwise t-tests
-                print("\nPairwise t-tests (Welch's):")
+                print("\nPairwise t-tests (Welch's), sorted by p-value:")
+                # Collect all pairwise tests
+                pairwise_results = []
                 for g1, g2 in combinations(unique_groups, 2):
                     data1 = df[df["group"] == g1]["score"]
                     data2 = df[df["group"] == g2]["score"]
                     tstat, pval = stats.ttest_ind(data1, data2, equal_var=False)
                     reject_null = pval < 0.05  # Using 0.05 significance level
+                    pairwise_results.append((pval, g1, g2, reject_null))
+                
+                # Sort by p-value and print
+                for pval, g1, g2, reject_null in sorted(pairwise_results, key=lambda x: x[0]):
                     print(f"{g1} vs {g2}: p={pval:.3}, reject: {reject_null}")
 
     # Final summary
