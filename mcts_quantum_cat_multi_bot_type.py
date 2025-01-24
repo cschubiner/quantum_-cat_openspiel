@@ -144,25 +144,25 @@ def main():
     ismcts_param_sets = [
         dict(
             uct_c=2.2,
-            max_simulations=125,
+            max_simulations=275,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
-            uct_c=1.4,
-            max_simulations=125,
+            uct_c=1.6,
+            max_simulations=275,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=3.2,
-            max_simulations=125,
+            max_simulations=275,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
-            uct_c=2.2,
-            max_simulations=125,
+            uct_c=2.6,
+            max_simulations=275,
             final_policy_type=ISMCTSFinalPolicyType.NORMALIZED_VISITED_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
@@ -376,7 +376,7 @@ def main():
                     data2 = df[df["group"] == g2]["score"]
                     tstat, pval = stats.ttest_ind(data1, data2, equal_var=False)
                     reject_null = pval < 0.05  # Using 0.05 significance level
-                    print(f"{g1} vs {g2}: t={tstat:.3f}, p={pval:.3e}, reject H0: {reject_null}")
+                    print(f"{g1} vs {g2}: p={pval:.3}, reject: {reject_null}")
 
     # Final summary
     print("\nFinal results across all episodes:")
