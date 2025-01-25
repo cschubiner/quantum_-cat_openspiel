@@ -144,25 +144,25 @@ def main():
     ismcts_param_sets = [
         dict(
             uct_c=2.2,
-            max_simulations=875,
-            final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
-            child_selection_policy=ChildSelectionPolicy.PUCT,
-        ),
-        dict(
-            uct_c=1.6,
-            max_simulations=875,
+            max_simulations=45,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=3.2,
-            max_simulations=875,
+            max_simulations=45,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
-            uct_c=2.2,
-            max_simulations=875,
+            uct_c=3.6,
+            max_simulations=45,
+            final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
+            child_selection_policy=ChildSelectionPolicy.PUCT,
+        ),
+        dict(
+            uct_c=2.8,
+            max_simulations=45,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
@@ -192,16 +192,12 @@ def main():
     # Then next Y => "UniformRandom"
     # We'll track returns in separate lists for each category.
     trickfollow_returns = []
-    randomrollout_returns = []
-    pure_random_returns = []
-
-    # Define different parameter sets for TrickFollowingISMCTS bots
 
     # Create TrickFollowing bots with different parameter sets
     tf_bots = []
     for i, params in enumerate(tf_param_sets):
         # Create evaluator with TrickFollowing parameters
-        if i == 0:
+        if i <= 1:
             tf_evaluator = TrickFollowingEvaluatorV2(
                 n_rollouts=2,
                 random_state=np.random.RandomState(args.seed + 123 + i),

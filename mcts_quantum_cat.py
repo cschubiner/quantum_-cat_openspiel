@@ -15,6 +15,495 @@ from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
 from open_spiel.python.games import quantum_cat
 
 
+import numpy as np
+import collections
+from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
+
+
+class TrickFollowingEvaluatorV2(RandomRolloutEvaluator):
+    """
+    An evaluator for Cat in the Box that uses:
+      1) Suit-following heuristics to decide how likely we are to follow suit,
+         deviate, or trump, *plus*
+      2) Adjacency-based weighting when choosing among multiple rank options
+         within the same suit or color category.
+
+    We also preserve the original logic for discarding and prediction phases,
+    but you can change the parameters below to suit your preferences.
+    """
+
+    def __init__(
+        self,
+        n_rollouts=2,
+        random_state=None,
+        # Discard distribution params
+        discard_frequent_prob=0.85,
+        discard_infrequent_prob=0.15,
+        # Prediction distribution params
+        pred_main_prob=0.70,
+        pred_neighbor_prob=0.20,
+        pred_uniform_prob=0.10,
+        # Trick-taking color logic
+        follow_suit_prob=0.60,     # Probability allocated to following suit (if possible)
+        deviate_prob=0.40,        # Probability allocated to deviating if we have already used that suit
+        deviate_trump_ratio=0.75, # Within deviate_prob, fraction that tries trump
+        deviate_other_ratio=0.25, # Within deviate_prob, fraction that tries other non-led, non-trump color
+        # Adjacency weighting params
+        adjacency_base=1.0,       # Baseline adjacency weight
+        adjacency_gain_scale=1.0, # How much to weight an increase in largest-cluster size
+    ):
+        """
+        Args:
+          n_rollouts: number of random rollouts for state evaluation.
+          random_state: an optional np.random.RandomState or None.
+          discard_frequent_prob: portion to allocate to discarding the player's
+             most frequent rank(s).
+          discard_infrequent_prob: portion for discarding less-frequent ranks.
+          pred_main_prob: portion for "predicted best guess" bid.
+          pred_neighbor_prob: portion for bidding adjacent to that guess (±1).
+          pred_uniform_prob: portion spread uniformly among all valid predictions.
+          follow_suit_prob: portion for following suit if still valid.
+          deviate_prob: portion for deviating from the led suit if we've used that suit before.
+          deviate_trump_ratio: fraction of deviate_prob that tries trump over other suits.
+          deviate_other_ratio: fraction of deviate_prob that tries non-trump color if not following suit.
+          adjacency_base: baseline for adjacency weighting.
+             If the new cluster size is the same as old, we get weight=adjacency_base.
+          adjacency_gain_scale: how strongly to reward expansions in your largest adjacency cluster.
+             If placing a token grows your largest cluster from old_size to new_size,
+             final weight = adjacency_base + adjacency_gain_scale*(new_size - old_size).
+        """
+        super().__init__(n_rollouts=n_rollouts, random_state=random_state)
+        # Store distribution parameters
+        self._discard_frequent_prob = discard_frequent_prob
+        self._discard_infrequent_prob = discard_infrequent_prob
+        self._pred_main_prob = pred_main_prob
+        self._pred_neighbor_prob = pred_neighbor_prob
+        self._pred_uniform_prob = pred_uniform_prob
+
+        self._follow_suit_prob = follow_suit_prob
+        self._deviate_prob = deviate_prob
+        self._deviate_trump_ratio = deviate_trump_ratio
+        self._deviate_other_ratio = deviate_other_ratio
+
+        # Store adjacency parameters
+        self._adjacency_base = adjacency_base
+        self._adjacency_gain_scale = adjacency_gain_scale
+
+
+    # ----------------------------------------------------------------------
+    # Public interface for MCTS: prior(...) and evaluate(...).
+    # ----------------------------------------------------------------------
+    def prior(self, state):
+        """Returns a list of (action, probability) for expansion at the root."""
+        legal_actions = state.legal_actions(state.current_player())
+        if not legal_actions:
+            return []
+
+        phase = state._phase
+        if phase == 1:
+            # Discard
+            distribution = self._get_discard_distribution(state, legal_actions)
+            return list(zip(legal_actions, distribution))
+
+        elif phase == 2:
+            # Prediction
+            distribution = self._get_prediction_distribution(state, legal_actions)
+            return list(zip(legal_actions, distribution))
+
+        elif phase == 3:
+            # Trick-taking with adjacency weighting
+            distribution = self._compute_suit_following_distribution(state, legal_actions)
+            return list(zip(legal_actions, distribution))
+
+        # Else, fallback uniform if we ever get here unexpectedly
+        uniform_probs = np.ones(len(legal_actions)) / len(legal_actions)
+        return list(zip(legal_actions, uniform_probs))
+
+
+    def evaluate(self, state):
+        """
+        State evaluation by random(ish) simulation with the same logic
+        for discarding, prediction, and adjacency-based trick-taking.
+
+        If the state is terminal, just return the final returns.
+        """
+        if state.is_terminal():
+            return state.returns()
+
+        working_state = state.clone()
+        while not working_state.is_terminal():
+            current_player = working_state.current_player()
+            if working_state.is_chance_node():
+                outcomes = working_state.chance_outcomes()
+                actions, probs = zip(*outcomes)
+                chosen = self._random_state.choice(actions, p=probs)
+                working_state.apply_action(chosen)
+            else:
+                legals = working_state.legal_actions(current_player)
+                if not legals:
+                    # No moves => must paradox or end
+                    break
+
+                phase = working_state._phase
+                if phase == 1:
+                    distribution = self._get_discard_distribution(working_state, legals)
+                elif phase == 2:
+                    distribution = self._get_prediction_distribution(working_state, legals)
+                else:
+                    # phase == 3 => adjacency-based trick logic
+                    distribution = self._compute_suit_following_distribution(working_state, legals)
+
+                chosen = self._random_state.choice(legals, p=distribution)
+                working_state.apply_action(chosen)
+
+        return working_state.returns()
+
+
+    # ----------------------------------------------------------------------
+    # Helper: Discard logic
+    # ----------------------------------------------------------------------
+    def _get_discard_distribution(self, state, legal_actions):
+        """
+        Weighted so we discard one of the player's most frequent ranks
+        with probability discard_frequent_prob, and we discard a less
+        frequent rank with discard_infrequent_prob.
+        """
+        hand_vec = state._hands[state.current_player()]
+        # Find the maximum count in your hand
+        max_count = max(hand_vec[r] for r in legal_actions)
+        most_ranks = [r for r in legal_actions if hand_vec[r] == max_count]
+
+        distribution = []
+        # Count how many are "others"
+        others_count = len(legal_actions) - len(most_ranks)
+
+        for r in legal_actions:
+            if r in most_ranks:
+                # If *all* ranks are "most," they'd share the entire probability
+                if others_count == 0:
+                    distribution.append(1.0 / len(most_ranks))
+                else:
+                    distribution.append(self._discard_frequent_prob / len(most_ranks))
+            else:
+                # Remainder is allocated to "others"
+                if others_count > 0:
+                    distribution.append(self._discard_infrequent_prob / others_count)
+                else:
+                    distribution.append(0.0)
+
+        return self._normalize(np.array(distribution))
+
+
+    # ----------------------------------------------------------------------
+    # Helper: Prediction logic
+    # ----------------------------------------------------------------------
+    def _get_prediction_distribution(self, state, legal_actions):
+        """
+        Weighted toward "best guess" predicted number of tricks, with
+        smaller probabilities for neighbor guesses and uniform fallback.
+        """
+        current_player = state.current_player()
+        hand_vec = state._hands[current_player]
+        # For a heuristic guess, pick the highest rank in your hand
+        best_rank_idx = max(
+            (i for i in range(len(hand_vec)) if hand_vec[i] > 0),
+            default=0
+        )
+        best_count = hand_vec[best_rank_idx]
+        guess = min(max(best_count, 1), 4)  # clamp to 1..4
+
+        distribution = np.zeros(len(legal_actions), dtype=float)
+
+        # (A) main prob on "guess"
+        guess_action = 100 + guess  # e.g. guess=3 => action=103
+        if guess_action in legal_actions:
+            i_guess = legal_actions.index(guess_action)
+            distribution[i_guess] += self._pred_main_prob
+
+        # (B) neighbor prob on ±1
+        near_candidates = []
+        if guess > 1:
+            near_candidates.append(guess - 1)
+        if guess < 4:
+            near_candidates.append(guess + 1)
+        if near_candidates:
+            share = self._pred_neighbor_prob / len(near_candidates)
+            for c in near_candidates:
+                a_val = 100 + c
+                if a_val in legal_actions:
+                    i_near = legal_actions.index(a_val)
+                    distribution[i_near] += share
+
+        # (C) uniform remainder
+        if len(legal_actions) > 0:
+            each = self._pred_uniform_prob / len(legal_actions)
+            for i in range(len(legal_actions)):
+                distribution[i] += each
+
+        return self._normalize(distribution)
+
+
+    # ----------------------------------------------------------------------
+    # Helper: Trick-taking logic with adjacency weighting
+    # ----------------------------------------------------------------------
+    def _compute_suit_following_distribution(self, state, legal_actions):
+        """
+        Suit-following logic + adjacency weighting on rank choices.
+
+        1) We partition actions into (follow_actions, trump_actions, other_actions).
+        2) We decide how much total probability to put in each group:
+           - Possibly 100% if we *cannot* follow or if we haven't used that suit yet.
+           - Possibly follow_suit_prob : deviate_prob if we have used that suit.
+        3) Within each group, we distribute its portion proportionally to
+           an adjacency-based metric, so that placing a token that grows
+           your largest adjacency cluster is more favored.
+        """
+        if legal_actions == [999]:
+            return [1.0]
+
+        led_color = state._led_color  # e.g. "R","B","Y","G" or None
+        current_player = state.current_player()
+
+        if led_color is None:
+            # If there's no led color, just adjacency-weight all legal actions uniformly
+            return self._adjacency_biased_uniform(state, current_player, legal_actions, 1.0)
+
+        # Basic color partition
+        color_map = {"R": 0, "B": 1, "Y": 2, "G": 3}
+        led_idx = color_map[led_color]
+
+        follow_actions = []
+        trump_actions = []
+        other_actions = []
+        for a in legal_actions:
+            c_idx = a // state._num_card_types
+            if c_idx == led_idx:
+                follow_actions.append(a)
+            elif c_idx == 0:  # 0 => "R"
+                trump_actions.append(a)
+            else:
+                other_actions.append(a)
+
+        # If we cannot follow at all => all probability is "deviate," which we break
+        # into trump vs. other at deviate_trump_ratio : deviate_other_ratio
+        if len(follow_actions) == 0:
+            distribution = np.zeros(len(legal_actions), dtype=float)
+            t_count = len(trump_actions)
+            o_count = len(other_actions)
+            # If neither trump nor other is available, fallback to uniform adjacency:
+            if t_count + o_count == 0:
+                return self._adjacency_biased_uniform(state, current_player, legal_actions, 1.0)
+
+            deviate_prob = 1.0
+            total_ratio = self._deviate_trump_ratio + self._deviate_other_ratio
+
+            if t_count > 0 and o_count > 0:
+                portion_trump = deviate_prob * self._deviate_trump_ratio / total_ratio
+                portion_other = deviate_prob * self._deviate_other_ratio / total_ratio
+                self._apply_adjacency_weighting(
+                    state, current_player, trump_actions, portion_trump,
+                    distribution, legal_actions
+                )
+                self._apply_adjacency_weighting(
+                    state, current_player, other_actions, portion_other,
+                    distribution, legal_actions
+                )
+            elif t_count > 0:
+                # only trump
+                self._apply_adjacency_weighting(
+                    state, current_player, trump_actions, deviate_prob,
+                    distribution, legal_actions
+                )
+            else:
+                # only others
+                self._apply_adjacency_weighting(
+                    state, current_player, other_actions, deviate_prob,
+                    distribution, legal_actions
+                )
+
+            return self._normalize(distribution)
+
+        # If we *can* follow, check whether we've used that suit yet:
+        # if not used => 100% follow
+        has_used_led_color = np.any(state._board_ownership[led_idx] == current_player)
+        if not has_used_led_color:
+            distribution = np.zeros(len(legal_actions), dtype=float)
+            # All probability to follow_actions
+            self._apply_adjacency_weighting(
+                state, current_player, follow_actions, 1.0,
+                distribution, legal_actions
+            )
+            return self._normalize(distribution)
+
+        # Else standard 60% to follow, 40% deviate (split among trump vs other)
+        distribution = np.zeros(len(legal_actions), dtype=float)
+        # 1) follow
+        self._apply_adjacency_weighting(
+            state, current_player, follow_actions, self._follow_suit_prob,
+            distribution, legal_actions
+        )
+        # 2) deviate => portion between trump and other
+        deviate_portion = self._deviate_prob
+        total_ratio = self._deviate_trump_ratio + self._deviate_other_ratio
+
+        t_count = len(trump_actions)
+        o_count = len(other_actions)
+        if t_count > 0 and o_count > 0:
+            portion_trump = deviate_portion * self._deviate_trump_ratio / total_ratio
+            portion_other = deviate_portion * self._deviate_other_ratio / total_ratio
+            self._apply_adjacency_weighting(
+                state, current_player, trump_actions, portion_trump,
+                distribution, legal_actions
+            )
+            self._apply_adjacency_weighting(
+                state, current_player, other_actions, portion_other,
+                distribution, legal_actions
+            )
+        elif t_count > 0:
+            # all deviate prob to trump
+            self._apply_adjacency_weighting(
+                state, current_player, trump_actions, deviate_portion,
+                distribution, legal_actions
+            )
+        elif o_count > 0:
+            # all deviate prob to others
+            self._apply_adjacency_weighting(
+                state, current_player, other_actions, deviate_portion,
+                distribution, legal_actions
+            )
+        # If neither trump nor other, we've already assigned follow part; do nothing extra.
+
+        return self._normalize(distribution)
+
+
+    # ----------------------------------------------------------------------
+    # Adjacency weighting subroutines
+    # ----------------------------------------------------------------------
+    def _apply_adjacency_weighting(self, state, player, action_subset, portion,
+                                   out_distribution, all_legals):
+        """
+        Distribute 'portion' of probability among actions in `action_subset`
+        proportionally to each action's adjacency weight.
+        """
+        if not action_subset or portion <= 1e-12:
+            return  # nothing to do
+
+        # 1) compute adjacency weights for each action
+        weights = []
+        for a in action_subset:
+            w = self._adjacency_weight(state, player, a)
+            weights.append(max(w, 0.0))
+
+        total_w = sum(weights)
+        if total_w < 1e-12:
+            # fallback uniform if adjacency is all zero
+            uniform_prob = portion / len(action_subset)
+            for a in action_subset:
+                idx = all_legals.index(a)
+                out_distribution[idx] += uniform_prob
+            return
+
+        # 2) distribute portion in ratio to weights
+        for i, a in enumerate(action_subset):
+            idx = all_legals.index(a)
+            out_distribution[idx] += portion * (weights[i] / total_w)
+
+    def _adjacency_weight(self, state, player, action):
+        """
+        Return a numeric "preference" for placing a token at color/rank indicated by `action`,
+        based on how it grows your largest adjacency cluster.
+
+        We'll measure:
+          old_size = largest cluster for 'player' now,
+          new_size = largest cluster if we place this token,
+          and final = adjacency_base + adjacency_gain_scale*(new_size - old_size).
+
+        If new_size <= old_size, final = adjacency_base.
+        """
+        color_idx = action // state._num_card_types
+        rank_idx  = action % state._num_card_types
+
+        old_size = self._largest_cluster_for_player(state, player)
+
+        # Make a copy of the board ownership
+        board_copy = np.copy(state._board_ownership)
+        # Place this token
+        board_copy[color_idx, rank_idx] = player
+
+        new_size = self._largest_cluster_for_player(state, player, board_override=board_copy)
+
+        gain = float(new_size - old_size)
+        return self._adjacency_base + self._adjacency_gain_scale * gain
+
+    def _largest_cluster_for_player(self, state, player, board_override=None):
+        """
+        BFS to find the largest connected cluster of squares owned by 'player'.
+        If board_override is given, use it instead of state's board_ownership.
+        """
+        board = board_override if board_override is not None else state._board_ownership
+        num_colors, num_ranks = board.shape
+        visited = np.zeros((num_colors, num_ranks), dtype=bool)
+        max_cluster = 0
+
+        def neighbors(c, r):
+            for dc, dr in [(1,0),(-1,0),(0,1),(0,-1)]:
+                cc, rr = c+dc, r+dr
+                if 0 <= cc < num_colors and 0 <= rr < num_ranks:
+                    yield (cc, rr)
+
+        for c_idx in range(num_colors):
+            for r_idx in range(num_ranks):
+                if board[c_idx, r_idx] == player and not visited[c_idx, r_idx]:
+                    # BFS from here
+                    size = 0
+                    queue = collections.deque([(c_idx, r_idx)])
+                    visited[c_idx, r_idx] = True
+                    while queue:
+                        c0, r0 = queue.popleft()
+                        size += 1
+                        for (c1, r1) in neighbors(c0, r0):
+                            if not visited[c1, r1] and board[c1, r1] == player:
+                                visited[c1, r1] = True
+                                queue.append((c1, r1))
+                    max_cluster = max(max_cluster, size)
+        return max_cluster
+
+
+    def _adjacency_biased_uniform(self, state, player, actions, portion):
+        """
+        If you just want to spread 'portion' of probability among 'actions'
+        in proportion to adjacency weighting, ignoring suit logic.
+        """
+        distribution = np.zeros(len(actions), dtype=float)
+        weights = []
+        for a in actions:
+            w = self._adjacency_weight(state, player, a)
+            weights.append(max(w, 0.0))
+
+        total_w = sum(weights)
+        if total_w < 1e-12:
+            # fallback uniform
+            for i in range(len(actions)):
+                distribution[i] = portion / len(actions)
+            return self._normalize(distribution)
+
+        for i, a in enumerate(actions):
+            distribution[i] = portion * (weights[i] / total_w)
+        return self._normalize(distribution)
+
+
+    # ----------------------------------------------------------------------
+    # Utility: safe normalization
+    # ----------------------------------------------------------------------
+    def _normalize(self, distribution):
+        total = np.sum(distribution)
+        if total <= 1e-12:
+            # fallback uniform
+            n = len(distribution)
+            return np.ones(n, dtype=float) / n
+        return distribution / total
+
+
 class TrickFollowingEvaluator(RandomRolloutEvaluator):
     """
     Uses a suit-following heuristic both for prior probabilities and for

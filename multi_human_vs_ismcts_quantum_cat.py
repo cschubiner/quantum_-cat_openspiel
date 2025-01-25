@@ -51,7 +51,7 @@ def main(_):
     random_state = np.random.RandomState(FLAGS.random_seed)
     game = pyspiel.load_game("python_quantum_cat", {"players": total_players})
     observer = game.make_py_observer(
-        pyspiel.IIGObservationType(perfect_recall=False)
+        pyspiel.IIGObservationType(perfectrecall=False)
     )
 
     # Decide seat assignment: which seats are humans vs. bots
@@ -67,7 +67,16 @@ def main(_):
     for seat in range(total_players):
         if seat_types[seat] == "bot":
             evaluator = TrickFollowingEvaluator(
-                n_rollouts=2, random_state=np.random.RandomState(FLAGS.random_seed + seat)
+                n_rollouts=2, random_state=np.random.RandomState(FLAGS.random_seed + seat),
+                discard_frequent_prob=0.85,
+                discard_infrequent_prob=0.15,
+                pred_main_prob=0.70,
+                pred_neighbor_prob=0.20,
+                pred_uniform_prob=0.10,
+                follow_suit_prob=0.50,  # Less likely to follow suit
+                deviate_prob=0.50,      # More likely to deviate
+                deviate_trump_ratio=0.65, # Less likely to play trump when deviating
+                deviate_other_ratio=0.35,
             )
             bot = ISMCTSBot(
                 game=game,
@@ -148,6 +157,8 @@ def main(_):
             print("Bot Observer State (scroll up if you really want to read it):")
             print(observer_str)
             print("\n" * 50)
+
+            print("\n(MCTS thinking...)\n")
 
             chosen_action = ismcts_bot.step(state)
             action_str = state.action_to_string(current_player, chosen_action)
