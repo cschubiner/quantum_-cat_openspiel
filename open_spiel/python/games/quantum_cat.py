@@ -227,6 +227,7 @@ class QuantumCatGameState(pyspiel.State):
     self._game_over = False
     self._returns = [0.0] * self._num_players
     self._rewards = [0.0] * self._num_players
+    self._player_adjacency_bonus = [0.0] * self._num_players
 
     # Keep track if trump (Red) is broken
     self._trump_broken = False
@@ -581,6 +582,7 @@ class QuantumCatGameState(pyspiel.State):
       if self._has_paradoxed[p]:
         # paradox => negative your trick count
         raw_scores[p] = -float(tricks)
+        self._player_adjacency_bonus[p] = 0.0
       else:
         base = float(tricks)
         if self._num_players == 2:
@@ -588,16 +590,20 @@ class QuantumCatGameState(pyspiel.State):
           if tricks <= 4:
             cluster_bonus = self._largest_cluster_for_player(p)
             raw_scores[p] = base + cluster_bonus
+            self._player_adjacency_bonus[p] = cluster_bonus
           else:
             raw_scores[p] = base
+            self._player_adjacency_bonus[p] = 0.0
         else:
           # 3..5 => adjacency bonus if matched your prediction exactly
           pred = self._predictions[p]
           if pred == tricks:
             cluster_bonus = self._largest_cluster_for_player(p)
             raw_scores[p] = base + cluster_bonus
+            self._player_adjacency_bonus[p] = cluster_bonus
           else:
             raw_scores[p] = base
+            self._player_adjacency_bonus[p] = 0.0
 
     # If 2 players => convert to zero-sum
     if self._num_players == 2:
