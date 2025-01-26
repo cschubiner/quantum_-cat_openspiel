@@ -1,0 +1,29 @@
+{
+  "actors": 1,
+  "checkpoint_freq": 100,
+  "eval_levels": 7,
+  "evaluation_window": 100,
+  "evaluators": 2,
+  "game": "python_quantum_cat",
+  "learning_rate": 0.002,
+  "max_simulations": 100,
+  "max_steps": 1000,
+  "nn_depth": 2,
+  "nn_model": "mlp",
+  "nn_width": 128,
+  "observation_shape": [
+    57
+  ],
+  "output_size": 1000,
+  "path": "logs",
+  "policy_alpha": 0.3,
+  "policy_epsilon": 0.25,
+  "quiet": true,
+  "replay_buffer_reuse": 4,
+  "replay_buffer_size": 65536,
+  "temperature": 1,
+  "temperature_drop": 10,
+  "train_batch_size": 256,
+  "uct_c": 2.2,
+  "weight_decay": 0.0001
+}

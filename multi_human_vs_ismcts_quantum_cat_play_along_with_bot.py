@@ -42,7 +42,7 @@ from open_spiel.python.algorithms.ismcts import (
     UNLIMITED_NUM_WORLD_SAMPLES
 )
 # Evaluator for the Bot:
-from mcts_quantum_cat import TrickFollowingEvaluator
+from mcts_quantum_cat import TrickFollowingEvaluatorV2
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_humans", 2, "Number of human players.")
@@ -232,7 +232,7 @@ def main(_):
     bots = {}
     for seat_idx in range(total_players):
         if seat_types[seat_idx] == "bot":
-            evaluator = TrickFollowingEvaluator(
+            evaluator = TrickFollowingEvaluatorV2(
                 n_rollouts=2,
                 random_state=np.random.RandomState(FLAGS.random_seed + seat_idx),
             )
