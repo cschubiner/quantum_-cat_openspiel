@@ -30,10 +30,10 @@ def main(unused_argv):
         max_steps=1000,  # More steps due to game complexity
         checkpoint_freq=100,
 
-        actors=8,  # More actors for parallel experience collection
-        evaluators=4,
-        uct_c=2,  # Higher exploration constant
-        max_simulations=800,  # More simulations per move due to game complexity
+        actors=1,  # More actors for parallel experience collection
+        evaluators=2,
+        uct_c=2.2,  # Higher exploration constant
+        max_simulations=100,  # More simulations per move due to game complexity
         policy_alpha=0.3,
         policy_epsilon=0.25,
         temperature=1,
@@ -43,7 +43,7 @@ def main(unused_argv):
 
         nn_model="mlp",
         nn_width=128,  # Wider network for more capacity
-        nn_depth=8,    # Deeper network for more complex patterns
+        nn_depth=2,    # Deeper network for more complex patterns
         # observation_shape=None,  # Let the game specify this
         # output_size=None,       # Let the game specify this
         observation_shape=game.observation_tensor_shape(),
