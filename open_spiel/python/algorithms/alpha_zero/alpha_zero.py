@@ -36,6 +36,7 @@ import datetime
 import functools
 import itertools
 import json
+import tensorflow as tf
 import os
 import random
 import sys
@@ -341,6 +342,7 @@ def learner(*, game, config, actors, evaluators, broadcast_fn, logger):
   broadcast_fn(save_path)
 
   data_log = data_logger.DataLoggerJsonLines(config.path, "learner", True)
+  writer = tf.summary.create_file_writer(config.path)
 
   stage_count = 7
   value_accuracies = [stats.BasicStats() for _ in range(stage_count)]
@@ -491,6 +493,16 @@ def learner(*, game, config, actors, evaluators, broadcast_fn, logger):
             "hit_rate": 0,
         },
     })
+
+    # Write metrics to TensorBoard
+    with writer.as_default():
+      tf.summary.scalar("loss/policy", float(losses.policy), step=step)
+      tf.summary.scalar("loss/value", float(losses.value), step=step) 
+      tf.summary.scalar("loss/total", float(losses.total), step=step)
+      tf.summary.scalar("game_length/mean", float(game_lengths.mean), step=step)
+      tf.summary.scalar("eval/win_rate", float(sum(evals[0].data)/len(evals[0])) if evals[0] else 0.0, step=step)
+    writer.flush()
+
     logger.print()
 
     if config.max_steps > 0 and step >= config.max_steps:
