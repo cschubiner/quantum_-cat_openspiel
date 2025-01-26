@@ -121,14 +121,8 @@ class QuantumCatGame(pyspiel.Game):
         max_game_length=_MAX_GAME_LENGTH
     )
 
-    # For 2p, use a zero-sum game type
-    game_type = _GAME_TYPE
-    if num_players == 2:
-      game_type = game_type._replace(
-          utility=pyspiel.GameType.Utility.ZERO_SUM
-      )
-
-    super().__init__(game_type, game_info, params)
+    # For 2p, we'll handle zero-sum in _compute_final_scores()
+    super().__init__(_GAME_TYPE, game_info, params)
 
     # Cards per player initially + #tricks
     if num_players == 2:
