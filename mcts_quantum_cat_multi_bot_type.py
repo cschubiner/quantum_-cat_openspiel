@@ -144,25 +144,25 @@ def main():
     ismcts_param_sets = [
         dict(
             uct_c=2.2,
-            max_simulations=45,
+            max_simulations=845,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=3.2,
-            max_simulations=45,
+            max_simulations=845,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=3.6,
-            max_simulations=45,
+            max_simulations=845,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),
         dict(
             uct_c=2.8,
-            max_simulations=45,
+            max_simulations=845,
             final_policy_type=ISMCTSFinalPolicyType.MAX_VISIT_COUNT,
             child_selection_policy=ChildSelectionPolicy.PUCT,
         ),

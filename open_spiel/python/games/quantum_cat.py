@@ -156,8 +156,8 @@ class QuantumCatGame(pyspiel.Game):
     (with PrivateInfoType.SINGLE_PLAYER).
     """
     num_players = self.num_players()
-    num_colors = self._num_colors
-    num_card_types = self._num_card_types
+    num_colors = 4
+    num_card_types = self.num_card_types
 
     # Sum of public pieces:
     #  1) current_player -> size = num_players
@@ -192,7 +192,7 @@ class QuantumCatGame(pyspiel.Game):
         + num_card_types
         + 1
     )
-    return (total_size,)
+    return [total_size]
 
   def make_py_observer(self, iig_obs_type=None, params=None):
     return QuantumCatObserver(
@@ -719,11 +719,110 @@ class QuantumCatGameState(pyspiel.State):
 
   def resample_from_infostate(self, player_id, sampler):
     """
-    If you want to do partial-information MCTS or similar,
-    you could re-sample hidden cards from 'player_id's perspective.
-    This is optional; the default just returns a clone.
+    Returns a new state with all hidden information re-sampled
+    consistently with 'player_id's' perspective of the game so far.
+    - The player's own hand & discard are fully known to them.
+    - Other players' discards, if face-down, are unknown => sample them.
+    - All publicly played cards are removed from the unknown deck.
+    - We re-deal the unknown cards to each other player's hidden hand and discard.
     """
-    return self.clone()
+
+    # 1) Clone this full state to overwrite hidden areas
+    cloned = self.clone()
+
+    # 2) Build a multiset of all possible ranks [1..max_card_value], each with 5 copies
+    max_val = self._game.max_card_value
+    card_counts = [5] * max_val  # card_counts[r-1] => how many copies of rank r remain
+
+    # 3) Remove from card_counts all cards that 'player_id' definitely knows are used
+    #    or out of the deck.
+    #    (A) The player's own hand
+    for rank_idx, count_in_hand in enumerate(self._hands[player_id]):
+      card_counts[rank_idx] -= count_in_hand
+
+    #    (B) The player's own face-down discard (they know it)
+    my_discard_rank = self._discarded_cards[player_id]
+    if my_discard_rank != -1:
+      card_counts[my_discard_rank - 1] -= 1
+
+    #    (C) All publicly known trick plays
+    #        For each completed trick + current trick, those ranks are visible.
+    for trick_list in self._completed_tricks:
+      for (p, cardinfo) in trick_list:
+        if cardinfo is not None:
+          rank_val, color_str = cardinfo
+          card_counts[rank_val - 1] -= 1
+    # Also the in-progress trick
+    for p, cardinfo in enumerate(self._cards_played_this_trick):
+      if cardinfo is not None:
+        rank_val, color_str = cardinfo
+        card_counts[rank_val - 1] -= 1
+
+    # 4) Figure out how many unknown cards each other player must still hold in-hand,
+    #    plus whether we must sample their discard (face-down).
+    unknown_allocations = [0] * self._num_players
+    needs_discard = [False] * self._num_players
+
+    # Determine how many each started with (after discarding).
+    # For 5p => 8 in hand, for 4p => 9 in hand, for 3p => 10 in hand, etc.
+    if self._num_players == 5:
+      starting_in_hand_after_discard = 8
+    elif self._num_players == 4:
+      starting_in_hand_after_discard = 9
+    elif self._num_players == 3:
+      starting_in_hand_after_discard = 9
+    else:
+      raise ValueError("Only 3..5 players supported in Cat in the Box")
+
+    for p in range(self._num_players):
+      if p == player_id:
+        # We know our own exact hand + discard
+        unknown_allocations[p] = 0
+        needs_discard[p] = False
+        continue
+
+      # If discard is still -1, that means from *player_id*'s perspective,
+      # p's discard is unknown => we must sample it.
+      if self._discarded_cards[p] == -1:
+        needs_discard[p] = True
+      else:
+        needs_discard[p] = False
+
+      # Count how many times p has played a card so far
+      played_count = self._count_cards_played_by(p)
+      # Then p must have (starting_in_hand_after_discard - played_count) cards left hidden
+      unknown_allocations[p] = starting_in_hand_after_discard - played_count
+
+    # 5) Create the unknown deck list from card_counts
+    unknown_deck = []
+    for rank_idx, ccount in enumerate(card_counts):
+      if ccount < 0:
+        raise ValueError(f"Contradictory card counts for rank {rank_idx+1}")
+      unknown_deck.extend([rank_idx] * ccount)
+    np.random.shuffle(unknown_deck)
+
+    # 6) Assign unknown discards + unknown hands to each other player
+    deck_pos = 0
+    for p in range(self._num_players):
+      if p == player_id:
+        # We already have our known data
+        continue
+
+      # 6a) If p's discard is unknown => pick 1 random rank for it
+      if needs_discard[p]:
+        discard_rank_idx = unknown_deck[deck_pos]
+        deck_pos += 1
+        cloned._discarded_cards[p] = discard_rank_idx + 1
+
+      # 6b) Now re-deal p's unknown portion of their hand
+      needed = unknown_allocations[p]
+      cloned._hands[p].fill(0)
+      for _ in range(needed):
+        rank_idx = unknown_deck[deck_pos]
+        deck_pos += 1
+        cloned._hands[p][rank_idx] += 1
+
+    return cloned
 
 # ---------------------------------------------------------------------
 # Observer

@@ -2,7 +2,7 @@
 
 Take a look at the log-learner.txt in the output directory.
 """
-
+import pyspiel
 from absl import app
 from absl import flags
 
@@ -17,6 +17,8 @@ FLAGS = flags.FLAGS
 
 
 def main(unused_argv):
+    game = pyspiel.load_game("python_quantum_cat")
+
     config = alpha_zero.Config(
         game="python_quantum_cat",  # Our registered game name
         path=FLAGS.path,
@@ -39,11 +41,13 @@ def main(unused_argv):
         evaluation_window=100,
         eval_levels=7,
 
-        nn_model="resnet",  # Using resnet for better pattern recognition
+        nn_model="mlp",
         nn_width=128,  # Wider network for more capacity
         nn_depth=8,    # Deeper network for more complex patterns
-        observation_shape=None,  # Let the game specify this
-        output_size=None,       # Let the game specify this
+        # observation_shape=None,  # Let the game specify this
+        # output_size=None,       # Let the game specify this
+        observation_shape=game.observation_tensor_shape(),
+        output_size=game.num_distinct_actions(),
 
         quiet=True,
     )
