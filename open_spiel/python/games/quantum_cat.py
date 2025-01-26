@@ -141,6 +141,59 @@ class QuantumCatGame(pyspiel.Game):
   def new_initial_state(self):
     return QuantumCatGameState(self)
 
+  def num_distinct_actions(self):
+    """
+    Must be >= the largest action index used for any player action.
+    We use 1000 because the code sets PARADOX = 999 explicitly,
+    and color-rank actions can occupy lower indices.
+    """
+    return 1000
+
+  def observation_tensor_shape(self):
+    """
+    Return a concrete 1D shape for the single-player viewpoint.
+    This matches the pieces defined in QuantumCatObserver
+    (with PrivateInfoType.SINGLE_PLAYER).
+    """
+    num_players = self.num_players()
+    num_colors = self._num_colors
+    num_card_types = self._num_card_types
+
+    # Sum of public pieces:
+    #  1) current_player -> size = num_players
+    #  2) phase -> size = 5
+    #  3) led_color -> size = (num_colors + 1)
+    #  4) trick_number -> size = 1
+    #  5) start_player -> size = num_players
+    #  6) cards_played_in_trick -> size = 2 * num_players
+    #  7) predictions -> size = num_players
+    #  8) tricks_won -> size = num_players
+    #  9) board_ownership -> size = num_colors * num_card_types
+    # 10) color_tokens -> size = num_players * num_colors
+    # And single-player private pieces:
+    # 11) hand -> size = num_card_types
+    # 12) discarded_rank -> size = 1
+    # 
+    # So total = 6 * num_players for #1 + #5 + #6 + #7 + #8
+    #          + 5 + (num_colors + 1) + 1
+    #          + (num_colors * num_card_types)
+    #          + (num_players * num_colors)
+    #          + num_card_types + 1
+    #
+    # We'll compute it directly:
+
+    total_size = (
+        6 * num_players
+        + 5
+        + (num_colors + 1)
+        + 1
+        + (num_colors * num_card_types)
+        + (num_players * num_colors)
+        + num_card_types
+        + 1
+    )
+    return (total_size,)
+
   def make_py_observer(self, iig_obs_type=None, params=None):
     return QuantumCatObserver(
         iig_obs_type or pyspiel.IIGObservationType(perfect_recall=False),
