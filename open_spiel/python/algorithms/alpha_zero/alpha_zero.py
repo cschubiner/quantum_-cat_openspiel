@@ -264,8 +264,9 @@ def update_checkpoint(logger, queue, model, az_evaluator):
 
 
 @watcher
-def actor(*, config, game, logger, queue):
+def actor(*, config, game_name, game_params, logger, queue):
   """An actor process runner that generates games and returns trajectories."""
+  game = pyspiel.load_game(game_name, game_params)
   logger.print("Initializing model")
   model = _init_model_from_config(config)
   logger.print("Initializing bots")
@@ -282,8 +283,9 @@ def actor(*, config, game, logger, queue):
 
 
 @watcher
-def evaluator(*, game, config, logger, queue):
+def evaluator(*, game_name, game_params, config, logger, queue):
   """A process that plays the latest checkpoint vs standard MCTS."""
+  game = pyspiel.load_game(game_name, game_params)
   results = Buffer(config.evaluation_window)
   logger.print("Initializing model")
   model = _init_model_from_config(config)
@@ -530,11 +532,16 @@ def alpha_zero(config: Config):
   with open(os.path.join(config.path, "config.json"), "w") as fp:
     fp.write(json.dumps(config._asdict(), indent=2, sort_keys=True) + "\n")
 
-  actors = [spawn.Process(actor, kwargs={"game": game, "config": config,
-                                         "num": i})
+  game_params = {"players": 2} if config.game == "python_quantum_cat" else {}
+  actors = [spawn.Process(actor, kwargs={"game_name": config.game,
+                                       "game_params": game_params,
+                                       "config": config,
+                                       "num": i})
             for i in range(config.actors)]
-  evaluators = [spawn.Process(evaluator, kwargs={"game": game, "config": config,
-                                                 "num": i})
+  evaluators = [spawn.Process(evaluator, kwargs={"game_name": config.game,
+                                               "game_params": game_params,
+                                               "config": config,
+                                               "num": i})
                 for i in range(config.evaluators)]
 
   def broadcast(msg):
