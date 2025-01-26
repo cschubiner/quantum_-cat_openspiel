@@ -10,7 +10,7 @@ from collections import deque
 # Configuration & Constants
 # ---------------------------------------------------------------------
 
-_DEFAULT_NUM_PLAYERS = 2  # If no param is given, defaults to 5. Now supports 2..5.
+_DEFAULT_NUM_PLAYERS = 2  # Default to 2 players, supports 2..5
 
 # Suits/Colors for trick-taking strength and adjacency board.
 _COLORS = ["R", "B", "Y", "G"]
@@ -32,6 +32,7 @@ _BLOCKED_MARKER = -2  # If board_ownership[color, rank] == -2, that (color,rank)
 
 _MAX_GAME_LENGTH = 500  # Enough to cover dealing, discarding, bidding, trick-taking
 
+# Static game type - utility mode will be overridden per-instance for 2p
 _GAME_TYPE = pyspiel.GameType(
     short_name="python_quantum_cat",
     long_name="Quantum Cat Trick-Taking (One-Round, Adjacency Bonus)",
@@ -49,6 +50,7 @@ _GAME_TYPE = pyspiel.GameType(
     parameter_specification={"players": _DEFAULT_NUM_PLAYERS}
 )
 
+# Static game info - will be customized per-instance based on num_players
 _GAME_INFO = pyspiel.GameInfo(
     num_distinct_actions=1000,   # Large enough for all moves + paradox
     max_chance_outcomes=45,      # Max deck size for 5 players
@@ -80,12 +82,10 @@ class QuantumCatGame(pyspiel.Game):
       * Adjacency bonus only if you match your prediction exactly (and not paradox).
   """
 
-  def __init__(self, game_type, game_info, params=None):
+  def __init__(self, params=None):
     """Initialize the QuantumCat game.
     
     Args:
-      game_type: The registered game type
-      game_info: The game info
       params: Optional params dict with e.g. "players"
     """
     if params is None:
@@ -110,7 +110,7 @@ class QuantumCatGame(pyspiel.Game):
     self.num_card_types = self.max_card_value
     self.num_colors = len(_COLORS)
 
-    # Override game_info for this specific instance
+    # Create game info for this specific instance
     game_info = pyspiel.GameInfo(
         num_distinct_actions=1000,
         max_chance_outcomes=45,
@@ -122,6 +122,7 @@ class QuantumCatGame(pyspiel.Game):
     )
 
     # For 2p, use a zero-sum game type
+    game_type = _GAME_TYPE
     if num_players == 2:
       game_type = game_type._replace(
           utility=pyspiel.GameType.Utility.ZERO_SUM
