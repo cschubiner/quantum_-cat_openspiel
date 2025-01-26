@@ -47,7 +47,7 @@ _GAME_TYPE = pyspiel.GameType(
     provides_information_state_tensor=True,
     provides_observation_string=True,
     provides_observation_tensor=True,
-    parameter_specification={"players": _DEFAULT_NUM_PLAYERS}
+    parameter_specification={"players": pyspiel.GameParameter(_DEFAULT_NUM_PLAYERS)}
 )
 
 # Static game info - will be customized per-instance based on num_players
