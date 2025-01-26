@@ -53,6 +53,10 @@ class BasicStats(object):
   def max(self):
     return 0 if self._num == 0 else self._max
 
+  @property 
+  def mean(self):
+    return 0.0 if self._num == 0 else self._sum / self._num
+
   @property
   def avg(self):
     return 0 if self._num == 0 else self._sum / self._num
