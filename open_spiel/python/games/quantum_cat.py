@@ -99,8 +99,6 @@ class QuantumCatGame(pyspiel.Game):
         max_game_length=_MAX_GAME_LENGTH,
     )
 
-    super().__init__(self._game_type, game_info, game_parameters)
-
     if not (2 <= num_players <= 5):
       raise ValueError("QuantumCatGame only supports 2..5 players.")
 
@@ -118,6 +116,8 @@ class QuantumCatGame(pyspiel.Game):
     self.total_cards = 5 * self.max_card_value
     self.num_card_types = self.max_card_value
     self.num_colors = len(_COLORS)
+
+    super().__init__(self._game_type, game_info, game_parameters)
 
     # Cards per player initially + #tricks
     if num_players == 2:
