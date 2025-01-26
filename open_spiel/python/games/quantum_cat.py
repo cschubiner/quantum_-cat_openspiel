@@ -205,6 +205,12 @@ class QuantumCatGame(pyspiel.Game):
     )
     return [total_size]
 
+  def get_parameters(self):
+    """Return the parameters used to create this game instance."""
+    return {
+        "players": self.num_players()
+    }
+
   def make_py_observer(self, iig_obs_type=None, params=None):
     return QuantumCatObserver(
         iig_obs_type or pyspiel.IIGObservationType(perfect_recall=False),
@@ -727,6 +733,52 @@ class QuantumCatGameState(pyspiel.State):
     if self._cards_played_this_trick[player_id] is not None:
       count += 1
     return count
+
+  def _clone_impl(self):
+    """Creates a deep clone of this state."""
+    # Create a fresh state with the same underlying Game object:
+    new_state = QuantumCatGameState(self._game)
+
+    # Copy every field needed for the game logic:
+    new_state._phase = self._phase
+    new_state._num_players = self._num_players
+    new_state._num_card_types = self._num_card_types
+    new_state._num_colors = self._num_colors
+    new_state._cards_per_player_initial = self._cards_per_player_initial
+    new_state._total_cards = self._total_cards
+    new_state._num_tricks = self._num_tricks
+
+    new_state._deck = np.copy(self._deck)
+    new_state._cards_dealt = self._cards_dealt
+    new_state._deal_player = self._deal_player
+
+    new_state._hands = [np.copy(h) for h in self._hands]
+    new_state._has_discarded = list(self._has_discarded)
+    new_state._discarded_cards = list(self._discarded_cards)
+    new_state._predictions = list(self._predictions)
+
+    new_state._trick_number = self._trick_number
+    new_state._start_player = self._start_player
+    new_state._current_player = self._current_player
+    new_state._led_color = self._led_color
+    new_state._cards_played_this_trick = list(self._cards_played_this_trick)
+    new_state._tricks_won = np.copy(self._tricks_won)
+
+    new_state._board_ownership = np.copy(self._board_ownership)
+    new_state._has_paradoxed = list(self._has_paradoxed)
+    new_state._color_tokens = np.copy(self._color_tokens)
+    new_state._trump_broken = self._trump_broken
+
+    new_state._completed_tricks = []
+    for trick_info in self._completed_tricks:
+        new_state._completed_tricks.append(list(trick_info))
+
+    new_state._game_over = self._game_over
+    new_state._returns = list(self._returns)
+    new_state._rewards = list(self._rewards)
+    new_state._player_adjacency_bonus = list(self._player_adjacency_bonus)
+
+    return new_state
 
   def observation_tensor(self, player=None):
     """Return the flattened 1D observation for the specified player (or current)."""
