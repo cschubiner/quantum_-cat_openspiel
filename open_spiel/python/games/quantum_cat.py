@@ -717,6 +717,25 @@ class QuantumCatGameState(pyspiel.State):
       count += 1
     return count
 
+  def observation_tensor(self, player=None):
+    """Return the flattened 1D observation for the specified player (or current)."""
+    if player is None:
+      player = self._current_player
+
+    # Allocate a 1D numpy array of the same size that observation_tensor_shape() says.
+    obs_size = self._game.observation_tensor_shape()[0]
+    obs = np.zeros(obs_size, dtype=np.float32)
+
+    # Build a temporary observer and ask it to fill its .tensor
+    observer = self._game.make_py_observer(
+        pyspiel.IIGObservationType(perfect_recall=False)
+    )
+    observer.set_from(self, player)
+
+    # Copy the observer's data into our obs array:
+    obs[:] = observer.tensor
+    return obs
+
   def resample_from_infostate(self, player_id, sampler):
     """
     Returns a new state with all hidden information re-sampled
