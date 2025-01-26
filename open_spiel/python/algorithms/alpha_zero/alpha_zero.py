@@ -36,6 +36,7 @@ import datetime
 import functools
 import itertools
 import json
+import os
 import tensorflow as tf
 import os
 import random
@@ -342,7 +343,9 @@ def learner(*, game, config, actors, evaluators, broadcast_fn, logger):
   broadcast_fn(save_path)
 
   data_log = data_logger.DataLoggerJsonLines(config.path, "learner", True)
-  writer = tf.summary.create_file_writer(config.path)
+  tb_path = os.path.join(config.path, "tb")
+  os.makedirs(tb_path, exist_ok=True)
+  writer = tf.summary.create_file_writer(tb_path)
 
   stage_count = 7
   value_accuracies = [stats.BasicStats() for _ in range(stage_count)]
