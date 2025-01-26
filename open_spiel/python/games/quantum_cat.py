@@ -143,6 +143,12 @@ class QuantumCatGame(pyspiel.Game):
       self.cards_per_player_initial = 9
       self.num_tricks = 7
 
+  def get_parameters(self):
+    """Return the parameters used to create this game instance."""
+    return {
+        "players": self.num_players()
+    }
+
   def new_initial_state(self):
     return QuantumCatGameState(self)
 
