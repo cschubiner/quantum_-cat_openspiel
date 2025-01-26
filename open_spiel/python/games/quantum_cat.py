@@ -27,38 +27,37 @@ _ACTION_PREDICT_OFFSET = 100  # so "Predict=1" -> 101, "Predict=4" -> 104
 _BLOCKED_MARKER = -2  # If board_ownership[color, rank] == -2, that (color,rank) is blocked.
 
 # ---------------------------------------------------------------------
-# GameType & Utility Mode
+# Game Type & Info
 # ---------------------------------------------------------------------
 
-def _make_game_type(num_players: int) -> pyspiel.GameType:
-  """
-  Creates a GameType with ZERO_SUM utility if num_players == 2,
-  otherwise GENERAL_SUM. This ensures 2-player is truly zero-sum,
-  while 3–5 players remain general-sum.
-  """
-  if num_players == 2:
-    util = pyspiel.GameType.Utility.ZERO_SUM
-  else:
-    util = pyspiel.GameType.Utility.GENERAL_SUM
-
-  return pyspiel.GameType(
-      short_name="python_quantum_cat",
-      long_name="Quantum Cat Trick-Taking (One-Round, Adjacency Bonus)",
-      dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
-      chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
-      information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
-      utility=util,  # <== ZERO_SUM if 2p, else GENERAL_SUM
-      reward_model=pyspiel.GameType.RewardModel.TERMINAL,
-      max_num_players=5,
-      min_num_players=2,
-      provides_information_state_string=True,
-      provides_information_state_tensor=True,
-      provides_observation_string=True,
-      provides_observation_tensor=True,
-      parameter_specification={"players": _DEFAULT_NUM_PLAYERS}
-  )
-
 _MAX_GAME_LENGTH = 500  # Enough to cover dealing, discarding, bidding, trick-taking
+
+_GAME_TYPE = pyspiel.GameType(
+    short_name="python_quantum_cat",
+    long_name="Quantum Cat Trick-Taking (One-Round, Adjacency Bonus)",
+    dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
+    chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
+    information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
+    utility=pyspiel.GameType.Utility.GENERAL_SUM,  # Will be overridden per-instance
+    reward_model=pyspiel.GameType.RewardModel.TERMINAL,
+    max_num_players=5,
+    min_num_players=2,
+    provides_information_state_string=True,
+    provides_information_state_tensor=True,
+    provides_observation_string=True,
+    provides_observation_tensor=True,
+    parameter_specification={"players": _DEFAULT_NUM_PLAYERS}
+)
+
+_GAME_INFO = pyspiel.GameInfo(
+    num_distinct_actions=1000,   # Large enough for all moves + paradox
+    max_chance_outcomes=45,      # Max deck size for 5 players
+    num_players=_DEFAULT_NUM_PLAYERS,
+    min_utility=-50.0,
+    max_utility=50.0,
+    utility_sum=0.0,  # We'll fix the sum to 0 only in 2p mode within the code
+    max_game_length=_MAX_GAME_LENGTH
+)
 
 # ---------------------------------------------------------------------
 # QuantumCatGame
@@ -81,24 +80,18 @@ class QuantumCatGame(pyspiel.Game):
       * Adjacency bonus only if you match your prediction exactly (and not paradox).
   """
 
-  def __init__(self, params=None):
-    game_parameters = params or {}
-    num_players = game_parameters.get("players", _DEFAULT_NUM_PLAYERS)
-
-    # Create a dynamic GameType: zero-sum if 2p, general-sum if 3–5p
-    self._game_type = _make_game_type(num_players)
-
-    # Construct a suitable GameInfo
-    game_info = pyspiel.GameInfo(
-        num_distinct_actions=1000,   # Large enough for all moves + paradox
-        max_chance_outcomes=45,      # Max deck size for 5 players
-        num_players=num_players,
-        min_utility=-50.0,
-        max_utility=50.0,
-        utility_sum=0.0,  # We'll fix the sum to 0 only in 2p mode within the code.
-        max_game_length=_MAX_GAME_LENGTH,
-    )
-
+  def __init__(self, game_type, game_info, params=None):
+    """Initialize the QuantumCat game.
+    
+    Args:
+      game_type: The registered game type
+      game_info: The game info
+      params: Optional params dict with e.g. "players"
+    """
+    if params is None:
+      params = {}
+    num_players = int(params.get("players", _DEFAULT_NUM_PLAYERS))
+    
     if not (2 <= num_players <= 5):
       raise ValueError("QuantumCatGame only supports 2..5 players.")
 
@@ -117,7 +110,24 @@ class QuantumCatGame(pyspiel.Game):
     self.num_card_types = self.max_card_value
     self.num_colors = len(_COLORS)
 
-    super().__init__(self._game_type, game_info, game_parameters)
+    # Override game_info for this specific instance
+    game_info = pyspiel.GameInfo(
+        num_distinct_actions=1000,
+        max_chance_outcomes=45,
+        num_players=num_players,
+        min_utility=-50.0,
+        max_utility=50.0,
+        utility_sum=0.0,
+        max_game_length=_MAX_GAME_LENGTH
+    )
+
+    # For 2p, use a zero-sum game type
+    if num_players == 2:
+      game_type = game_type._replace(
+          utility=pyspiel.GameType.Utility.ZERO_SUM
+      )
+
+    super().__init__(game_type, game_info, params)
 
     # Cards per player initially + #tricks
     if num_players == 2:
@@ -978,16 +988,5 @@ class QuantumCatObserver:
 # ---------------------------------------------------------------------
 # Register the game with PySpiel
 # ---------------------------------------------------------------------
-# Because we dynamically build the GameType depending on #players,
-# we only do a single "named" registration for the default param
-# (which is 5). If you'd like to load it with different #players,
-# do: pyspiel.load_game("python_quantum_cat", {"players":2}) etc.
-# It will still work but the static GameType might not reflect
-# zero-sum for 2p at import-time. The run-time checks do handle it.
-#
-pyspiel.register_game(
-    # We'll pass a "default" game type for registration:
-    _make_game_type(_DEFAULT_NUM_PLAYERS),
-    QuantumCatGame
-)
+pyspiel.register_game(_GAME_TYPE, QuantumCatGame)
 
