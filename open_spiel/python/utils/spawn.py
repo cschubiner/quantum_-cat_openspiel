@@ -20,11 +20,6 @@ import queue
 
 Empty = queue.Empty
 
-# Without this line, this fails on latest MacOS with Python 3.8. See
-# https://github.com/pytest-dev/pytest-flask/issues/104#issuecomment-577908228
-# and for more details see
-# https://docs.python.org/3/library/multiprocessing.html#contexts-and-start-methods
-multiprocessing.set_start_method("fork")
 
 
 # For compatibility so that it works inside Google.
@@ -42,17 +37,19 @@ class Process(object):
   """
 
   def __init__(self, target, args=(), kwargs=None):
+    ctx = multiprocessing.get_context("spawn")
+    
     if kwargs is None:
       kwargs = {}
     elif "queue" in kwargs:
       raise ValueError("`queue` is reserved for use by `Process`.")
 
-    q1 = multiprocessing.Queue()
-    q2 = multiprocessing.Queue()
+    q1 = ctx.Queue()
+    q2 = ctx.Queue()
     self._queue = _ProcessQueue(q1, q2)
     kwargs["queue"] = _ProcessQueue(q2, q1)
 
-    self._process = multiprocessing.Process(
+    self._process = ctx.Process(
         target=target, args=args, kwargs=kwargs)
     self._process.start()
 
