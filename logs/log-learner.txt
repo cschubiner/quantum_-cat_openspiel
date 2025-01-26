@@ -1,5 +1,5 @@
-[2025-01-25 22:30:11.762] learner started
-[2025-01-25 22:30:11.762] Initializing model
-[2025-01-25 22:30:12.051] Model type: mlp(128, 2)
-[2025-01-25 22:30:12.051] Model size: 186089 variables
-[2025-01-25 22:30:12.088] Initial checkpoint: logs/checkpoint-0
+[2025-01-25 22:47:35.787] learner started
+[2025-01-25 22:47:35.787] Initializing model
+[2025-01-25 22:47:36.491] Model type: mlp(128, 2)
+[2025-01-25 22:47:36.491] Model size: 186089 variables
+[2025-01-25 22:47:36.523] Initial checkpoint: logs/checkpoint-0

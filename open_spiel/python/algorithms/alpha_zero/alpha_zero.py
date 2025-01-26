@@ -205,6 +205,8 @@ def _play_game(logger, game_num, game, bots, temperature, temperature_drop):
   """Play one game, return the trajectory."""
   trajectory = Trajectory()
   actions = []
+  # from open_spiel.python.games.quantum_cat import QuantumCatGame
+  # game = QuantumCatGame(params=game_params)
   state = game.new_initial_state()
   random_state = np.random.RandomState()
   logger.opt_print(" Starting game {} ".format(game_num).center(60, "-"))
@@ -269,6 +271,8 @@ def update_checkpoint(logger, queue, model, az_evaluator):
 def actor(*, config, game_name, game_params, logger, queue):
   """An actor process runner that generates games and returns trajectories."""
   game = pyspiel.load_game(game_name, game_params)
+  from open_spiel.python.games.quantum_cat import QuantumCatGame
+  game = QuantumCatGame(params=game_params)
   logger.print("Initializing model")
   model = _init_model_from_config(config)
   logger.print("Initializing bots")
@@ -288,6 +292,9 @@ def actor(*, config, game_name, game_params, logger, queue):
 def evaluator(*, game_name, game_params, config, logger, queue):
   """A process that plays the latest checkpoint vs standard MCTS."""
   game = pyspiel.load_game(game_name, game_params)
+  # reinitialize the game
+  from open_spiel.python.games.quantum_cat import QuantumCatGame
+  game = QuantumCatGame(params=game_params)
   results = Buffer(config.evaluation_window)
   logger.print("Initializing model")
   model = _init_model_from_config(config)

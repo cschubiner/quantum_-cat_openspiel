@@ -1,36 +1,5 @@
-[2025-01-25 22:30:14.362] actor-0 started
-[2025-01-25 22:30:14.362] Initializing model
-[2025-01-25 22:30:14.609] Initializing bots
-[2025-01-25 22:30:14.609] Inference cache: CacheInfo(hits=0, misses=0, size=0, max_size=65536)
-[2025-01-25 22:30:14.609] Loading checkpoint logs/checkpoint-0
-[2025-01-25 22:30:14.634] 
-===================== Exception caught =====================
-Traceback (most recent call last):
-  File "/Users/canal/quantum_-cat_openspiel/open_spiel/python/algorithms/alpha_zero/alpha_zero.py", line 173, in _watcher
-    return fn(config=config, logger=logger, **kwargs)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/canal/quantum_-cat_openspiel/open_spiel/python/algorithms/alpha_zero/alpha_zero.py", line 283, in actor
-    queue.put(_play_game(logger, game_num, game, bots, config.temperature,
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/canal/quantum_-cat_openspiel/open_spiel/python/algorithms/alpha_zero/alpha_zero.py", line 223, in _play_game
-    root = bots[state.current_player()].mcts_search(state)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/canal/quantum_-cat_openspiel/open_spiel/python/algorithms/mcts.py", line 406, in mcts_search
-    returns = self.evaluator.evaluate(working_state)
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/canal/quantum_-cat_openspiel/open_spiel/python/algorithms/alpha_zero/evaluator.py", line 61, in evaluate
-    value, _ = self._inference(state)
-               ^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/canal/quantum_-cat_openspiel/open_spiel/python/algorithms/alpha_zero/evaluator.py", line 48, in _inference
-    obs = np.expand_dims(state.observation_tensor(), 0)
-                         ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/canal/quantum_-cat_openspiel/open_spiel/python/games/quantum_cat.py", line 731, in observation_tensor
-    obs_size = self._game.observation_tensor_shape()[0]
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/canal/quantum_-cat_openspiel/open_spiel/python/games/quantum_cat.py", line 165, in observation_tensor_shape
-    num_card_types = self.num_card_types
-                     ^^^^^^^^^^^^^^^^^^^
-AttributeError: 'QuantumCatGame' object has no attribute 'num_card_types'
-
-============================================================
-[2025-01-25 22:30:14.634] actor-0 exiting
+[2025-01-25 22:47:43.175] actor-0 started
+[2025-01-25 22:47:43.175] Initializing model
+[2025-01-25 22:47:43.793] Initializing bots
+[2025-01-25 22:47:43.794] Inference cache: CacheInfo(hits=0, misses=0, size=0, max_size=65536)
+[2025-01-25 22:47:43.794] Loading checkpoint logs/checkpoint-0
