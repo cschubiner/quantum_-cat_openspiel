@@ -739,6 +739,16 @@ struct QuantumCatGame: Codable {
         guard case .bot(let kind) = players[player].seatKind else { return legalMoves.first ?? .paradox }
         let legal = legalMoves
         guard !legal.isEmpty else { return .paradox }
+        if phase == .prediction {
+            let sharedBid = sharedPredictionBid(for: player)
+            let sharedMove = Move.prediction(sharedBid)
+            if legal.contains(sharedMove) {
+                return sharedMove
+            }
+            return legal.min { lhs, rhs in
+                predictionGap(lhs, target: sharedBid) < predictionGap(rhs, target: sharedBid)
+            } ?? legal[0]
+        }
         if kind == .random {
             return legal[rng.int(upperBound: legal.count)]
         }
@@ -756,6 +766,11 @@ struct QuantumCatGame: Codable {
             }
         }
         return scored.max(by: { $0.0 < $1.0 })?.1 ?? legal[0]
+    }
+
+    private func predictionGap(_ move: Move, target: Int) -> Int {
+        guard case .prediction(let value) = move else { return Int.max }
+        return abs(value - target)
     }
 
     private func avoidsParadoxAfterMove(_ move: Move) -> Bool {
