@@ -739,6 +739,9 @@ struct QuantumCatGame: Codable {
         guard case .bot(let kind) = players[player].seatKind else { return legalMoves.first ?? .paradox }
         let legal = legalMoves
         guard !legal.isEmpty else { return .paradox }
+        if phase == .discard, let sharedDiscard = sharedDiscardMove(for: player, legal: legal) {
+            return sharedDiscard
+        }
         if phase == .prediction {
             let sharedBid = sharedPredictionBid(for: player)
             let sharedMove = Move.prediction(sharedBid)
@@ -753,9 +756,6 @@ struct QuantumCatGame: Codable {
             return legal[rng.int(upperBound: legal.count)]
         }
         let modelPreferredMove = QuantumCatMLPolicy.shared.chooseMove(kind: kind, game: self, player: player, legalMoves: legal)
-        if kind == .championBeliefPolicy, phase == .discard, let modelPreferredMove {
-            return modelPreferredMove
-        }
         let weights = kind.weights
         let scored = legal.map { move -> (Double, Move) in
             let modelBonus = move == modelPreferredMove ? 4.0 : 0.0
@@ -769,6 +769,48 @@ struct QuantumCatGame: Codable {
             }
         }
         return scored.max(by: { $0.0 < $1.0 })?.1 ?? legal[0]
+    }
+
+    private func sharedDiscardMove(for player: Int, legal: [Move]) -> Move? {
+        guard phase == .discard, players.indices.contains(player) else { return nil }
+        let hand = players[player].hand
+        let discardRanks = legal.compactMap { move -> Int? in
+            guard case .discard(let rank) = move,
+                  (1...hand.count).contains(rank),
+                  hand[rank - 1] > 0 else {
+                return nil
+            }
+            return rank
+        }
+        guard let maxCount = discardRanks.map({ hand[$0 - 1] }).max() else { return nil }
+        var candidates = discardRanks.filter { hand[$0 - 1] == maxCount }
+        if candidates.count > 1, candidates.contains(6) {
+            candidates.removeAll { $0 == 6 }
+        }
+        guard let selected = candidates.max(by: { lhs, rhs in
+            let lhsScore = discardDissimilarityScore(hand: hand, rank: lhs)
+            let rhsScore = discardDissimilarityScore(hand: hand, rank: rhs)
+            if lhsScore != rhsScore {
+                return lhsScore < rhsScore
+            }
+            return lhs > rhs
+        }) else {
+            return nil
+        }
+        return .discard(rank: selected)
+    }
+
+    private func discardDissimilarityScore(hand: [Int], rank: Int) -> Double {
+        guard (1...hand.count).contains(rank) else { return 0.0 }
+        var remaining = hand
+        remaining[rank - 1] = max(0, remaining[rank - 1] - 1)
+        let total = remaining.reduce(0, +)
+        guard total > 0 else { return 0.0 }
+        let weightedDistance = remaining.enumerated().reduce(0.0) { partial, item in
+            let otherRank = item.offset + 1
+            return partial + Double(abs(otherRank - rank) * item.element)
+        }
+        return weightedDistance / Double(total)
     }
 
     private func predictionGap(_ move: Move, target: Int) -> Int {

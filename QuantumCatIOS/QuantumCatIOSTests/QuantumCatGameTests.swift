@@ -84,6 +84,35 @@ final class QuantumCatGameTests: XCTestCase {
         XCTAssertEqual(game.activeBotKind, .setPoolDistill)
     }
 
+    func testChampionDiscardUsesSharedRankRuleBeforeModelPolicy() {
+        var sawRankSixTie = false
+
+        for seed in 20260620..<(20260620 + 2_000) {
+            var game = QuantumCatGame(
+                seats: [.bot(.championBeliefPolicy), .bot(.random), .bot(.random)],
+                seed: seed,
+                autoAdvanceBots: false
+            )
+            let hand = game.players[0].hand
+            let maxCount = hand.max() ?? 0
+            let tiedRanks = hand.enumerated()
+                .filter { $0.element == maxCount }
+                .map { $0.offset + 1 }
+            guard tiedRanks.count > 1, tiedRanks.contains(6) else { continue }
+
+            sawRankSixTie = true
+            let expectedRank = expectedSharedDiscardRank(for: hand)
+            let move = game.applyBotMoveForCurrentPlayer()
+
+            XCTAssertEqual(move, .discard(rank: expectedRank))
+            XCTAssertNotEqual(move, .discard(rank: 6))
+            XCTAssertEqual(game.players[0].discardedRank, expectedRank)
+            break
+        }
+
+        XCTAssertTrue(sawRankSixTie)
+    }
+
     func testZeroHumanTablesCanWatchOrBulkSimulate() {
         var watchGame = QuantumCatGame(
             seats: [.bot(.championBeliefPolicy), .bot(.setPoolDistill), .bot(.strictQHead)],
@@ -209,5 +238,34 @@ final class QuantumCatGameTests: XCTestCase {
         XCTAssertEqual(store.bulkSimulationSummary?.players.count, 3)
         XCTAssertNotNil(store.bulkSimulationSummary?.seatParadoxRate)
         XCTAssertEqual(store.bulkSimulationSummary?.players.reduce(0) { $0 + $1.paradoxes }, store.bulkSimulationSummary?.totalParadoxes)
+    }
+
+    private func expectedSharedDiscardRank(for hand: [Int]) -> Int {
+        let maxCount = hand.max() ?? 0
+        var candidates = hand.enumerated()
+            .filter { $0.element == maxCount && $0.element > 0 }
+            .map { $0.offset + 1 }
+        if candidates.count > 1, candidates.contains(6) {
+            candidates.removeAll { $0 == 6 }
+        }
+        return candidates.max { lhs, rhs in
+            let lhsScore = expectedDiscardDissimilarityScore(hand: hand, rank: lhs)
+            let rhsScore = expectedDiscardDissimilarityScore(hand: hand, rank: rhs)
+            if lhsScore != rhsScore {
+                return lhsScore < rhsScore
+            }
+            return lhs > rhs
+        } ?? 1
+    }
+
+    private func expectedDiscardDissimilarityScore(hand: [Int], rank: Int) -> Double {
+        var remaining = hand
+        remaining[rank - 1] = max(0, remaining[rank - 1] - 1)
+        let total = remaining.reduce(0, +)
+        guard total > 0 else { return 0.0 }
+        let weightedDistance = remaining.enumerated().reduce(0.0) { partial, item in
+            partial + Double(abs((item.offset + 1) - rank) * item.element)
+        }
+        return weightedDistance / Double(total)
     }
 }
