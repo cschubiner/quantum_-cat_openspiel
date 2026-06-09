@@ -1,13 +1,13 @@
 [
   {
     "id": "champion_belief_policy",
-    "name": "Champion Survival Q Policy",
-    "approach": "Phase-one survival/liquidity q-policy: policy logits plus play-phase action-value reranking",
+    "name": "Run504 Lane-Risk Champion",
+    "approach": "All-phase lane-risk checkpoint using Core ML policy logits plus discard-phase action-paradox risk reranking",
     "artifact": "champion_belief_policy.pt",
     "coreMLArtifact": "champion_belief_policy.mlpackage",
-    "bestFor": "Best available phase-one gated ML bot by any-paradox hand-round rate: run537 q-policy, 34.44% on m30 gate using value weight 0.8 and clip 0.6",
+    "bestFor": "Best durable anti-paradox candidate by same-seed gates: run504 discard-risk rerank, 35.7% on m100 and 39.2% on m300",
     "rating": "production-best",
-    "status": "Core ML package bundled for native iOS q-policy inference; heuristic adapter remains the gameplay fallback"
+    "status": "Core ML package bundled for native iOS policy and action-risk inference; shared bidding and Swift liveness guard remain active"
   },
   {
     "id": "setpool_distill",
@@ -32,10 +32,10 @@
   {
     "id": "strict_q_head",
     "name": "Strict Q Head",
-    "approach": "Core ML phase-one q-policy action-value reranker trained from loaded replay",
+    "approach": "Core ML Run504 lane-risk checkpoint exposed as the tactical slot",
     "artifact": "strict_q_head.pt",
     "coreMLArtifact": "strict_q_head.mlpackage",
-    "bestFor": "Same best gated survival q-policy model exposed as the tactical bot slot",
+    "bestFor": "Same Run504 checkpoint exposed as the tactical bot slot",
     "rating": "candidate",
     "status": "Core ML package bundled for native iOS q-policy inference; heuristic fallback remains available"
   }

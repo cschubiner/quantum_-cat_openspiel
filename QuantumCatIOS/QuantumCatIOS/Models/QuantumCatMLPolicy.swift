@@ -22,7 +22,6 @@ final class QuantumCatMLPolicy {
     private let models: [String: Any] = [:]
     #endif
 
-    private let observationSize = 76
     private let maxActions = 1000
     private var usage: [String: MLPolicyUsageSnapshot] = [:]
 
@@ -50,7 +49,7 @@ final class QuantumCatMLPolicy {
             return nil
         }
         do {
-            let observation = try MLMultiArray(shape: [1, NSNumber(value: observationSize)], dataType: .float32)
+            let observation = try MLMultiArray(shape: [1, NSNumber(value: kind.coreMLObservationSize)], dataType: .float32)
             let actionFeatures = try MLMultiArray(
                 shape: [1, NSNumber(value: maxActions), NSNumber(value: actionFeatureSize)],
                 dataType: .float32
@@ -69,10 +68,17 @@ final class QuantumCatMLPolicy {
             let actionValues = kind.coreMLActionValueOutputName.flatMap { name in
                 output.featureValue(for: name)?.multiArrayValue
             }
-            let bestIndex = (0..<legalMoves.count).max { lhs, rhs in
-                qPolicyScore(kind: kind, phase: game.phase, logits: logits, actionValues: actionValues, actionIndex: lhs)
-                    < qPolicyScore(kind: kind, phase: game.phase, logits: logits, actionValues: actionValues, actionIndex: rhs)
+            let actionRisks = kind.coreMLActionRiskOutputName.flatMap { name in
+                output.featureValue(for: name)?.multiArrayValue
             }
+            let bestIndex = selectActionIndex(
+                kind: kind,
+                phase: game.phase,
+                logits: logits,
+                actionValues: actionValues,
+                actionRisks: actionRisks,
+                legalCount: legalMoves.count
+            )
             recordUsage(resource: resource, succeeded: bestIndex != nil)
             return bestIndex.map { legalMoves[$0] }
         } catch {
@@ -109,6 +115,7 @@ final class QuantumCatMLPolicy {
 
     private func fillObservation(_ observation: MLMultiArray, game: QuantumCatGame, player: Int) {
         zero(observation)
+        let observationSize = observation.count
         set(observation, [0, 0], phaseValue(game.phase))
         set(observation, [0, 1], Double(player) / 4.0)
         set(observation, [0, 2], Double(game.players.count) / 5.0)
@@ -228,6 +235,45 @@ final class QuantumCatMLPolicy {
         let clippedValue = clip > 0 ? min(max(rawValue, -clip), clip) : rawValue
         score += kind.coreMLActionValueSelectionWeight * clippedValue
         return score
+    }
+
+    private func selectActionIndex(
+        kind: BotKind,
+        phase: GamePhase,
+        logits: MLMultiArray,
+        actionValues: MLMultiArray?,
+        actionRisks: MLMultiArray?,
+        legalCount: Int
+    ) -> Int? {
+        guard legalCount > 0 else { return nil }
+        let baseline = (0..<legalCount).max { lhs, rhs in
+            qPolicyScore(kind: kind, phase: phase, logits: logits, actionValues: actionValues, actionIndex: lhs)
+                < qPolicyScore(kind: kind, phase: phase, logits: logits, actionValues: actionValues, actionIndex: rhs)
+        } ?? 0
+        guard
+            kind.coreMLActionRiskRerankPhases.contains(phase),
+            let actionRisks
+        else { return baseline }
+
+        let minRisk = (0..<legalCount)
+            .map { risk(actionRisks, actionIndex: $0) }
+            .min() ?? risk(actionRisks, actionIndex: baseline)
+        let maxPolicyGap = kind.coreMLActionRiskMaxPolicyGap
+        let baselineLogit = logit(logits, actionIndex: baseline)
+        let candidates = (0..<legalCount).filter { index in
+            risk(actionRisks, actionIndex: index) <= minRisk + kind.coreMLActionRiskSlack
+                && (maxPolicyGap < 0 || baselineLogit - logit(logits, actionIndex: index) <= maxPolicyGap)
+        }
+        guard !candidates.isEmpty else { return baseline }
+        return candidates.max { lhs, rhs in
+            let lhsScore = logit(logits, actionIndex: lhs) - risk(actionRisks, actionIndex: lhs)
+            let rhsScore = logit(logits, actionIndex: rhs) - risk(actionRisks, actionIndex: rhs)
+            return lhsScore < rhsScore
+        }
+    }
+
+    private func risk(_ array: MLMultiArray, actionIndex: Int) -> Double {
+        1.0 / (1.0 + exp(-logit(array, actionIndex: actionIndex)))
     }
     #endif
 }

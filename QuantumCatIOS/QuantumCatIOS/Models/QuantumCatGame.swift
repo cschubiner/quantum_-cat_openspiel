@@ -753,6 +753,9 @@ struct QuantumCatGame: Codable {
             return legal[rng.int(upperBound: legal.count)]
         }
         let modelPreferredMove = QuantumCatMLPolicy.shared.chooseMove(kind: kind, game: self, player: player, legalMoves: legal)
+        if kind == .championBeliefPolicy, phase == .discard, let modelPreferredMove {
+            return modelPreferredMove
+        }
         let weights = kind.weights
         let scored = legal.map { move -> (Double, Move) in
             let modelBonus = move == modelPreferredMove ? 4.0 : 0.0

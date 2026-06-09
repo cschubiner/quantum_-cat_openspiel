@@ -26,7 +26,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
     var subtitle: String {
         switch self {
         case .championBeliefPolicy:
-            "Best gated phase-one survival q-policy checkpoint, bundled as Core ML plus source PyTorch artifact."
+            "Run504 all-phase lane-risk checkpoint with discard-phase risk reranking, bundled as Core ML plus source PyTorch artifact."
         case .setPoolDistill:
             "Set-pooling distilled policy/value student, bundled as Core ML."
         case .rawPolicyLeague:
@@ -109,14 +109,14 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var coreMLActionValueOutputName: String? {
         switch self {
-        case .championBeliefPolicy, .strictQHead: "var_208"
+        case .strictQHead: "var_208"
         default: nil
         }
     }
 
     var coreMLActionValueSelectionWeight: Double {
         switch self {
-        case .championBeliefPolicy, .strictQHead: 0.8
+        case .strictQHead: 0.8
         default: 0.0
         }
     }
@@ -130,8 +130,36 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var coreMLActionValueRerankPhases: Set<GamePhase> {
         switch self {
-        case .championBeliefPolicy, .strictQHead: [.play]
+        case .strictQHead: [.play]
         default: []
+        }
+    }
+
+    var coreMLActionRiskOutputName: String? {
+        switch self {
+        case .championBeliefPolicy: "var_196"
+        default: nil
+        }
+    }
+
+    var coreMLActionRiskRerankPhases: Set<GamePhase> {
+        switch self {
+        case .championBeliefPolicy: [.discard]
+        default: []
+        }
+    }
+
+    var coreMLActionRiskMaxPolicyGap: Double {
+        switch self {
+        case .championBeliefPolicy: 0.8
+        default: -1.0
+        }
+    }
+
+    var coreMLActionRiskSlack: Double {
+        switch self {
+        case .championBeliefPolicy: 0.03
+        default: 0.0
         }
     }
 
@@ -140,6 +168,13 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
         case .championBeliefPolicy, .strictQHead: 214
         case .setPoolDistill, .rawPolicyLeague: 122
         default: 122
+        }
+    }
+
+    var coreMLObservationSize: Int {
+        switch self {
+        case .championBeliefPolicy, .strictQHead: 72
+        default: 76
         }
     }
 }
