@@ -1,0 +1,42 @@
+[
+  {
+    "id": "champion_belief_policy",
+    "name": "Champion Survival Q Policy",
+    "approach": "Phase-one survival/liquidity q-policy: policy logits plus play-phase action-value reranking",
+    "artifact": "champion_belief_policy.pt",
+    "coreMLArtifact": "champion_belief_policy.mlpackage",
+    "bestFor": "Best available phase-one gated ML bot by any-paradox hand-round rate: run537 q-policy, 34.44% on m30 gate using value weight 0.8 and clip 0.6",
+    "rating": "production-best",
+    "status": "Core ML package bundled for native iOS q-policy inference; heuristic adapter remains the gameplay fallback"
+  },
+  {
+    "id": "setpool_distill",
+    "name": "SetPool Distill",
+    "approach": "Core ML set-pooling distilled policy/value student",
+    "artifact": "setpool_distill.pt",
+    "coreMLArtifact": "setpool_distill.mlpackage",
+    "bestFor": "Small mobile candidate once converted",
+    "rating": "candidate",
+    "status": "Core ML package bundled for native iOS inference; heuristic fallback remains available"
+  },
+  {
+    "id": "raw_policy_league",
+    "name": "Raw Policy League",
+    "approach": "Core ML league-trained policy checkpoint",
+    "artifact": "raw_policy_league.pt",
+    "coreMLArtifact": "raw_policy_league.mlpackage",
+    "bestFor": "Policy diversity",
+    "rating": "candidate",
+    "status": "Core ML package bundled for native iOS inference; heuristic fallback remains available"
+  },
+  {
+    "id": "strict_q_head",
+    "name": "Strict Q Head",
+    "approach": "Core ML phase-one q-policy action-value reranker trained from loaded replay",
+    "artifact": "strict_q_head.pt",
+    "coreMLArtifact": "strict_q_head.mlpackage",
+    "bestFor": "Same best gated survival q-policy model exposed as the tactical bot slot",
+    "rating": "candidate",
+    "status": "Core ML package bundled for native iOS q-policy inference; heuristic fallback remains available"
+  }
+]

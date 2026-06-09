@@ -1,0 +1,213 @@
+import Foundation
+import XCTest
+@testable import QuantumCatIOS
+
+final class QuantumCatGameTests: XCTestCase {
+    func testSupportedHumanBotMixesReachScoringAndPersist() throws {
+        let configs: [(String, [SeatKind])] = [
+            ("5 humans", [.human, .human, .human, .human, .human]),
+            ("2 humans 3 bots", [.human, .human, .bot(.championBeliefPolicy), .bot(.setPoolDistill), .bot(.strictQHead)]),
+            ("2 humans 1 bot", [.human, .human, .bot(.championBeliefPolicy)]),
+            ("1 human 4 bots", [.human, .bot(.championBeliefPolicy), .bot(.setPoolDistill), .bot(.rawPolicyLeague), .bot(.strictQHead)]),
+            ("2 humans", [.human, .human])
+        ]
+
+        for (index, config) in configs.enumerated() {
+            var game = QuantumCatGame(seats: config.1, seed: 20260606 + index)
+            var steps = 0
+            var sawPlay = false
+            var sawSecondHuman = game.currentPlayer == 1 && game.activeHuman != nil
+
+            while !game.isTerminal {
+                steps += 1
+                XCTAssertLessThan(steps, 260, "\(config.0) exceeded step guard")
+                let legalMoves = game.legalMoves
+                XCTAssertFalse(legalMoves.isEmpty, "\(config.0) has no legal moves in \(game.phase.rawValue)")
+                if case .play = legalMoves[0] {
+                    sawPlay = true
+                }
+                game.applyHumanMove(legalMoves[0])
+                if game.currentPlayer == 1 && game.activeHuman != nil {
+                    sawSecondHuman = true
+                }
+            }
+
+            XCTAssertEqual(game.phase, .scoring, config.0)
+            XCTAssertTrue(game.players.allSatisfy { $0.score != nil }, config.0)
+            XCTAssertTrue(sawPlay, config.0)
+            if config.1.prefix(2).allSatisfy({ $0.isHuman }) {
+                XCTAssertTrue(sawSecondHuman, config.0)
+            }
+
+            let encoded = try JSONEncoder().encode(game)
+            let restored = try JSONDecoder().decode(QuantumCatGame.self, from: encoded)
+            XCTAssertEqual(restored.phase, game.phase, config.0)
+            XCTAssertEqual(restored.board, game.board, config.0)
+            XCTAssertEqual(restored.players.count, game.players.count, config.0)
+        }
+    }
+
+    func testLegalBoardCellPlayMatchesLegalMoves() {
+        var game = QuantumCatGame(seats: [.human, .human, .bot(.championBeliefPolicy)], seed: 20260608)
+        var guardCount = 0
+        while game.phase != .play && !game.isTerminal {
+            guardCount += 1
+            XCTAssertLessThan(guardCount, 80)
+            game.applyHumanMove(game.legalMoves[0])
+        }
+
+        XCTAssertEqual(game.phase, .play)
+        for move in game.legalMoves {
+            guard case .play(let rank, let suit) = move else { continue }
+            let suitIndex = Suit.allCases.firstIndex(of: suit)!
+            XCTAssertEqual(game.board[suitIndex][rank - 1], -1)
+        }
+    }
+
+    func testManualBotTurnsExposeActiveBotBeforeAdvancing() {
+        var game = QuantumCatGame(
+            seats: [.human, .bot(.championBeliefPolicy), .bot(.setPoolDistill)],
+            seed: 20260610,
+            autoAdvanceBots: false
+        )
+
+        XCTAssertNotNil(game.activeHuman)
+        game.applyHumanMove(game.legalMoves[0], autoAdvanceBots: false)
+
+        XCTAssertNil(game.activeHuman)
+        XCTAssertEqual(game.currentPlayer, 1)
+        XCTAssertEqual(game.activeBotKind, .championBeliefPolicy)
+
+        let firstBotMove = game.applyBotMoveForCurrentPlayer()
+        XCTAssertNotNil(firstBotMove)
+        XCTAssertEqual(game.currentPlayer, 2)
+        XCTAssertEqual(game.activeBotKind, .setPoolDistill)
+    }
+
+    func testZeroHumanTablesCanWatchOrBulkSimulate() {
+        var watchGame = QuantumCatGame(
+            seats: [.bot(.championBeliefPolicy), .bot(.setPoolDistill), .bot(.strictQHead)],
+            seed: 20260614,
+            autoAdvanceBots: false
+        )
+        XCTAssertNil(watchGame.activeHuman)
+        XCTAssertEqual(watchGame.currentPlayer, 0)
+        XCTAssertEqual(watchGame.activeBotKind, .championBeliefPolicy)
+
+        let firstMove = watchGame.applyBotMoveForCurrentPlayer()
+        XCTAssertNotNil(firstMove)
+        XCTAssertEqual(watchGame.currentPlayer, 1)
+
+        let bulkGame = QuantumCatGame(
+            seats: [.bot(.championBeliefPolicy), .bot(.setPoolDistill), .bot(.strictQHead)],
+            seed: 20260615,
+            autoAdvanceBots: true
+        )
+        XCTAssertTrue(bulkGame.isTerminal)
+        XCTAssertTrue(bulkGame.players.allSatisfy { $0.score != nil })
+    }
+
+    func testChampionSameModelAnyParadoxGameRateIsUnderFortyPercent() {
+        let seats = Array(repeating: SeatKind.bot(.championBeliefPolicy), count: 5)
+        let games = 20
+        let result = sameModelParadoxReport(kind: .championBeliefPolicy, seats: seats.count, games: games)
+
+        print(result.description)
+
+        XCTAssertLessThan(result.gameParadoxRate, 0.40)
+        #if canImport(CoreML)
+        XCTAssertGreaterThan(result.coreMLSuccesses, 0)
+        XCTAssertEqual(result.coreMLSuccesses, result.coreMLAttempts)
+        #endif
+    }
+
+    private struct SameModelParadoxReport {
+        let kind: BotKind
+        let seats: Int
+        let games: Int
+        let seatParadoxRate: Double
+        let gameParadoxRate: Double
+        let coreMLSuccesses: Int
+        let coreMLAttempts: Int
+
+        var description: String {
+            "SAME_MODEL_PARADOX kind=\(kind.rawValue) players=\(seats) games=\(games) " +
+            "seat_rate=\(String(format: "%.4f", seatParadoxRate)) " +
+            "game_rate=\(String(format: "%.4f", gameParadoxRate)) " +
+            "coreml_successes=\(coreMLSuccesses) coreml_attempts=\(coreMLAttempts)"
+        }
+    }
+
+    private func sameModelParadoxReport(kind: BotKind, seats: Int, games: Int) -> SameModelParadoxReport {
+        let seats = Array(repeating: SeatKind.bot(kind), count: seats)
+        var paradoxEvents = 0
+        var gamesWithParadox = 0
+
+        QuantumCatMLPolicy.shared.resetUsage()
+
+        for index in 0..<games {
+            let game = QuantumCatGame(seats: seats, seed: 20263740 + index, autoAdvanceBots: true)
+            XCTAssertTrue(game.isTerminal)
+            let playerParadoxes = game.players.map(\.hasParadoxed)
+            paradoxEvents += playerParadoxes.filter { $0 }.count
+            if playerParadoxes.contains(true) {
+                gamesWithParadox += 1
+            }
+        }
+
+        let seatParadoxRate = Double(paradoxEvents) / Double(games * seats.count)
+        let gameParadoxRate = Double(gamesWithParadox) / Double(games)
+        let mlUsage = QuantumCatMLPolicy.shared.usageSnapshot()
+        let successes = mlUsage.reduce(0) { $0 + $1.successes }
+        let attempts = mlUsage.reduce(0) { $0 + $1.attempts }
+
+        return SameModelParadoxReport(
+            kind: kind,
+            seats: seats.count,
+            games: games,
+            seatParadoxRate: seatParadoxRate,
+            gameParadoxRate: gameParadoxRate,
+            coreMLSuccesses: successes,
+            coreMLAttempts: attempts
+        )
+    }
+
+    @MainActor
+    func testStoreNormalizesBotRosterLength() {
+        UserDefaults.standard.removeObject(forKey: "quantum-cat.saved-state.v1")
+        let store = GameStore()
+        store.botSeats = 5
+        store.botKinds = [.random]
+
+        XCTAssertEqual(store.botSeats, 4)
+        XCTAssertEqual(store.botKinds.count, store.botSeats)
+        XCTAssertEqual(store.botKinds[0], .random)
+        XCTAssertTrue(store.botKinds.dropFirst().allSatisfy { $0 == .championBeliefPolicy })
+
+        store.botSeats = 2
+        XCTAssertGreaterThanOrEqual(store.botKinds.count, 2)
+        store.newGame()
+        XCTAssertEqual(store.game.players.count, 3)
+    }
+
+    @MainActor
+    func testStoreRunsZeroHumanBulkSimulation() {
+        UserDefaults.standard.removeObject(forKey: "quantum-cat.saved-state.v1")
+        let store = GameStore()
+        store.humanSeats = 0
+        store.botSeats = 3
+        store.botOnlyRunMode = .bulk
+        store.bulkSimulationGames = 7
+        store.botKinds = [.championBeliefPolicy, .setPoolDistill, .strictQHead]
+
+        XCTAssertTrue(store.setupIsValid)
+        store.newGame()
+
+        XCTAssertTrue(store.game.isTerminal)
+        XCTAssertEqual(store.game.players.count, 3)
+        XCTAssertEqual(store.bulkSimulationSummary?.games, 7)
+        XCTAssertEqual(store.bulkSimulationSummary?.players.count, 3)
+        XCTAssertNotNil(store.bulkSimulationSummary?.seatParadoxRate)
+        XCTAssertEqual(store.bulkSimulationSummary?.players.reduce(0) { $0 + $1.paradoxes }, store.bulkSimulationSummary?.totalParadoxes)
+    }
+}

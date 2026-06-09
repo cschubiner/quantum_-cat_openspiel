@@ -1,0 +1,710 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		100000000000000000000101 /* QuantumCatIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000201 /* QuantumCatIOSApp.swift */; };
+		100000000000000000000102 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000202 /* ContentView.swift */; };
+		100000000000000000000103 /* QuantumCatGame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000203 /* QuantumCatGame.swift */; };
+		100000000000000000000104 /* BotCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000204 /* BotCatalog.swift */; };
+		100000000000000000000105 /* GameSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000205 /* GameSetupView.swift */; };
+		100000000000000000000106 /* GameTableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000206 /* GameTableView.swift */; };
+		100000000000000000000107 /* BotModels.json in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000207 /* BotModels.json */; };
+		100000000000000000000108 /* champion_belief_policy.pt in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000209 /* champion_belief_policy.pt */; };
+		100000000000000000000109 /* setpool_distill.pt in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000210 /* setpool_distill.pt */; };
+		10000000000000000000010A /* raw_policy_league.pt in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000211 /* raw_policy_league.pt */; };
+		10000000000000000000010B /* strict_q_head.pt in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000212 /* strict_q_head.pt */; };
+		10000000000000000000010C /* champion_belief_policy.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000213 /* champion_belief_policy.mlpackage */; };
+		10000000000000000000010D /* QuantumCatMLPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000214 /* QuantumCatMLPolicy.swift */; };
+		10000000000000000000010E /* setpool_distill.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000215 /* setpool_distill.mlpackage */; };
+		10000000000000000000010F /* raw_policy_league.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000216 /* raw_policy_league.mlpackage */; };
+		100000000000000000000110 /* strict_q_head.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000217 /* strict_q_head.mlpackage */; };
+		100000000000000000000111 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000218 /* Assets.xcassets */; };
+		23E7231F5041230C1C3305DE /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E85E850D8001A4F5BF6AE3E1 /* Foundation.framework */; };
+		64A0EC343F7B0D35DCAEAFDF /* QuantumCatIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D04B6366318B94F7C81D473 /* QuantumCatIOSUITests.swift */; };
+		6B034B0CC166CC52549D55CF /* QuantumCatGameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D29E2F0EECE8BD2DA853A01 /* QuantumCatGameTests.swift */; };
+		E3091EB9E0B88AF8A61FAD1E /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E85E850D8001A4F5BF6AE3E1 /* Foundation.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B7A055C7968A2945F3A7EBB4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 100000000000000000000701 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 100000000000000000000501;
+			remoteInfo = QuantumCatIOS;
+		};
+		FAD75A939BB47EE0D6595044 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 100000000000000000000701 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 100000000000000000000501;
+			remoteInfo = QuantumCatIOS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		100000000000000000000001 /* QuantumCatIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = QuantumCatIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		100000000000000000000201 /* QuantumCatIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuantumCatIOSApp.swift; sourceTree = "<group>"; };
+		100000000000000000000202 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		100000000000000000000203 /* QuantumCatGame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuantumCatGame.swift; sourceTree = "<group>"; };
+		100000000000000000000204 /* BotCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BotCatalog.swift; sourceTree = "<group>"; };
+		100000000000000000000205 /* GameSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSetupView.swift; sourceTree = "<group>"; };
+		100000000000000000000206 /* GameTableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameTableView.swift; sourceTree = "<group>"; };
+		100000000000000000000207 /* BotModels.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = BotModels.json; sourceTree = "<group>"; };
+		100000000000000000000208 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		100000000000000000000209 /* champion_belief_policy.pt */ = {isa = PBXFileReference; lastKnownFileType = file; path = champion_belief_policy.pt; sourceTree = "<group>"; };
+		100000000000000000000210 /* setpool_distill.pt */ = {isa = PBXFileReference; lastKnownFileType = file; path = setpool_distill.pt; sourceTree = "<group>"; };
+		100000000000000000000211 /* raw_policy_league.pt */ = {isa = PBXFileReference; lastKnownFileType = file; path = raw_policy_league.pt; sourceTree = "<group>"; };
+		100000000000000000000212 /* strict_q_head.pt */ = {isa = PBXFileReference; lastKnownFileType = file; path = strict_q_head.pt; sourceTree = "<group>"; };
+		100000000000000000000213 /* champion_belief_policy.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = champion_belief_policy.mlpackage; sourceTree = "<group>"; };
+		100000000000000000000214 /* QuantumCatMLPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuantumCatMLPolicy.swift; sourceTree = "<group>"; };
+		100000000000000000000215 /* setpool_distill.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = setpool_distill.mlpackage; sourceTree = "<group>"; };
+		100000000000000000000216 /* raw_policy_league.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = raw_policy_league.mlpackage; sourceTree = "<group>"; };
+		100000000000000000000217 /* strict_q_head.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = strict_q_head.mlpackage; sourceTree = "<group>"; };
+		100000000000000000000218 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		3D04B6366318B94F7C81D473 /* QuantumCatIOSUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuantumCatIOSUITests.swift; sourceTree = "<group>"; };
+		7D29E2F0EECE8BD2DA853A01 /* QuantumCatGameTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuantumCatGameTests.swift; sourceTree = "<group>"; };
+		8D1A45BE049F094DE1A377C8 /* QuantumCatIOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuantumCatIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E85E850D8001A4F5BF6AE3E1 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		FD29498B5BE9F089EC0925B2 /* QuantumCatIOSUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuantumCatIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		100000000000000000000301 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B97A3C69503A7EFDD942B015 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E3091EB9E0B88AF8A61FAD1E /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F80A5C4F7DF8B4CEA707D1C6 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				23E7231F5041230C1C3305DE /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0B4DA91BB51434E8C494280E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				8737CECB0E96C1BC0041F8B9 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		100000000000000000000401 = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000402 /* QuantumCatIOS */,
+				100000000000000000000403 /* Products */,
+				0B4DA91BB51434E8C494280E /* Frameworks */,
+				792202BCB5B47D8C2C5BE980 /* QuantumCatIOSTests */,
+				842E602396B4E8EB1C2F067F /* QuantumCatIOSUITests */,
+			);
+			sourceTree = "<group>";
+		};
+		100000000000000000000402 /* QuantumCatIOS */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000201 /* QuantumCatIOSApp.swift */,
+				100000000000000000000202 /* ContentView.swift */,
+				100000000000000000000208 /* Info.plist */,
+				100000000000000000000404 /* Models */,
+				100000000000000000000405 /* Views */,
+				100000000000000000000406 /* Resources */,
+			);
+			path = QuantumCatIOS;
+			sourceTree = "<group>";
+		};
+		100000000000000000000403 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000001 /* QuantumCatIOS.app */,
+				8D1A45BE049F094DE1A377C8 /* QuantumCatIOSTests.xctest */,
+				FD29498B5BE9F089EC0925B2 /* QuantumCatIOSUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		100000000000000000000404 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000203 /* QuantumCatGame.swift */,
+				100000000000000000000204 /* BotCatalog.swift */,
+				100000000000000000000214 /* QuantumCatMLPolicy.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		100000000000000000000405 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000205 /* GameSetupView.swift */,
+				100000000000000000000206 /* GameTableView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		100000000000000000000406 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000218 /* Assets.xcassets */,
+				100000000000000000000407 /* Models */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		100000000000000000000407 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				100000000000000000000207 /* BotModels.json */,
+				100000000000000000000209 /* champion_belief_policy.pt */,
+				100000000000000000000213 /* champion_belief_policy.mlpackage */,
+				100000000000000000000210 /* setpool_distill.pt */,
+				100000000000000000000215 /* setpool_distill.mlpackage */,
+				100000000000000000000211 /* raw_policy_league.pt */,
+				100000000000000000000216 /* raw_policy_league.mlpackage */,
+				100000000000000000000212 /* strict_q_head.pt */,
+				100000000000000000000217 /* strict_q_head.mlpackage */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		792202BCB5B47D8C2C5BE980 /* QuantumCatIOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				7D29E2F0EECE8BD2DA853A01 /* QuantumCatGameTests.swift */,
+			);
+			name = QuantumCatIOSTests;
+			path = QuantumCatIOSTests;
+			sourceTree = "<group>";
+		};
+		842E602396B4E8EB1C2F067F /* QuantumCatIOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				3D04B6366318B94F7C81D473 /* QuantumCatIOSUITests.swift */,
+			);
+			name = QuantumCatIOSUITests;
+			path = QuantumCatIOSUITests;
+			sourceTree = "<group>";
+		};
+		8737CECB0E96C1BC0041F8B9 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				E85E850D8001A4F5BF6AE3E1 /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		100000000000000000000501 /* QuantumCatIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 100000000000000000000901 /* Build configuration list for PBXNativeTarget "QuantumCatIOS" */;
+			buildPhases = (
+				100000000000000000000601 /* Sources */,
+				100000000000000000000301 /* Frameworks */,
+				100000000000000000000602 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = QuantumCatIOS;
+			productName = QuantumCatIOS;
+			productReference = 100000000000000000000001 /* QuantumCatIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		12A17DFEA7E78B219A3CB1A8 /* QuantumCatIOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 110DB709E71BDA64E2CC2EF8 /* Build configuration list for PBXNativeTarget "QuantumCatIOSTests" */;
+			buildPhases = (
+				715868B840EBF67E331CF16D /* Sources */,
+				F80A5C4F7DF8B4CEA707D1C6 /* Frameworks */,
+				6EF5DFD22AFFA0E14F821B5B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				7A0E765805F81E89A0CFC3FA /* PBXTargetDependency */,
+			);
+			name = QuantumCatIOSTests;
+			productName = QuantumCatIOSTests;
+			productReference = 8D1A45BE049F094DE1A377C8 /* QuantumCatIOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		D90D72F2147369AA6282D5C4 /* QuantumCatIOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 28ADE84302C2220326320493 /* Build configuration list for PBXNativeTarget "QuantumCatIOSUITests" */;
+			buildPhases = (
+				A58BE4099DEBD0BAA4742DFA /* Sources */,
+				B97A3C69503A7EFDD942B015 /* Frameworks */,
+				38A586B5A0E9C3D0E9FEEEB9 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9E7205B8A1226464D8DB2660 /* PBXTargetDependency */,
+			);
+			name = QuantumCatIOSUITests;
+			productName = QuantumCatIOSUITests;
+			productReference = FD29498B5BE9F089EC0925B2 /* QuantumCatIOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		100000000000000000000701 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					100000000000000000000501 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = 100000000000000000000801 /* Build configuration list for PBXProject "QuantumCatIOS" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 100000000000000000000401;
+			productRefGroup = 100000000000000000000403 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				100000000000000000000501 /* QuantumCatIOS */,
+				12A17DFEA7E78B219A3CB1A8 /* QuantumCatIOSTests */,
+				D90D72F2147369AA6282D5C4 /* QuantumCatIOSUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		100000000000000000000602 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000107 /* BotModels.json in Resources */,
+				100000000000000000000108 /* champion_belief_policy.pt in Resources */,
+				10000000000000000000010C /* champion_belief_policy.mlpackage in Resources */,
+				100000000000000000000109 /* setpool_distill.pt in Resources */,
+				10000000000000000000010E /* setpool_distill.mlpackage in Resources */,
+				10000000000000000000010A /* raw_policy_league.pt in Resources */,
+				10000000000000000000010F /* raw_policy_league.mlpackage in Resources */,
+				10000000000000000000010B /* strict_q_head.pt in Resources */,
+				100000000000000000000110 /* strict_q_head.mlpackage in Resources */,
+				100000000000000000000111 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		38A586B5A0E9C3D0E9FEEEB9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6EF5DFD22AFFA0E14F821B5B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		100000000000000000000601 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				100000000000000000000101 /* QuantumCatIOSApp.swift in Sources */,
+				100000000000000000000102 /* ContentView.swift in Sources */,
+				100000000000000000000103 /* QuantumCatGame.swift in Sources */,
+				100000000000000000000104 /* BotCatalog.swift in Sources */,
+				10000000000000000000010D /* QuantumCatMLPolicy.swift in Sources */,
+				100000000000000000000105 /* GameSetupView.swift in Sources */,
+				100000000000000000000106 /* GameTableView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		715868B840EBF67E331CF16D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6B034B0CC166CC52549D55CF /* QuantumCatGameTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A58BE4099DEBD0BAA4742DFA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				64A0EC343F7B0D35DCAEAFDF /* QuantumCatIOSUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		7A0E765805F81E89A0CFC3FA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = QuantumCatIOS;
+			target = 100000000000000000000501 /* QuantumCatIOS */;
+			targetProxy = FAD75A939BB47EE0D6595044 /* PBXContainerItemProxy */;
+		};
+		9E7205B8A1226464D8DB2660 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = QuantumCatIOS;
+			target = 100000000000000000000501 /* QuantumCatIOS */;
+			targetProxy = B7A055C7968A2945F3A7EBB4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		03BE29E3A47A8FDA0BBB230C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 94NPBVCHV4;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.canal.quantumcat.uitests;
+				PRODUCT_MODULE_NAME = "$(TARGET_NAME:c99extidentifier)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_MODULE_NAME = "$(PRODUCT_MODULE_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = QuantumCatIOS;
+			};
+			name = Debug;
+		};
+		100000000000000000000811 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		100000000000000000000812 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		100000000000000000000911 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 94NPBVCHV4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = QuantumCatIOS/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.canal.quantumcat;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "Quantum Cat Development";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		100000000000000000000912 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 94NPBVCHV4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = QuantumCatIOS/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.canal.quantumcat;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "Quantum Cat Development";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		27DEF3D5EA5217E0B08AD297 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 94NPBVCHV4;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.canal.quantumcat.uitests;
+				PRODUCT_MODULE_NAME = "$(TARGET_NAME:c99extidentifier)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_MODULE_NAME = "$(PRODUCT_MODULE_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = QuantumCatIOS;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		281031B6C38A8031E863C317 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 94NPBVCHV4;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.canal.quantumcat.tests;
+				PRODUCT_MODULE_NAME = "$(TARGET_NAME:c99extidentifier)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_MODULE_NAME = "$(PRODUCT_MODULE_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/QuantumCatIOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/QuantumCatIOS";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		4F0F1C9FC6F4D2DB47C1D51C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 94NPBVCHV4;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.canal.quantumcat.tests;
+				PRODUCT_MODULE_NAME = "$(TARGET_NAME:c99extidentifier)";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_MODULE_NAME = "$(PRODUCT_MODULE_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/QuantumCatIOS.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/QuantumCatIOS";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		100000000000000000000801 /* Build configuration list for PBXProject "QuantumCatIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				100000000000000000000811 /* Debug */,
+				100000000000000000000812 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		100000000000000000000901 /* Build configuration list for PBXNativeTarget "QuantumCatIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				100000000000000000000911 /* Debug */,
+				100000000000000000000912 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		110DB709E71BDA64E2CC2EF8 /* Build configuration list for PBXNativeTarget "QuantumCatIOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				281031B6C38A8031E863C317 /* Release */,
+				4F0F1C9FC6F4D2DB47C1D51C /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		28ADE84302C2220326320493 /* Build configuration list for PBXNativeTarget "QuantumCatIOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				27DEF3D5EA5217E0B08AD297 /* Release */,
+				03BE29E3A47A8FDA0BBB230C /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 100000000000000000000701 /* Project object */;
+}
