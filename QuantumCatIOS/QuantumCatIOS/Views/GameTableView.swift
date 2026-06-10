@@ -20,17 +20,19 @@ struct GameTableView: View {
                 .padding(14)
                 .padding(.bottom, 24)
             }
+            .transaction { transaction in
+                transaction.animation = nil
+            }
 
             if let animation = store.botMoveAnimation {
                 botMoveOverlay(animation)
                     .padding(.horizontal, 14)
                     .padding(.top, 8)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(.opacity)
                     .allowsHitTesting(false)
                     .zIndex(2)
             }
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: store.botMoveAnimation?.id)
         .background(
             LinearGradient(
                 colors: [Color(red: 0.03, green: 0.07, blue: 0.05), Color(red: 0.05, green: 0.16, blue: 0.12)],
