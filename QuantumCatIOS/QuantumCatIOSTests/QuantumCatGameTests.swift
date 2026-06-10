@@ -138,8 +138,11 @@ final class QuantumCatGameTests: XCTestCase {
 
     func testChampionSameModelAnyParadoxGameRateIsUnderFortyPercent() {
         let seats = Array(repeating: SeatKind.bot(.championBeliefPolicy), count: 5)
-        let games = 20
-        let result = sameModelParadoxReport(kind: .championBeliefPolicy, seats: seats.count, games: games)
+        let games = 100
+        let seedBase = 20263740
+        let seeds = (0..<games).map { seedBase + $0 }
+        XCTAssertEqual(Set(seeds).count, games)
+        let result = sameModelParadoxReport(kind: .championBeliefPolicy, seats: seats.count, seeds: seeds)
 
         print(result.description)
 
@@ -154,6 +157,8 @@ final class QuantumCatGameTests: XCTestCase {
         let kind: BotKind
         let seats: Int
         let games: Int
+        let seedStart: Int
+        let seedEnd: Int
         let seatParadoxRate: Double
         let gameParadoxRate: Double
         let coreMLSuccesses: Int
@@ -161,21 +166,22 @@ final class QuantumCatGameTests: XCTestCase {
 
         var description: String {
             "SAME_MODEL_PARADOX kind=\(kind.rawValue) players=\(seats) games=\(games) " +
+            "seed_start=\(seedStart) seed_end=\(seedEnd) " +
             "seat_rate=\(String(format: "%.4f", seatParadoxRate)) " +
             "game_rate=\(String(format: "%.4f", gameParadoxRate)) " +
             "coreml_successes=\(coreMLSuccesses) coreml_attempts=\(coreMLAttempts)"
         }
     }
 
-    private func sameModelParadoxReport(kind: BotKind, seats: Int, games: Int) -> SameModelParadoxReport {
+    private func sameModelParadoxReport(kind: BotKind, seats: Int, seeds: [Int]) -> SameModelParadoxReport {
         let seats = Array(repeating: SeatKind.bot(kind), count: seats)
         var paradoxEvents = 0
         var gamesWithParadox = 0
 
         QuantumCatMLPolicy.shared.resetUsage()
 
-        for index in 0..<games {
-            let game = QuantumCatGame(seats: seats, seed: 20263740 + index, autoAdvanceBots: true)
+        for seed in seeds {
+            let game = QuantumCatGame(seats: seats, seed: seed, autoAdvanceBots: true)
             XCTAssertTrue(game.isTerminal)
             let playerParadoxes = game.players.map(\.hasParadoxed)
             paradoxEvents += playerParadoxes.filter { $0 }.count
@@ -184,8 +190,9 @@ final class QuantumCatGameTests: XCTestCase {
             }
         }
 
-        let seatParadoxRate = Double(paradoxEvents) / Double(games * seats.count)
-        let gameParadoxRate = Double(gamesWithParadox) / Double(games)
+        let gameCount = seeds.count
+        let seatParadoxRate = Double(paradoxEvents) / Double(gameCount * seats.count)
+        let gameParadoxRate = Double(gamesWithParadox) / Double(gameCount)
         let mlUsage = QuantumCatMLPolicy.shared.usageSnapshot()
         let successes = mlUsage.reduce(0) { $0 + $1.successes }
         let attempts = mlUsage.reduce(0) { $0 + $1.attempts }
@@ -193,7 +200,9 @@ final class QuantumCatGameTests: XCTestCase {
         return SameModelParadoxReport(
             kind: kind,
             seats: seats.count,
-            games: games,
+            games: gameCount,
+            seedStart: seeds.first ?? 0,
+            seedEnd: seeds.last ?? 0,
             seatParadoxRate: seatParadoxRate,
             gameParadoxRate: gameParadoxRate,
             coreMLSuccesses: successes,
