@@ -90,9 +90,29 @@ struct GameTableView: View {
                 }
             }
 
+            turnActionViewport
+        }
+        .padding(16)
+        .accessibilityIdentifier("active-turn-panel")
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(red: 0.04, green: 0.17, blue: 0.12))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.yellow.opacity(0.35), lineWidth: 1))
+        )
+    }
+
+    private var turnActionViewport: some View {
+        Group {
             if let human = store.game.activeHuman {
-                handView(for: human)
-                legalMovesView
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        handView(for: human)
+                        legalMovesView
+                    }
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .scrollIndicators(.visible)
+                .accessibilityIdentifier("turn-action-viewport")
             } else if store.game.isTerminal {
                 Text("Final returns are shown below.")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -106,13 +126,25 @@ struct GameTableView: View {
                     .accessibilityIdentifier("bot-status")
             }
         }
-        .padding(16)
-        .accessibilityIdentifier("active-turn-panel")
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(red: 0.04, green: 0.17, blue: 0.12))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.yellow.opacity(0.35), lineWidth: 1))
-        )
+        .frame(height: turnActionViewportHeight, alignment: .top)
+        .clipped()
+        .transaction { transaction in
+            transaction.animation = nil
+        }
+    }
+
+    private var turnActionViewportHeight: CGFloat {
+        if store.game.isTerminal { return 74 }
+        switch store.game.phase {
+        case .discard:
+            return 184
+        case .prediction:
+            return 154
+        case .play:
+            return 324
+        default:
+            return 112
+        }
     }
 
     private var turnTitle: String {
