@@ -26,7 +26,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
     var subtitle: String {
         switch self {
         case .championBeliefPolicy:
-            "Run504 all-phase lane-risk checkpoint with discard-phase risk reranking, bundled as Core ML plus source PyTorch artifact."
+            "Run553 step25 interim champion, bundled as a raw-policy Core ML model plus source PyTorch artifact."
         case .setPoolDistill:
             "Set-pooling distilled policy/value student, bundled as Core ML."
         case .rawPolicyLeague:
@@ -137,28 +137,24 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var coreMLActionRiskOutputName: String? {
         switch self {
-        case .championBeliefPolicy: "var_196"
         default: nil
         }
     }
 
     var coreMLActionRiskRerankPhases: Set<GamePhase> {
         switch self {
-        case .championBeliefPolicy: [.discard]
         default: []
         }
     }
 
     var coreMLActionRiskMaxPolicyGap: Double {
         switch self {
-        case .championBeliefPolicy: 0.8
         default: -1.0
         }
     }
 
     var coreMLActionRiskSlack: Double {
         switch self {
-        case .championBeliefPolicy: 0.03
         default: 0.0
         }
     }
@@ -198,7 +194,7 @@ struct ModelArtifactStatus: Identifiable {
         ModelArtifactStatus(
             id: "champion-coreml",
             title: "Champion ML",
-            detail: "Core ML phase-one survival q-policy",
+            detail: "Core ML Run553 raw policy",
             resource: "champion_belief_policy",
             fileExtension: "mlmodelc"
         ),

@@ -113,6 +113,15 @@ final class QuantumCatGameTests: XCTestCase {
         XCTAssertTrue(sawRankSixTie)
     }
 
+    func testChampionMLUsesRawPolicySelector() {
+        let kind = BotKind.championBeliefPolicy
+
+        XCTAssertNil(kind.coreMLActionRiskOutputName)
+        XCTAssertTrue(kind.coreMLActionRiskRerankPhases.isEmpty)
+        XCTAssertEqual(kind.coreMLActionValueSelectionWeight, 0)
+        XCTAssertTrue(kind.coreMLActionValueRerankPhases.isEmpty)
+    }
+
     func testZeroHumanTablesCanWatchOrBulkSimulate() {
         var watchGame = QuantumCatGame(
             seats: [.bot(.championBeliefPolicy), .bot(.setPoolDistill), .bot(.strictQHead)],
