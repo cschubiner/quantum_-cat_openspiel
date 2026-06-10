@@ -12,6 +12,7 @@ fi
 
 CHECKPOINT="${CHECKPOINT:-${1:-az_runs/best_3p_policy_checkpoint.pt}}"
 MODE="${MODE:-policy}"
+LED_MODE="${LED_MODE:-$MODE}"
 PLAYERS="${PLAYERS:-3}"
 PARADOX_MATCHES="${PARADOX_MATCHES:-200}"
 LED_MATCHES="${LED_MATCHES:-60}"
@@ -49,6 +50,15 @@ fi
 mkdir -p "$OUT_DIR"
 CHECKPOINT_SHA="$(shasum -a 256 "$CHECKPOINT" | awk '{print $1}')"
 
+case "$LED_MODE" in
+  policy|q_policy)
+    ;;
+  *)
+    echo "Led-suit audit supports only policy/q_policy; using LED_MODE=policy for that audit." >&2
+    LED_MODE="policy"
+    ;;
+esac
+
 bots=()
 neural_args=()
 for ((seat = 0; seat < PLAYERS; seat++)); do
@@ -64,7 +74,7 @@ summary_out="$OUT_DIR/summary.json"
 echo "== Quantum Cat model test =="
 echo "checkpoint=$CHECKPOINT"
 echo "checkpoint_sha256=$CHECKPOINT_SHA"
-echo "mode=$MODE players=$PLAYERS backend=pytorch"
+echo "mode=$MODE led_mode=$LED_MODE players=$PLAYERS backend=pytorch"
 echo "out_dir=$OUT_DIR"
 
 echo "== Homogeneous paradox gate =="
@@ -86,7 +96,7 @@ PYTHONPATH=. "$PYTHON" quantum_cat_led_switch_audit.py \
   --players "$PLAYERS" \
   --matches "$LED_MATCHES" \
   --checkpoint "$CHECKPOINT" \
-  --mode "$MODE" \
+  --mode "$LED_MODE" \
   --match-context \
   --seed "$LED_SEED" \
   --out "$led_out"
@@ -95,6 +105,7 @@ PYTHONPATH=. "$PYTHON" "$SCRIPT_DIR/summarize_model_gates.py" \
   --checkpoint "$CHECKPOINT" \
   --checkpoint-sha "$CHECKPOINT_SHA" \
   --mode "$MODE" \
+  --led-mode "$LED_MODE" \
   --paradox "$paradox_out" \
   --led "$led_out" \
   --out "$summary_out"

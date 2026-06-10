@@ -113,13 +113,14 @@ final class QuantumCatGameTests: XCTestCase {
         XCTAssertTrue(sawRankSixTie)
     }
 
-    func testChampionMLUsesRawPolicySelector() {
+    func testChampionMLUsesRawPolicyWithNativeLivenessShield() {
         let kind = BotKind.championBeliefPolicy
 
         XCTAssertNil(kind.coreMLActionRiskOutputName)
         XCTAssertTrue(kind.coreMLActionRiskRerankPhases.isEmpty)
         XCTAssertEqual(kind.coreMLActionValueSelectionWeight, 0)
         XCTAssertTrue(kind.coreMLActionValueRerankPhases.isEmpty)
+        XCTAssertTrue(kind.subtitle.contains("liveness shield"))
     }
 
     func testZeroHumanTablesCanWatchOrBulkSimulate() {

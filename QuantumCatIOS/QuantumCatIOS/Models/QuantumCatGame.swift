@@ -64,6 +64,19 @@ enum Move: Identifiable, Equatable {
         case .paradox: "!"
         }
     }
+
+    var sortValue: Int {
+        switch self {
+        case .discard(let rank):
+            rank
+        case .prediction(let value):
+            100 + value
+        case .play(let rank, let suit):
+            ((Suit.allCases.firstIndex(of: suit) ?? 0) * 16) + rank - 1
+        case .paradox:
+            999
+        }
+    }
 }
 
 struct PlayerState: Identifiable, Codable {
@@ -797,6 +810,18 @@ struct QuantumCatGame: Codable {
             let modelBonus = move == modelPreferredMove ? 4.0 : 0.0
             return (score(move, for: player, weights: weights) + modelBonus + rng.double() * weights.noise, move)
         }
+        if kind == .championBeliefPolicy, phase == .play {
+            let baseMove = modelPreferredMove ?? scored.max(by: { $0.0 < $1.0 })?.1 ?? legal[0]
+            let shieldedMove = livenessShieldedMove(base: baseMove, legal: legal, player: player)
+            if avoidsParadoxAfterMove(shieldedMove) {
+                return shieldedMove
+            }
+            let rankedMoves = livenessRankedMoves(base: baseMove, legal: legal, player: player).prefix(16)
+            if let safeMove = rankedMoves.first(where: { avoidsParadoxAfterMove($0) }) {
+                return safeMove
+            }
+            return shieldedMove
+        }
         if phase == .play {
             let ordered = scored.sorted { $0.0 > $1.0 }
             let lookaheadCandidates = ordered.prefix(12)
@@ -805,6 +830,405 @@ struct QuantumCatGame: Codable {
             }
         }
         return scored.max(by: { $0.0 < $1.0 })?.1 ?? legal[0]
+    }
+
+    private struct OwnHandFeasibility {
+        let feasible: Bool
+        let remainingCards: Int
+        let totalOpenSlots: Int
+        let slotSurplus: Int
+        let totalDeficit: Int
+        let bufferDeficit: Int
+        let tightRankCount: Int
+        let deadRankCount: Int
+        let singletonCardCount: Int
+        let minChoices: Int
+    }
+
+    private struct PublicExitLiquidity {
+        let openCells: Int
+        let playerOpenSlots: [Int]
+        let playerMinRankSlots: [Int]
+        let playerRemainingCards: [Int]
+        let playerLaneSurplus: [Int]
+        let totalPlayerOpenSlots: Int
+        let minPlayerOpenSlots: Int
+        let totalPlayerRemainingCards: Int
+        let totalPlayerLaneSurplus: Int
+        let minPlayerLaneSurplus: Int
+        let lanePressurePlayerCount: Int
+    }
+
+    private struct LivenessCertificate {
+        let action: Move
+        let key: [Int]
+        let isParadox: Bool
+        let ownFeasible: Bool
+        let ownTotalDeficit: Int
+        let ownBufferDeficit: Int
+        let ownDeadRankCount: Int
+        let ownSlotSurplus: Int
+        let ownMinChoices: Int
+        let publicSlotDamage: Int
+        let ownPublicSlotDamage: Int
+        let boardOpenCellDamage: Int
+        let ownPublicSlotsAfter: Int
+        let totalPlayerOpenSlotsAfter: Int
+        let minPlayerOpenSlotsAfter: Int
+        let ownLaneSurplusAfter: Int
+        let totalPlayerLaneSurplusAfter: Int
+        let minPlayerLaneSurplusAfter: Int
+        let lanePressurePlayerCountAfter: Int
+        let ownMinRankSlotsAfter: Int
+        let minPlayerRankSlotsAfter: Int
+        let lostLedToken: Bool
+        let wouldWinNow: Bool?
+        let overTargetWouldWin: Bool
+
+        func withKey(_ key: [Int]) -> LivenessCertificate {
+            LivenessCertificate(
+                action: action,
+                key: key,
+                isParadox: isParadox,
+                ownFeasible: ownFeasible,
+                ownTotalDeficit: ownTotalDeficit,
+                ownBufferDeficit: ownBufferDeficit,
+                ownDeadRankCount: ownDeadRankCount,
+                ownSlotSurplus: ownSlotSurplus,
+                ownMinChoices: ownMinChoices,
+                publicSlotDamage: publicSlotDamage,
+                ownPublicSlotDamage: ownPublicSlotDamage,
+                boardOpenCellDamage: boardOpenCellDamage,
+                ownPublicSlotsAfter: ownPublicSlotsAfter,
+                totalPlayerOpenSlotsAfter: totalPlayerOpenSlotsAfter,
+                minPlayerOpenSlotsAfter: minPlayerOpenSlotsAfter,
+                ownLaneSurplusAfter: ownLaneSurplusAfter,
+                totalPlayerLaneSurplusAfter: totalPlayerLaneSurplusAfter,
+                minPlayerLaneSurplusAfter: minPlayerLaneSurplusAfter,
+                lanePressurePlayerCountAfter: lanePressurePlayerCountAfter,
+                ownMinRankSlotsAfter: ownMinRankSlotsAfter,
+                minPlayerRankSlotsAfter: minPlayerRankSlotsAfter,
+                lostLedToken: lostLedToken,
+                wouldWinNow: wouldWinNow,
+                overTargetWouldWin: overTargetWouldWin
+            )
+        }
+    }
+
+    private func livenessShieldedMove(base: Move, legal: [Move], player: Int) -> Move {
+        let baseRow = livenessCertificate(after: base, base: base, player: player)
+        guard let selected = livenessRankedCertificates(base: base, legal: legal, player: player).first else { return base }
+        guard selected.action != base, selectedDominates(base: baseRow, candidate: selected) else {
+            return base
+        }
+        return selected.action
+    }
+
+    private func livenessRankedMoves(base: Move, legal: [Move], player: Int) -> [Move] {
+        livenessRankedCertificates(base: base, legal: legal, player: player).map(\.action)
+    }
+
+    private func livenessRankedCertificates(base: Move, legal: [Move], player: Int) -> [LivenessCertificate] {
+        let candidates = legal.filter { $0 != .paradox }
+        let actions = candidates.isEmpty ? legal : candidates
+        return actions
+            .map { livenessCertificate(after: $0, base: base, player: player) }
+            .sorted { lhs, rhs in livenessKey(lhs.key, isBetterThan: rhs.key) }
+    }
+
+    private func selectedDominates(base: LivenessCertificate, candidate: LivenessCertificate) -> Bool {
+        if candidate.isParadox {
+            return false
+        }
+        if base.isParadox {
+            return true
+        }
+        let publicNotWorse = candidate.minPlayerOpenSlotsAfter >= base.minPlayerOpenSlotsAfter
+            && candidate.totalPlayerOpenSlotsAfter >= base.totalPlayerOpenSlotsAfter
+            && candidate.ownPublicSlotsAfter >= base.ownPublicSlotsAfter
+            && candidate.minPlayerLaneSurplusAfter >= base.minPlayerLaneSurplusAfter
+            && candidate.totalPlayerLaneSurplusAfter >= base.totalPlayerLaneSurplusAfter
+            && candidate.lanePressurePlayerCountAfter <= base.lanePressurePlayerCountAfter
+            && candidate.publicSlotDamage <= base.publicSlotDamage
+            && candidate.ownPublicSlotDamage <= base.ownPublicSlotDamage
+
+        if base.lostLedToken, !candidate.lostLedToken {
+            if base.ownFeasible, !candidate.ownFeasible {
+                return false
+            }
+            return true
+        }
+        if candidate.ownTotalDeficit < base.ownTotalDeficit {
+            return true
+        }
+        if candidate.ownTotalDeficit > base.ownTotalDeficit {
+            return false
+        }
+        if candidate.ownFeasible, !base.ownFeasible {
+            return true
+        }
+        if base.lostLedToken, !candidate.lostLedToken {
+            return true
+        }
+        if candidate.minPlayerLaneSurplusAfter > base.minPlayerLaneSurplusAfter {
+            return true
+        }
+        if candidate.lanePressurePlayerCountAfter < base.lanePressurePlayerCountAfter {
+            return true
+        }
+        if candidate.ownDeadRankCount < base.ownDeadRankCount, publicNotWorse {
+            return true
+        }
+        if candidate.ownBufferDeficit < base.ownBufferDeficit, publicNotWorse {
+            return true
+        }
+        if candidate.minPlayerOpenSlotsAfter - base.minPlayerOpenSlotsAfter >= 0 {
+            return true
+        }
+        let damageDelta = base.publicSlotDamage - candidate.publicSlotDamage
+        if damageDelta >= 0 {
+            return true
+        }
+        if base.lostLedToken, !candidate.lostLedToken, damageDelta >= 0 {
+            return true
+        }
+        if base.overTargetWouldWin, !candidate.overTargetWouldWin, damageDelta >= 0 {
+            return true
+        }
+        return false
+    }
+
+    private func livenessCertificate(after move: Move, base: Move, player: Int) -> LivenessCertificate {
+        let before = publicExitLiquidity()
+        let beforeOwn = ownHandFeasibility(for: player)
+
+        if move == .paradox {
+            let ownDeficit = max(1, beforeOwn.remainingCards)
+            let row = LivenessCertificate(
+                action: move,
+                key: [],
+                isParadox: true,
+                ownFeasible: false,
+                ownTotalDeficit: ownDeficit,
+                ownBufferDeficit: ownDeficit,
+                ownDeadRankCount: max(1, beforeOwn.deadRankCount),
+                ownSlotSurplus: -ownDeficit,
+                ownMinChoices: 0,
+                publicSlotDamage: before.totalPlayerOpenSlots,
+                ownPublicSlotDamage: before.playerOpenSlots[safe: player] ?? 0,
+                boardOpenCellDamage: before.openCells,
+                ownPublicSlotsAfter: 0,
+                totalPlayerOpenSlotsAfter: 0,
+                minPlayerOpenSlotsAfter: 0,
+                ownLaneSurplusAfter: 0,
+                totalPlayerLaneSurplusAfter: -before.totalPlayerRemainingCards,
+                minPlayerLaneSurplusAfter: -(before.playerRemainingCards.max() ?? 0),
+                lanePressurePlayerCountAfter: before.lanePressurePlayerCount,
+                ownMinRankSlotsAfter: 0,
+                minPlayerRankSlotsAfter: 0,
+                lostLedToken: false,
+                wouldWinNow: nil,
+                overTargetWouldWin: false
+            )
+            return row.withKey(livenessKey(for: row, base: base))
+        }
+
+        let actionSuit: Suit?
+        if case .play(_, let suit) = move {
+            actionSuit = suit
+        } else {
+            actionSuit = nil
+        }
+        let wouldWinNow: Bool?
+        if case .play(let rank, let suit) = move {
+            wouldWinNow = wouldWin(player: player, rank: rank, suit: suit)
+        } else {
+            wouldWinNow = nil
+        }
+
+        var copy = self
+        copy.apply(move)
+        let after = copy.publicExitLiquidity()
+        let own = copy.ownHandFeasibility(for: player)
+        let isParadox = copy.players[safe: player]?.hasParadoxed ?? false
+        let beforePlayerSlots = before.playerOpenSlots[safe: player] ?? 0
+        let afterPlayerSlots = after.playerOpenSlots[safe: player] ?? 0
+        let afterPlayerMinRankSlots = after.playerMinRankSlots[safe: player] ?? 0
+        let afterPlayerLaneSurplus = after.playerLaneSurplus[safe: player] ?? 0
+
+        var lostLedToken = false
+        if let ledSuit, let actionSuit, ledSuit != actionSuit,
+           let ledIndex = Suit.allCases.firstIndex(of: ledSuit),
+           players[safe: player]?.colorTokens[safe: ledIndex] == true,
+           copy.players[safe: player]?.colorTokens[safe: ledIndex] == false {
+            lostLedToken = true
+        }
+
+        let prediction = players[safe: player]?.prediction
+        let tricks = players[safe: player]?.tricksWon ?? 0
+        let row = LivenessCertificate(
+            action: move,
+            key: [],
+            isParadox: isParadox,
+            ownFeasible: own.feasible && !isParadox,
+            ownTotalDeficit: isParadox ? max(1, own.totalDeficit) : own.totalDeficit,
+            ownBufferDeficit: own.bufferDeficit,
+            ownDeadRankCount: own.deadRankCount,
+            ownSlotSurplus: own.slotSurplus,
+            ownMinChoices: own.minChoices,
+            publicSlotDamage: before.totalPlayerOpenSlots - after.totalPlayerOpenSlots,
+            ownPublicSlotDamage: beforePlayerSlots - afterPlayerSlots,
+            boardOpenCellDamage: before.openCells - after.openCells,
+            ownPublicSlotsAfter: afterPlayerSlots,
+            totalPlayerOpenSlotsAfter: after.totalPlayerOpenSlots,
+            minPlayerOpenSlotsAfter: after.minPlayerOpenSlots,
+            ownLaneSurplusAfter: afterPlayerLaneSurplus,
+            totalPlayerLaneSurplusAfter: after.totalPlayerLaneSurplus,
+            minPlayerLaneSurplusAfter: after.minPlayerLaneSurplus,
+            lanePressurePlayerCountAfter: after.lanePressurePlayerCount,
+            ownMinRankSlotsAfter: afterPlayerMinRankSlots,
+            minPlayerRankSlotsAfter: after.playerMinRankSlots.min() ?? 0,
+            lostLedToken: lostLedToken,
+            wouldWinNow: wouldWinNow,
+            overTargetWouldWin: wouldWinNow == true && (prediction.map { tricks >= $0 } ?? false)
+        )
+        return row.withKey(livenessKey(for: row, base: base))
+    }
+
+    private func livenessKey(for row: LivenessCertificate, base: Move) -> [Int] {
+        let baseBonus = row.action == base ? 1 : 0
+        let responsibleRedWinSwitch = row.lostLedToken && row.wouldWinNow == true && !row.overTargetWouldWin
+        let preservesLaneOrSpendsToWin = !row.lostLedToken || responsibleRedWinSwitch
+        return [
+            row.isParadox ? 0 : 1,
+            row.ownFeasible ? 1 : 0,
+            preservesLaneOrSpendsToWin ? 1 : 0,
+            -row.ownTotalDeficit,
+            -row.ownDeadRankCount,
+            row.minPlayerLaneSurplusAfter,
+            row.totalPlayerLaneSurplusAfter,
+            row.ownLaneSurplusAfter,
+            -row.lanePressurePlayerCountAfter,
+            row.minPlayerOpenSlotsAfter,
+            row.totalPlayerOpenSlotsAfter,
+            row.ownPublicSlotsAfter,
+            row.minPlayerRankSlotsAfter,
+            row.ownMinRankSlotsAfter,
+            row.overTargetWouldWin ? 0 : 1,
+            -row.publicSlotDamage,
+            -row.ownPublicSlotDamage,
+            -row.boardOpenCellDamage,
+            -row.ownBufferDeficit,
+            row.ownMinChoices,
+            row.ownSlotSurplus,
+            baseBonus,
+            -row.action.sortValue
+        ]
+    }
+
+    private func livenessKey(_ lhs: [Int], isBetterThan rhs: [Int]) -> Bool {
+        for index in 0..<min(lhs.count, rhs.count) where lhs[index] != rhs[index] {
+            return lhs[index] > rhs[index]
+        }
+        return lhs.count > rhs.count
+    }
+
+    private func ownHandFeasibility(for player: Int) -> OwnHandFeasibility {
+        guard players.indices.contains(player) else {
+            return OwnHandFeasibility(feasible: false, remainingCards: 0, totalOpenSlots: 0, slotSurplus: -1, totalDeficit: 1, bufferDeficit: 1, tightRankCount: 1, deadRankCount: 1, singletonCardCount: 0, minChoices: 0)
+        }
+        let hand = players[player].hand
+        let tokens = players[player].colorTokens
+        var remainingCards = 0
+        var totalSlots = 0
+        var totalDeficit = 0
+        var bufferDeficit = 0
+        var tightRankCount = 0
+        var deadRankCount = 0
+        var singletonCardCount = 0
+        var minChoices: Int?
+
+        for rankIndex in 0..<rankCount {
+            let count = max(0, hand[rankIndex])
+            guard count > 0 else { continue }
+            remainingCards += count
+            var openSlots = 0
+            for suitIndex in Suit.allCases.indices where tokens[safe: suitIndex] == true && board[suitIndex][rankIndex] == -1 {
+                openSlots += 1
+            }
+            totalSlots += openSlots
+            totalDeficit += max(0, count - openSlots)
+            bufferDeficit += max(0, count + 1 - openSlots)
+            if openSlots <= count {
+                tightRankCount += 1
+            }
+            if openSlots <= 0 {
+                deadRankCount += 1
+            }
+            if openSlots == 1 {
+                singletonCardCount += count
+            }
+            minChoices = min(minChoices ?? openSlots, openSlots)
+        }
+
+        return OwnHandFeasibility(
+            feasible: totalDeficit == 0,
+            remainingCards: remainingCards,
+            totalOpenSlots: totalSlots,
+            slotSurplus: totalSlots - remainingCards,
+            totalDeficit: totalDeficit,
+            bufferDeficit: bufferDeficit,
+            tightRankCount: tightRankCount,
+            deadRankCount: deadRankCount,
+            singletonCardCount: singletonCardCount,
+            minChoices: minChoices ?? 0
+        )
+    }
+
+    private func publicExitLiquidity() -> PublicExitLiquidity {
+        let openBySuit = board.map { row in row.filter { $0 == -1 }.count }
+        var playerOpenSlots: [Int] = []
+        var playerMinRankSlots: [Int] = []
+        var playerRemainingCards: [Int] = []
+        var playerLaneSurplus: [Int] = []
+
+        for seat in players.indices {
+            let tokens = players[seat].colorTokens
+            let openSlots = Suit.allCases.indices.reduce(0) { total, suitIndex in
+                total + (tokens[safe: suitIndex] == true ? openBySuit[suitIndex] : 0)
+            }
+            playerOpenSlots.append(openSlots)
+
+            var rankSlots: [Int] = []
+            for rankIndex in 0..<rankCount {
+                var slots = 0
+                for suitIndex in Suit.allCases.indices where tokens[safe: suitIndex] == true && board[suitIndex][rankIndex] == -1 {
+                    slots += 1
+                }
+                rankSlots.append(slots)
+            }
+            playerMinRankSlots.append(rankSlots.min() ?? 0)
+            let remaining = players[seat].hand.reduce(0, +)
+            playerRemainingCards.append(remaining)
+            playerLaneSurplus.append(openSlots - remaining)
+        }
+
+        let totalOpen = playerOpenSlots.reduce(0, +)
+        let totalRemaining = playerRemainingCards.reduce(0, +)
+        let totalLaneSurplus = playerLaneSurplus.reduce(0, +)
+        return PublicExitLiquidity(
+            openCells: openBySuit.reduce(0, +),
+            playerOpenSlots: playerOpenSlots,
+            playerMinRankSlots: playerMinRankSlots,
+            playerRemainingCards: playerRemainingCards,
+            playerLaneSurplus: playerLaneSurplus,
+            totalPlayerOpenSlots: totalOpen,
+            minPlayerOpenSlots: playerOpenSlots.min() ?? 0,
+            totalPlayerRemainingCards: totalRemaining,
+            totalPlayerLaneSurplus: totalLaneSurplus,
+            minPlayerLaneSurplus: playerLaneSurplus.min() ?? 0,
+            lanePressurePlayerCount: playerLaneSurplus.filter { $0 < 0 }.count
+        )
     }
 
     private func sharedDiscardMove(for player: Int, legal: [Move]) -> Move? {
@@ -1022,5 +1446,11 @@ struct QuantumCatGame: Codable {
         copy.currentTrick = plays
         copy.ledSuit = ledSuit ?? suit
         return copy.trickWinner() == player
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

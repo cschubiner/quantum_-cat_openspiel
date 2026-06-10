@@ -26,7 +26,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
     var subtitle: String {
         switch self {
         case .championBeliefPolicy:
-            "Run553 step25 interim champion, bundled as a raw-policy Core ML model plus source PyTorch artifact."
+            "Run553 step25 champion with the promoted native liveness shield wrapped around raw Core ML policy."
         case .setPoolDistill:
             "Set-pooling distilled policy/value student, bundled as Core ML."
         case .rawPolicyLeague:
@@ -46,8 +46,8 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .championBeliefPolicy:
             ModelArtifactStatus.isBundled(resource: "champion_belief_policy", extension: "mlmodelc")
-                ? "Core ML active; heuristic fallback ready."
-                : "Core ML missing; heuristic fallback active."
+                ? "Core ML active; native liveness shield active."
+                : "Core ML missing; liveness-shielded heuristic fallback active."
         case .setPoolDistill:
             ModelArtifactStatus.isBundled(resource: "setpool_distill", extension: "mlmodelc")
                 ? "Core ML active; heuristic fallback ready."
@@ -194,7 +194,7 @@ struct ModelArtifactStatus: Identifiable {
         ModelArtifactStatus(
             id: "champion-coreml",
             title: "Champion ML",
-            detail: "Core ML Run553 raw policy",
+            detail: "Run553 raw policy plus liveness shield",
             resource: "champion_belief_policy",
             fileExtension: "mlmodelc"
         ),

@@ -31,7 +31,7 @@ struct QuantumCatIOSApp: App {
 
         let games = integerArgument(named: "-deviceParadoxBenchmarkGames", in: arguments)
             ?? Int(environment["DEVICE_PARADOX_BENCHMARK_GAMES"] ?? "")
-            ?? 20
+            ?? 100
         let seatCount = integerArgument(named: "-deviceParadoxBenchmarkSeats", in: arguments)
             ?? Int(environment["DEVICE_PARADOX_BENCHMARK_SEATS"] ?? "")
             ?? 5

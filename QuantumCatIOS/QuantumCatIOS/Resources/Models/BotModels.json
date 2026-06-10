@@ -1,13 +1,13 @@
 [
   {
     "id": "champion_belief_policy",
-    "name": "Run553 Step25 Interim Champion",
-    "approach": "Run553 step25 Core ML raw policy; action-risk and value rerank heads are intentionally ignored because this checkpoint's auxiliary heads are stale",
+    "name": "Run553 Step25 Liveness-Shielded Champion",
+    "approach": "Run553 step25 Core ML raw policy wrapped by the promoted native liveness shield; action-risk and value rerank heads are intentionally ignored because this checkpoint's auxiliary heads are stale",
     "artifact": "champion_belief_policy.pt",
     "coreMLArtifact": "champion_belief_policy.mlpackage",
-    "bestFor": "Owner-approved interim champion: +1.25 avg score over the old champion and 41.67% m100 homogeneous paradox rounds versus the old raw policy's historical 97.6%",
+    "bestFor": "Current promoted champion config: 38.33% homogeneous any-paradox rounds under the aggressive liveness shield, versus 41.67% for raw policy on the same checkpoint",
     "rating": "production-best",
-    "status": "Core ML package bundled for native iOS raw-policy inference; shared bidding, shared discard, and Swift liveness guard remain active"
+    "status": "Core ML package bundled for native iOS raw-policy inference; shared bidding, shared discard, and the promoted Swift liveness shield remain active"
   },
   {
     "id": "setpool_distill",

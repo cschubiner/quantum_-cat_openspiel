@@ -12,6 +12,7 @@ Use this skill before promoting or installing a Quantum Cat model, and whenever 
 - Prefer Mac-side fast evaluation for statistical evidence. Do not use long simulator or physical-device runs for paradox-rate estimates.
 - The primary survival metric is `rounds_with_any_paradox / hand_rounds`; the strict target is fewer than `40%`.
 - Keep selector mode explicit. If the promoted note says raw policy, use `MODE=policy`; do not apply q-policy/risk/value rerankers unless the user explicitly asks for that variant.
+- If the promoted note says liveness shield, use the full selector string, for example `MODE='liveness_shield?liveness_shield_base_mode=policy,liveness_shield_phases=discard|prediction|play,liveness_shield_min_open_slot_delta=0,liveness_shield_min_public_damage_delta=0,liveness_shield_max_policy_log_gap=-1.0'`.
 - Treat checkpoint hashes and model paths as time-sensitive. Verify the actual file hash before reporting.
 - For iPhone installs, do not claim exact PyTorch-to-CoreML move parity unless an exact move-parity launch/test mode exists and passes. A CoreML success-count smoke is necessary but not sufficient for exact parity.
 
@@ -28,6 +29,7 @@ Useful overrides:
 ```bash
 CHECKPOINT=az_runs/best_3p_policy_checkpoint.pt \
 MODE=policy \
+LED_MODE=policy \
 PLAYERS=3 \
 PARADOX_MATCHES=200 \
 LED_MATCHES=60 \
@@ -40,6 +42,8 @@ The script runs:
 - homogeneous same-model paradox gate via `quantum_cat_full_match_elo.py`;
 - non-red led-suit follow/switch/red-choice audit via `quantum_cat_led_switch_audit.py`;
 - a compact summary JSON and console report.
+
+The led-switch audit currently supports only `LED_MODE=policy` or `LED_MODE=q_policy`. When `MODE` is a richer selector such as `liveness_shield?...`, set `LED_MODE=policy` unless a liveness-aware led audit has been added.
 
 Artifacts are written under `az_runs/model_test_<timestamp>/` unless `OUT_DIR` is set.
 

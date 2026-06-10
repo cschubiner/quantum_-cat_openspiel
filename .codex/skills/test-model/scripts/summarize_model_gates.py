@@ -26,6 +26,7 @@ def main() -> int:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--checkpoint-sha", required=True)
     parser.add_argument("--mode", required=True)
+    parser.add_argument("--led-mode")
     parser.add_argument("--paradox", required=True)
     parser.add_argument("--led", required=True)
     parser.add_argument("--out", required=True)
@@ -41,6 +42,7 @@ def main() -> int:
         "checkpoint": args.checkpoint,
         "checkpoint_sha256": args.checkpoint_sha,
         "mode": args.mode,
+        "led_mode": args.led_mode or args.mode,
         "artifacts": {
             "homogeneous_paradox": args.paradox,
             "led_switch": args.led,
@@ -119,6 +121,8 @@ def main() -> int:
     led_summary = summary["led_switch"]
     print("== Summary ==")
     print(f"checkpoint_sha256={summary['checkpoint_sha256']}")
+    print(f"mode={summary['mode']}")
+    print(f"led_mode={summary['led_mode']}")
     print(
         "homogeneous_any_paradox_rate="
         f"{gate_summary['rounds_with_any_paradox']}/{gate_summary['hand_rounds']} "
