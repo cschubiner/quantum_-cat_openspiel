@@ -10,7 +10,7 @@ final class QuantumCatIOSUITests: XCTestCase {
         app.launchArguments = ["-uiTestReset"]
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["Quantum Cat"].waitForExistence(timeout: 6))
+        XCTAssertTrue(app.buttons["setup-button"].waitForExistence(timeout: 6))
         app.buttons["Table setup"].tap()
         XCTAssertTrue(app.navigationBars["Table setup"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["New game"].exists)
@@ -24,10 +24,29 @@ final class QuantumCatIOSUITests: XCTestCase {
         app.launchArguments = ["-uiTestReset"]
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["Quantum Cat"].waitForExistence(timeout: 6))
+        XCTAssertTrue(app.buttons["setup-button"].waitForExistence(timeout: 6))
         let firstMove = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Discard ")).firstMatch
         XCTAssertTrue(firstMove.waitForExistence(timeout: 6))
         firstMove.tap()
+    }
+
+    func testBotAdvanceDoesNotShiftMainTurnPanel() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestReset"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["setup-button"].waitForExistence(timeout: 6))
+        let panel = app.scrollViews["active-turn-panel"]
+        XCTAssertTrue(panel.waitForExistence(timeout: 6))
+        let initialTop = panel.frame.minY
+
+        let firstMove = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Discard ")).firstMatch
+        XCTAssertTrue(firstMove.waitForExistence(timeout: 6))
+        firstMove.tap()
+
+        XCTAssertTrue(app.staticTexts["P0, choose your bid"].waitForExistence(timeout: 8))
+        let finalTop = panel.frame.minY
+        XCTAssertLessThanOrEqual(abs(finalTop - initialTop), 4, "Bot animation/return-to-human shifted the main table scroll from \(initialTop) to \(finalTop)")
     }
 
     func testMixedBotRosterAppearsInSetup() throws {
