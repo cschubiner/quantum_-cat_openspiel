@@ -1,11 +1,11 @@
 [
   {
     "id": "champion_belief_policy",
-    "name": "Run553 Step25 Liveness-Shielded Champion",
-    "approach": "Run553 step25 Core ML raw policy wrapped by the promoted native liveness shield; action-risk and value rerank heads are intentionally ignored because this checkpoint's auxiliary heads are stale",
+    "name": "Run604 Step50 Liveness-Shielded Champion",
+    "approach": "Run604 step50 shield-behavior-distilled Core ML raw policy wrapped by the promoted native liveness shield; action-risk and value rerank heads are intentionally ignored for champion selection",
     "artifact": "champion_belief_policy.pt",
     "coreMLArtifact": "champion_belief_policy.mlpackage",
-    "bestFor": "Current promoted champion config: 38.33% homogeneous any-paradox rounds under the aggressive liveness shield, versus 41.67% for raw policy on the same checkpoint",
+    "bestFor": "Current promoted champion config: 38.50% homogeneous any-paradox rounds under the aggressive liveness shield; raw policy gains +0.8583/match over the previous raw champion",
     "rating": "production-best",
     "status": "Core ML package bundled for native iOS raw-policy inference; shared bidding, shared discard, and the promoted Swift liveness shield remain active"
   },

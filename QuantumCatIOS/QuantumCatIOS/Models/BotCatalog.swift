@@ -26,7 +26,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
     var subtitle: String {
         switch self {
         case .championBeliefPolicy:
-            "Run553 step25 champion with the promoted native liveness shield wrapped around raw Core ML policy."
+            "Run604 step50 shield-distilled champion with the promoted native liveness shield wrapped around raw Core ML policy."
         case .setPoolDistill:
             "Set-pooling distilled policy/value student, bundled as Core ML."
         case .rawPolicyLeague:
@@ -169,7 +169,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var coreMLObservationSize: Int {
         switch self {
-        case .championBeliefPolicy, .strictQHead: 72
+        case .strictQHead: 72
         default: 76
         }
     }
@@ -194,7 +194,7 @@ struct ModelArtifactStatus: Identifiable {
         ModelArtifactStatus(
             id: "champion-coreml",
             title: "Champion ML",
-            detail: "Run553 raw policy plus liveness shield",
+            detail: "Run604 raw policy plus liveness shield",
             resource: "champion_belief_policy",
             fileExtension: "mlmodelc"
         ),
