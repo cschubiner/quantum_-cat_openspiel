@@ -4,21 +4,33 @@ struct GameTableView: View {
     @EnvironmentObject private var store: GameStore
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                header
-                activeTurnPanel
-                currentTrickPanel
-                boardPanel
-                if let summary = store.bulkSimulationSummary {
-                    bulkSimulationPanel(summary)
+        ZStack(alignment: .top) {
+            ScrollView {
+                VStack(spacing: 14) {
+                    header
+                    activeTurnPanel
+                    currentTrickPanel
+                    boardPanel
+                    if let summary = store.bulkSimulationSummary {
+                        bulkSimulationPanel(summary)
+                    }
+                    scoreboard
+                    logPanel
                 }
-                scoreboard
-                logPanel
+                .padding(14)
+                .padding(.bottom, 24)
             }
-            .padding(14)
-            .padding(.bottom, 24)
+
+            if let animation = store.botMoveAnimation {
+                botMoveOverlay(animation)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
+                    .zIndex(2)
+            }
         }
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: store.botMoveAnimation?.id)
         .background(
             LinearGradient(
                 colors: [Color(red: 0.03, green: 0.07, blue: 0.05), Color(red: 0.05, green: 0.16, blue: 0.12)],
@@ -113,7 +125,10 @@ struct GameTableView: View {
     }
 
     private var turnSubtitle: String {
-        switch store.game.phase {
+        if store.game.activeHuman == nil, !store.game.isTerminal {
+            return "Watch the bot resolve its move."
+        }
+        return switch store.game.phase {
         case .discard: "Pass the phone to the active player and discard face down."
         case .prediction: "Bid how many tricks this seat expects to take."
         case .play: "Tap a legal move or the matching board cell."
@@ -194,6 +209,7 @@ struct GameTableView: View {
     private func currentTrickCard(for player: PlayerState) -> some View {
         let card = store.game.currentTrick[player.id]
         let isLedSuit = card?.suit == store.game.ledSuit && store.game.ledSuit != nil
+        let isAnimatingBotMove = store.botMoveAnimation?.player == player.id
         return HStack {
             Text("P\(player.id)")
                 .font(.caption.weight(.black))
@@ -207,14 +223,66 @@ struct GameTableView: View {
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(isLedSuit ? ledSuitHighlightColor.opacity(0.14) : Color.white.opacity(0.07))
-                .shadow(color: isLedSuit ? ledSuitHighlightColor.opacity(0.45) : .clear, radius: 14)
+                .fill(isAnimatingBotMove ? playerColor(player.id).opacity(0.24) : isLedSuit ? ledSuitHighlightColor.opacity(0.14) : Color.white.opacity(0.07))
+                .shadow(color: isAnimatingBotMove ? playerColor(player.id).opacity(0.55) : isLedSuit ? ledSuitHighlightColor.opacity(0.45) : .clear, radius: isAnimatingBotMove ? 18 : 14)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isLedSuit ? ledSuitHighlightColor.opacity(0.82) : Color.clear, lineWidth: 2)
+                .stroke(isAnimatingBotMove ? playerColor(player.id).opacity(0.92) : isLedSuit ? ledSuitHighlightColor.opacity(0.82) : Color.clear, lineWidth: isAnimatingBotMove ? 3 : 2)
                 .allowsHitTesting(false)
         )
+        .scaleEffect(isAnimatingBotMove ? 1.035 : 1)
+        .animation(.spring(response: 0.26, dampingFraction: 0.72), value: store.botMoveAnimation?.id)
+    }
+
+    private func botMoveOverlay(_ event: BotMoveAnimation) -> some View {
+        HStack(spacing: 10) {
+            Text("P\(event.player)")
+                .font(.caption.weight(.black))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+                .background(playerColor(event.player), in: Circle())
+                .overlay(Circle().stroke(Color.white.opacity(0.28), lineWidth: 1))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title)
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(.white.opacity(0.78))
+                Text(event.subtitle)
+                    .font(.headline.weight(.black))
+                    .foregroundStyle(.white)
+            }
+
+            Spacer(minLength: 8)
+
+            moveToken(event.move, player: event.player)
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(red: 0.04, green: 0.12, blue: 0.09).opacity(0.96))
+                .shadow(color: playerColor(event.player).opacity(0.42), radius: 16, x: 0, y: 6)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(playerColor(event.player).opacity(0.72), lineWidth: 1.5)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(event.title) \(event.subtitle)")
+        .accessibilityIdentifier("bot-move-animation")
+    }
+
+    private func moveToken(_ move: Move, player: Int) -> some View {
+        VStack(spacing: 0) {
+            Text(move.primary.uppercased())
+                .font(.caption2.weight(.black))
+            Text(move.value)
+                .font(.system(size: 22, weight: .black, design: .serif))
+        }
+        .foregroundStyle(.white)
+        .frame(width: 58, height: 48)
+        .background(moveTokenColor(move, player: player), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.2), lineWidth: 1))
     }
 
     private var boardPanel: some View {
@@ -434,6 +502,17 @@ struct GameTableView: View {
         case .play(_, let suit): suitColor(suit)
         case .paradox: Color(red: 0.45, green: 0.13, blue: 0.16)
         default: Color(red: 0.08, green: 0.16, blue: 0.13)
+        }
+    }
+
+    private func moveTokenColor(_ move: Move, player: Int) -> Color {
+        switch move {
+        case .play(_, let suit):
+            suitColor(suit)
+        case .paradox:
+            Color(red: 0.45, green: 0.13, blue: 0.16)
+        default:
+            playerColor(player)
         }
     }
 

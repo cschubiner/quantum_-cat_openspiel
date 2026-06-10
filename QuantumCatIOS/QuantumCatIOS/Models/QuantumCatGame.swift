@@ -90,6 +90,30 @@ struct GameLogEntry: Identifiable, Codable {
     }
 }
 
+struct BotMoveAnimation: Identifiable, Equatable {
+    let id = UUID()
+    let player: Int
+    let botName: String
+    let move: Move
+
+    var title: String {
+        "P\(player) \(botName)"
+    }
+
+    var subtitle: String {
+        switch move {
+        case .discard:
+            "discarded rank \(move.value)"
+        case .prediction:
+            "bid \(move.value)"
+        case .play:
+            "played \(move.primary)\(move.value)"
+        case .paradox:
+            "paradox"
+        }
+    }
+}
+
 enum BotOnlyRunMode: String, CaseIterable, Identifiable {
     case watch
     case bulk
@@ -171,6 +195,7 @@ final class GameStore: ObservableObject {
     @Published var bulkSimulationGames: Int = 100
     @Published private(set) var game: QuantumCatGame
     @Published private(set) var botStatus: String?
+    @Published private(set) var botMoveAnimation: BotMoveAnimation?
     @Published private(set) var bulkSimulationSummary: BulkSimulationSummary?
     private var isNormalizingSetup = false
     private var botTask: Task<Void, Never>?
@@ -241,6 +266,7 @@ final class GameStore: ObservableObject {
             + (0..<botSeats).map { SeatKind.bot(botKinds[$0]) }
         botTask?.cancel()
         botStatus = nil
+        botMoveAnimation = nil
         bulkSimulationSummary = nil
         let seed = Int(Date().timeIntervalSince1970) % 1_000_000
         if humanSeats == 0, botOnlyRunMode == .bulk {
@@ -388,12 +414,22 @@ final class GameStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 450_000_000)
             guard !Task.isCancelled else { return }
             let move = game.applyBotMoveForCurrentPlayer()
-            botStatus = move.map { "P\(player) played \($0.primary.lowercased()) \($0.value)." } ?? nil
+            if let move {
+                let event = BotMoveAnimation(player: player, botName: botName, move: move)
+                botMoveAnimation = event
+                botStatus = "\(event.title) \(event.subtitle)."
+            } else {
+                botStatus = nil
+            }
             save()
-            try? await Task.sleep(nanoseconds: 180_000_000)
+            try? await Task.sleep(nanoseconds: 620_000_000)
+            if !Task.isCancelled, botMoveAnimation?.player == player, botMoveAnimation?.move == move {
+                botMoveAnimation = nil
+            }
         }
         if !Task.isCancelled {
             botStatus = nil
+            botMoveAnimation = nil
         }
     }
 }
