@@ -376,7 +376,7 @@ struct GameTableView: View {
                 if let ledSuit = store.game.ledSuit {
                     ledSuitBadge(ledSuit)
                 }
-                Text(store.game.phase == .play ? "Green outlines are legal" : "Claims unlock during play")
+                Text(store.game.phase == .play ? "Green legal · gold this trick" : "Claims unlock during play")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
@@ -429,26 +429,38 @@ struct GameTableView: View {
     private func boardCell(suitIndex: Int, rankIndex: Int) -> some View {
         let owner = store.game.board[suitIndex][rankIndex]
         let suit = Suit.allCases[suitIndex]
+        let rank = rankIndex + 1
         let move = Move.play(rank: rankIndex + 1, suit: Suit.allCases[suitIndex])
         let legal = store.game.legalMoves.contains(move)
+        let currentTrickPlayer = currentTrickPlayer(for: suit, rank: rank)
         return Button {
             if legal { store.apply(move) }
         } label: {
-            ZStack(alignment: .bottomTrailing) {
-                Text("\(rankIndex + 1)")
-                    .font(.system(size: 19, weight: .black, design: .serif))
-                    .frame(maxWidth: .infinity, minHeight: 42)
-                if owner >= 0 {
-                    Text("P\(owner)")
-                        .font(.caption2.weight(.black))
-                        .padding(3)
+            ZStack(alignment: .topLeading) {
+                ZStack(alignment: .bottomTrailing) {
+                    Text("\(rank)")
+                        .font(.system(size: 19, weight: .black, design: .serif))
+                        .frame(maxWidth: .infinity, minHeight: 42)
+                    if owner >= 0 {
+                        Text("P\(owner)")
+                            .font(.caption2.weight(.black))
+                            .padding(3)
+                    }
+                }
+                if currentTrickPlayer != nil {
+                    Circle()
+                        .fill(currentTrickHighlightColor)
+                        .frame(width: 8, height: 8)
+                        .padding(5)
+                        .shadow(color: currentTrickHighlightColor.opacity(0.85), radius: 5)
+                        .allowsHitTesting(false)
                 }
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 7))
         .buttonStyle(.plain)
         .accessibilityIdentifier("board-cell-\(Suit.allCases[suitIndex].rawValue)-\(rankIndex + 1)")
-        .accessibilityLabel(owner >= 0 ? "P\(owner) claimed \(Suit.allCases[suitIndex].rawValue)\(rankIndex + 1)" : "\(Suit.allCases[suitIndex].rawValue)\(rankIndex + 1)")
+        .accessibilityLabel(boardCellAccessibilityLabel(suit: suit, rank: rank, owner: owner, currentTrickPlayer: currentTrickPlayer))
         .foregroundStyle(owner >= 0 ? .white : Color(red: 0.13, green: 0.12, blue: 0.1))
         .background(boardCellColor(owner: owner), in: RoundedRectangle(cornerRadius: 7))
         .overlay(
@@ -461,9 +473,27 @@ struct GameTableView: View {
                 .stroke(legal ? Color.green : Color.black.opacity(0.1), lineWidth: legal ? 2 : 1)
                 .allowsHitTesting(false)
         )
+        .overlay(currentTrickStroke(isCurrentTrick: currentTrickPlayer != nil, cornerRadius: 7))
         .overlay(ledSuitStroke(for: suit, cornerRadius: 7, lineWidth: legal ? 1.5 : 2))
         .shadow(color: ledSuitShadowColor(for: suit), radius: isLedSuit(suit) ? 10 : 0)
+        .shadow(color: currentTrickPlayer != nil ? currentTrickHighlightColor.opacity(0.72) : .clear, radius: currentTrickPlayer != nil ? 8 : 0)
         .disabled(!legal)
+    }
+
+    private func currentTrickPlayer(for suit: Suit, rank: Int) -> Int? {
+        store.game.currentTrick.enumerated().first { _, card in
+            card?.suit == suit && card?.rank == rank
+        }?.offset
+    }
+
+    private func boardCellAccessibilityLabel(suit: Suit, rank: Int, owner: Int, currentTrickPlayer: Int?) -> String {
+        if let currentTrickPlayer {
+            return "P\(currentTrickPlayer) played \(suit.rawValue)\(rank) this trick"
+        }
+        if owner >= 0 {
+            return "P\(owner) claimed \(suit.rawValue)\(rank)"
+        }
+        return "\(suit.rawValue)\(rank)"
     }
 
     private var scoreboard: some View {
@@ -612,6 +642,10 @@ struct GameTableView: View {
         Color(red: 0.32, green: 0.77, blue: 1.0)
     }
 
+    private var currentTrickHighlightColor: Color {
+        Color(red: 1.0, green: 0.78, blue: 0.18)
+    }
+
     private func isLedSuit(_ suit: Suit) -> Bool {
         store.game.phase == .play && store.game.ledSuit == suit
     }
@@ -619,6 +653,17 @@ struct GameTableView: View {
     private func ledSuitStroke(for suit: Suit, cornerRadius: CGFloat, lineWidth: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: cornerRadius)
             .stroke(isLedSuit(suit) ? ledSuitHighlightColor.opacity(0.82) : Color.clear, lineWidth: lineWidth)
+            .allowsHitTesting(false)
+    }
+
+    private func currentTrickStroke(isCurrentTrick: Bool, cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius)
+            .stroke(isCurrentTrick ? currentTrickHighlightColor : Color.clear, lineWidth: 3)
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(isCurrentTrick ? Color.white.opacity(0.72) : Color.clear, lineWidth: 1)
+                    .padding(2)
+            )
             .allowsHitTesting(false)
     }
 

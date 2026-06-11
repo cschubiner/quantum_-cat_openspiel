@@ -47,6 +47,30 @@ final class QuantumCatIOSUITests: XCTestCase {
         bidMove.tap()
     }
 
+    func testPlayedBoardCellIsMarkedAsCurrentTrick() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestReset"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["setup-button"].waitForExistence(timeout: 6))
+        let discardMove = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Discard ")).firstMatch
+        XCTAssertTrue(discardMove.waitForExistence(timeout: 6))
+        discardMove.tap()
+
+        XCTAssertTrue(app.staticTexts["P0, choose your bid"].waitForExistence(timeout: 8))
+        let bidMove = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Bid ")).firstMatch
+        XCTAssertTrue(bidMove.waitForExistence(timeout: 3))
+        bidMove.tap()
+
+        XCTAssertTrue(app.staticTexts["P0, choose a play"].waitForExistence(timeout: 8))
+        let playMove = app.buttons.matching(NSPredicate(format: "label MATCHES %@", "^[RBYG] [1-6]$")).firstMatch
+        XCTAssertTrue(playMove.waitForExistence(timeout: 6))
+        playMove.tap()
+
+        let currentTrickCell = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "this trick")).firstMatch
+        XCTAssertTrue(currentTrickCell.waitForExistence(timeout: 4))
+    }
+
     func testBotAdvanceDoesNotShiftMainTurnPanel() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uiTestReset"]
