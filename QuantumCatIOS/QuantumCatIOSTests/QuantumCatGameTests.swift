@@ -64,6 +64,50 @@ final class QuantumCatGameTests: XCTestCase {
         }
     }
 
+    func testConfiguredStartingPlayerLeadsDeal() {
+        let game = QuantumCatGame(
+            seats: [.human, .human, .human],
+            seed: 20260616,
+            startingPlayer: 2,
+            autoAdvanceBots: false
+        )
+
+        XCTAssertEqual(game.phase, .discard)
+        XCTAssertEqual(game.currentPlayer, 2)
+        XCTAssertTrue(game.log.last?.text.contains("P2 starts") == true)
+    }
+
+    @MainActor
+    func testRoundWinnerStartsNextGame() {
+        UserDefaults.standard.removeObject(forKey: "quantum-cat.saved-state.v1")
+        let store = GameStore()
+        store.humanSeats = 3
+        store.botSeats = 0
+        store.newGame()
+
+        var steps = 0
+        while !store.game.isTerminal {
+            steps += 1
+            XCTAssertLessThan(steps, 180)
+            guard let move = store.game.legalMoves.first else {
+                XCTFail("Expected a legal move in \(store.game.phase.rawValue)")
+                return
+            }
+            store.apply(move)
+        }
+
+        guard let winner = store.game.roundWinner else {
+            XCTFail("Expected a scored winner")
+            return
+        }
+
+        store.newGame()
+
+        XCTAssertEqual(store.game.phase, .discard)
+        XCTAssertEqual(store.game.currentPlayer, winner)
+        XCTAssertTrue(store.game.log.last?.text.contains("P\(winner) starts") == true)
+    }
+
     func testManualBotTurnsExposeActiveBotBeforeAdvancing() {
         var game = QuantumCatGame(
             seats: [.human, .bot(.championBeliefPolicy), .bot(.setPoolDistill)],

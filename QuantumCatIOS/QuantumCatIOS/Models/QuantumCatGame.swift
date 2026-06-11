@@ -277,16 +277,17 @@ final class GameStore: ObservableObject {
         normalizeSetup()
         let seats = Array(repeating: SeatKind.human, count: humanSeats)
             + (0..<botSeats).map { SeatKind.bot(botKinds[$0]) }
+        let nextStartingPlayer = seats.isEmpty ? 0 : game.roundWinner.map { $0 % seats.count } ?? 0
         botTask?.cancel()
         botStatus = nil
         botMoveAnimation = nil
         bulkSimulationSummary = nil
         let seed = Int(Date().timeIntervalSince1970) % 1_000_000
         if humanSeats == 0, botOnlyRunMode == .bulk {
-            game = QuantumCatGame(seats: seats, seed: seed, autoAdvanceBots: true)
+            game = QuantumCatGame(seats: seats, seed: seed, startingPlayer: nextStartingPlayer, autoAdvanceBots: true)
             bulkSimulationSummary = runBulkSimulation(seats: seats, baseSeed: seed, games: bulkSimulationGames)
         } else {
-            game = QuantumCatGame(seats: seats, seed: seed, autoAdvanceBots: false)
+            game = QuantumCatGame(seats: seats, seed: seed, startingPlayer: nextStartingPlayer, autoAdvanceBots: false)
         }
         save()
         triggerBotAdvance()
@@ -467,7 +468,7 @@ struct QuantumCatGame: Codable {
     private var trumpBroken = false
     private static let blocked = -2
 
-    init(seats: [SeatKind], seed: Int, autoAdvanceBots: Bool = true) {
+    init(seats: [SeatKind], seed: Int, startingPlayer: Int = 0, autoAdvanceBots: Bool = true) {
         self.seats = seats
         let playerCount = seats.count
         self.rankCount = Self.rankCount(for: playerCount)
@@ -475,6 +476,7 @@ struct QuantumCatGame: Codable {
         self.board = Array(repeating: Array(repeating: -1, count: Self.rankCount(for: playerCount)), count: Suit.allCases.count)
         self.currentTrick = Array(repeating: nil, count: playerCount)
         self.rng = SeededGenerator(seed: seed)
+        self.startPlayer = playerCount > 0 ? min(max(startingPlayer, 0), playerCount - 1) : 0
         self.players = seats.enumerated().map { index, kind in
             PlayerState(
                 id: index,
@@ -526,6 +528,21 @@ struct QuantumCatGame: Codable {
         }
         return kind
     }
+    var roundWinner: Int? {
+        let scoredPlayers = players.filter { $0.score != nil }
+        guard scoredPlayers.count == players.count else { return nil }
+        return scoredPlayers.max { lhs, rhs in
+            let lhsScore = lhs.score ?? -.infinity
+            let rhsScore = rhs.score ?? -.infinity
+            if lhsScore != rhsScore {
+                return lhsScore < rhsScore
+            }
+            if lhs.tricksWon != rhs.tricksWon {
+                return lhs.tricksWon < rhs.tricksWon
+            }
+            return lhs.id > rhs.id
+        }?.id
+    }
 
     var legalMoves: [Move] {
         guard !isTerminal else { return [] }
@@ -575,10 +592,10 @@ struct QuantumCatGame: Codable {
             currentPlayer = startPlayer
         } else {
             phase = .discard
-            currentPlayer = 0
+            currentPlayer = startPlayer
         }
         let humanCount = players.filter { $0.seatKind.isHuman }.count
-        log.append(GameLogEntry(text: "New game: \(humanCount) human, \(players.count - humanCount) bot.", kind: "system"))
+        log.append(GameLogEntry(text: "New game: \(humanCount) human, \(players.count - humanCount) bot. P\(startPlayer) starts.", kind: "system"))
     }
 
     mutating private func shuffleDeck() {
