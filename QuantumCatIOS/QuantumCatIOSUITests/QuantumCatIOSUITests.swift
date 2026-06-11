@@ -63,6 +63,8 @@ final class QuantumCatIOSUITests: XCTestCase {
         bidMove.tap()
 
         XCTAssertTrue(app.staticTexts["P0, choose a play"].waitForExistence(timeout: 8))
+        let countedLegalMove = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "cards of rank")).firstMatch
+        XCTAssertTrue(countedLegalMove.waitForExistence(timeout: 4))
         let playMove = app.buttons.matching(NSPredicate(format: "label MATCHES %@", "^[RBYG] [1-6]$")).firstMatch
         XCTAssertTrue(playMove.waitForExistence(timeout: 6))
         playMove.tap()

@@ -430,13 +430,14 @@ struct GameTableView: View {
         let owner = store.game.board[suitIndex][rankIndex]
         let suit = Suit.allCases[suitIndex]
         let rank = rankIndex + 1
-        let move = Move.play(rank: rankIndex + 1, suit: Suit.allCases[suitIndex])
+        let move = Move.play(rank: rank, suit: suit)
         let legal = store.game.legalMoves.contains(move)
         let currentTrickPlayer = currentTrickPlayer(for: suit, rank: rank)
+        let remainingRankCount = legalMoveRankCount(rankIndex: rankIndex, isLegal: legal)
         return Button {
             if legal { store.apply(move) }
         } label: {
-            ZStack(alignment: .topLeading) {
+            ZStack {
                 ZStack(alignment: .bottomTrailing) {
                     Text("\(rank)")
                         .font(.system(size: 19, weight: .black, design: .serif))
@@ -448,19 +449,35 @@ struct GameTableView: View {
                     }
                 }
                 if currentTrickPlayer != nil {
-                    Circle()
-                        .fill(currentTrickHighlightColor)
-                        .frame(width: 8, height: 8)
-                        .padding(5)
-                        .shadow(color: currentTrickHighlightColor.opacity(0.85), radius: 5)
-                        .allowsHitTesting(false)
+                    VStack {
+                        HStack {
+                            Circle()
+                                .fill(currentTrickHighlightColor)
+                                .frame(width: 8, height: 8)
+                                .padding(5)
+                                .shadow(color: currentTrickHighlightColor.opacity(0.85), radius: 5)
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                    .allowsHitTesting(false)
+                }
+                if remainingRankCount > 1 {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            rankCountBadge(remainingRankCount)
+                        }
+                        Spacer()
+                    }
+                    .allowsHitTesting(false)
                 }
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: 7))
         .buttonStyle(.plain)
         .accessibilityIdentifier("board-cell-\(Suit.allCases[suitIndex].rawValue)-\(rankIndex + 1)")
-        .accessibilityLabel(boardCellAccessibilityLabel(suit: suit, rank: rank, owner: owner, currentTrickPlayer: currentTrickPlayer))
+        .accessibilityLabel(boardCellAccessibilityLabel(suit: suit, rank: rank, owner: owner, currentTrickPlayer: currentTrickPlayer, remainingRankCount: remainingRankCount))
         .foregroundStyle(owner >= 0 ? .white : Color(red: 0.13, green: 0.12, blue: 0.1))
         .background(boardCellColor(owner: owner), in: RoundedRectangle(cornerRadius: 7))
         .overlay(
@@ -480,20 +497,42 @@ struct GameTableView: View {
         .disabled(!legal)
     }
 
+    private func legalMoveRankCount(rankIndex: Int, isLegal: Bool) -> Int {
+        guard isLegal,
+              store.game.phase == .play,
+              store.game.players.indices.contains(store.game.currentPlayer),
+              store.game.players[store.game.currentPlayer].hand.indices.contains(rankIndex) else {
+            return 0
+        }
+        return store.game.players[store.game.currentPlayer].hand[rankIndex]
+    }
+
+    private func rankCountBadge(_ count: Int) -> some View {
+        Text("\(count)")
+            .font(.system(size: 10, weight: .black, design: .rounded))
+            .foregroundStyle(Color(red: 0.06, green: 0.10, blue: 0.08))
+            .frame(minWidth: 16, minHeight: 16)
+            .background(currentTrickHighlightColor, in: Capsule())
+            .overlay(Capsule().stroke(Color.white.opacity(0.82), lineWidth: 1))
+            .shadow(color: Color.black.opacity(0.28), radius: 3, x: 0, y: 1)
+            .padding(3)
+    }
+
     private func currentTrickPlayer(for suit: Suit, rank: Int) -> Int? {
         store.game.currentTrick.enumerated().first { _, card in
             card?.suit == suit && card?.rank == rank
         }?.offset
     }
 
-    private func boardCellAccessibilityLabel(suit: Suit, rank: Int, owner: Int, currentTrickPlayer: Int?) -> String {
+    private func boardCellAccessibilityLabel(suit: Suit, rank: Int, owner: Int, currentTrickPlayer: Int?, remainingRankCount: Int) -> String {
+        let remainingText = remainingRankCount > 1 ? ", \(remainingRankCount) cards of rank \(rank) remaining" : ""
         if let currentTrickPlayer {
-            return "P\(currentTrickPlayer) played \(suit.rawValue)\(rank) this trick"
+            return "P\(currentTrickPlayer) played \(suit.rawValue)\(rank) this trick\(remainingText)"
         }
         if owner >= 0 {
             return "P\(owner) claimed \(suit.rawValue)\(rank)"
         }
-        return "\(suit.rawValue)\(rank)"
+        return "\(suit.rawValue)\(rank)\(remainingText)"
     }
 
     private var scoreboard: some View {
