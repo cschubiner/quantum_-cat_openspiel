@@ -107,7 +107,9 @@ struct GameTableView: View {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 14) {
                         handView(for: human)
-                        legalMovesView
+                        if store.game.phase == .play {
+                            legalMovesView
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
@@ -186,19 +188,66 @@ struct GameTableView: View {
             Text("Hand").font(.caption.weight(.black)).foregroundStyle(.yellow)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: min(store.game.rankCount, 6)), spacing: 8) {
                 ForEach(0..<store.game.rankCount, id: \.self) { index in
-                    VStack {
-                        Text("\(index + 1)")
-                            .font(.system(size: 26, weight: .black, design: .serif))
-                        Text("\(player.hand[index]) held")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                    let rank = index + 1
+                    let move = handMove(for: rank)
+                    Button {
+                        if let move {
+                            store.apply(move)
+                        }
+                    } label: {
+                        handRankCard(rank: rank, held: player.hand[index], isSelectable: move != nil)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 70)
-                    .background(player.hand[index] > 0 ? Color.white.opacity(0.92) : Color.gray.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
-                    .foregroundStyle(Color(red: 0.11, green: 0.12, blue: 0.11))
+                    .buttonStyle(.plain)
+                    .disabled(move == nil)
+                    .accessibilityLabel(handRankAccessibilityLabel(rank: rank, held: player.hand[index], move: move))
+                    .accessibilityIdentifier("hand-rank-\(rank)")
                 }
             }
         }
+    }
+
+    private func handMove(for rank: Int) -> Move? {
+        switch store.game.phase {
+        case .discard:
+            let move = Move.discard(rank: rank)
+            return store.game.legalMoves.contains(move) ? move : nil
+        case .prediction:
+            let move = Move.prediction(rank)
+            return store.game.legalMoves.contains(move) ? move : nil
+        default:
+            return nil
+        }
+    }
+
+    private func handRankCard(rank: Int, held: Int, isSelectable: Bool) -> some View {
+        VStack {
+            Text("\(rank)")
+                .font(.system(size: 26, weight: .black, design: .serif))
+            Text("\(held) held")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 70)
+        .background((held > 0 || isSelectable) ? Color.white.opacity(0.92) : Color.gray.opacity(0.45), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelectable ? Color.green.opacity(0.78) : Color.clear, lineWidth: 2)
+        )
+        .foregroundStyle(Color(red: 0.11, green: 0.12, blue: 0.11))
+    }
+
+    private func handRankAccessibilityLabel(rank: Int, held: Int, move: Move?) -> String {
+        if let move {
+            switch move {
+            case .discard:
+                return "Discard \(rank)"
+            case .prediction(let value):
+                return "Bid \(value)"
+            default:
+                break
+            }
+        }
+        return "Rank \(rank), \(held) held"
     }
 
     private var legalMovesView: some View {
