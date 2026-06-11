@@ -509,13 +509,14 @@ struct GameTableView: View {
 
     private func rankCountBadge(_ count: Int) -> some View {
         Text("\(count)")
-            .font(.system(size: 10, weight: .black, design: .rounded))
+            .font(.system(size: 9, weight: .black, design: .rounded))
             .foregroundStyle(Color(red: 0.06, green: 0.10, blue: 0.08))
-            .frame(minWidth: 16, minHeight: 16)
-            .background(currentTrickHighlightColor, in: Capsule())
-            .overlay(Capsule().stroke(Color.white.opacity(0.82), lineWidth: 1))
-            .shadow(color: Color.black.opacity(0.28), radius: 3, x: 0, y: 1)
-            .padding(3)
+            .frame(width: 14, height: 14)
+            .background(currentTrickHighlightColor, in: Circle())
+            .overlay(Circle().stroke(Color.white.opacity(0.82), lineWidth: 0.8))
+            .shadow(color: Color.black.opacity(0.28), radius: 2, x: 0, y: 1)
+            .padding(1)
+            .offset(x: 1, y: -1)
     }
 
     private func currentTrickPlayer(for suit: Suit, rank: Int) -> Int? {
