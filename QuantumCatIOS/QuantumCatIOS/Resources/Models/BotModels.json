@@ -1,0 +1,42 @@
+[
+  {
+    "id": "champion_belief_policy",
+    "name": "Run604 Step50 Liveness-Shielded Champion",
+    "approach": "Run604 step50 shield-behavior-distilled Core ML raw policy wrapped by the promoted native liveness shield; action-risk and value rerank heads are intentionally ignored for champion selection",
+    "artifact": "champion_belief_policy.pt",
+    "coreMLArtifact": "champion_belief_policy.mlpackage",
+    "bestFor": "Current promoted champion config: 38.50% homogeneous any-paradox rounds under the aggressive liveness shield; raw policy gains +0.8583/match over the previous raw champion",
+    "rating": "production-best",
+    "status": "Core ML package bundled for native iOS raw-policy inference; shared bidding, shared discard, and the promoted Swift liveness shield remain active"
+  },
+  {
+    "id": "setpool_distill",
+    "name": "SetPool Distill",
+    "approach": "Core ML set-pooling distilled policy/value student",
+    "artifact": "setpool_distill.pt",
+    "coreMLArtifact": "setpool_distill.mlpackage",
+    "bestFor": "Small mobile candidate once converted",
+    "rating": "candidate",
+    "status": "Core ML package bundled for native iOS inference; heuristic fallback remains available"
+  },
+  {
+    "id": "raw_policy_league",
+    "name": "Raw Policy League",
+    "approach": "Core ML league-trained policy checkpoint",
+    "artifact": "raw_policy_league.pt",
+    "coreMLArtifact": "raw_policy_league.mlpackage",
+    "bestFor": "Policy diversity",
+    "rating": "candidate",
+    "status": "Core ML package bundled for native iOS inference; heuristic fallback remains available"
+  },
+  {
+    "id": "strict_q_head",
+    "name": "Strict Q Head",
+    "approach": "Core ML Run504 lane-risk checkpoint exposed as the tactical slot",
+    "artifact": "strict_q_head.pt",
+    "coreMLArtifact": "strict_q_head.mlpackage",
+    "bestFor": "Same Run504 checkpoint exposed as the tactical bot slot",
+    "rating": "candidate",
+    "status": "Core ML package bundled for native iOS q-policy inference; heuristic fallback remains available"
+  }
+]
