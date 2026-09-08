@@ -31,6 +31,9 @@ Two semantics-preserving execution changes are explicit:
   multi-candidate selection/audit mean scores matched exactly.
 - `mac_search_parity.log` records zero failures and per-case latency. These are
   Mac measurements, not iPhone measurements or new strength benchmarks.
+- iOS Simulator regression suite: **27/27 passed**, including the full native
+  search parity runner (`ios_tests.json`). The initial run had one outdated
+  description-string assertion; it was updated for the new Run1052 description.
 
 ## Reproduce and install
 

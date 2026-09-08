@@ -582,12 +582,23 @@ final class QuantumCatGameTests: XCTestCase {
         XCTAssertTrue(kind.coreMLActionRiskRerankPhases.isEmpty)
         XCTAssertEqual(kind.coreMLActionValueSelectionWeight, 0)
         XCTAssertTrue(kind.coreMLActionValueRerankPhases.isEmpty)
-        XCTAssertTrue(kind.subtitle.contains("verified native 76/214"))
+        XCTAssertTrue(kind.subtitle.contains("Run1052"))
+        XCTAssertTrue(kind.subtitle.contains("actor-information-only"))
         XCTAssertTrue(QuantumCatMLPolicy.shared.liveInferenceIsVerified(for: kind))
         XCTAssertEqual(
             provenance.liveInputContract,
             QuantumCatMLPolicy.verifiedLiveInputContract
         )
+    }
+
+    func testRun1052SearchMatchesFrozenPythonReferenceOnIOS() throws {
+        let fixture = try XCTUnwrap(Bundle.main.url(
+            forResource: "champion_1052_search_parity", withExtension: "json"
+        ))
+        let model = try XCTUnwrap(Bundle.main.url(
+            forResource: "champion_1052_search", withExtension: "mlmodelc"
+        ))
+        XCTAssertTrue(try ChampionSearchParity.run(fixtureURL: fixture, modelURL: model))
     }
 
     func testZeroHumanTablesCanWatchOrBulkSimulate() {

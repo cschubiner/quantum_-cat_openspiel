@@ -8,6 +8,9 @@ The frozen confirmed champion and complete experiment archive are preserved in
 25 sampled worlds, and ten all-round root-search cases passed on Mac, including
 exact multi-candidate rollout/audit outcomes. The full network is retained.
 On-device receipts are recorded separately; Mac parity is not deployment proof.
+Final iOS Simulator regression: 27/27 passed, including full-search parity. The
+signed app installed on the paired Wi-Fi iPhone, but physical-device verification
+and search activation are waiting for unlock; see `research/mobile1052/DEPLOYMENT.md`.
 
 This ledger tracks attempts to build a full Cat in the Box bot, train/evaluate it, and verify strength. Use it for both successful runs and dead ends so future work does not repeat stale experiments.
 
