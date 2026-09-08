@@ -6,6 +6,7 @@ struct GameTableView: View {
     @State private var botRecommendationAllMovesExpanded = false
     @State private var botRecommendation: BotRecommendation?
     @State private var botRecommendationStateKey = ""
+    @State private var recommendationPending = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -359,7 +360,7 @@ struct GameTableView: View {
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 } else {
-                    Text("No bot recommendation is available for this position.")
+                    Text(recommendationPending ? "Champion is thinking…" : "No bot recommendation is available for this position.")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.68))
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -466,15 +467,28 @@ struct GameTableView: View {
             tokenKey,
             boardKey,
             trickKey,
-            legalKey
+            legalKey,
+            game.players.map { String($0.prediction ?? -1) }.joined(separator: ","),
+            game.players.map { String($0.tricksWon) }.joined(separator: ","),
+            "\(game.mlMatchRound):\(game.mlMatchTotals)"
         ].joined(separator: "|")
     }
 
     private func refreshBotRecommendation() {
         let key = botRecommendationInputKey
-        guard key != botRecommendationStateKey || botRecommendation == nil else { return }
-        botRecommendation = store.game.botRecommendationForCurrentHuman(kind: .championBeliefPolicy)
+        guard key != botRecommendationStateKey || (botRecommendation == nil && !recommendationPending) else { return }
         botRecommendationStateKey = key
+        botRecommendation = nil
+        recommendationPending = true
+        let snapshot = store.game
+        ChampionInference.queue.async {
+            let recommendation = snapshot.botRecommendationForCurrentHuman(kind: .championBeliefPolicy)
+            DispatchQueue.main.async {
+                guard botRecommendationStateKey == key, botRecommendationInputKey == key else { return }
+                botRecommendation = recommendation
+                recommendationPending = false
+            }
+        }
     }
 
     private func recommendationMoveTitle(_ move: Move) -> String {

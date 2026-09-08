@@ -26,7 +26,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
     var subtitle: String {
         switch self {
         case .championBeliefPolicy:
-            "Full-size AlphaZero champion with verified native 76/214 three-player inference plus directly trained five-player neural bidding, risk-aware play, and public tactics."
+            "Run1052: full-size neural bidding and actor-information-only rollout search in the final three tricks of every five-player round. Three-player champion preserved."
         case .setPoolDistill:
             "Set-pooling distilled policy/value student, bundled as Core ML."
         case .rawPolicyLeague:
@@ -45,7 +45,10 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
     var mobileStatus: String {
         switch self {
         case .championBeliefPolicy:
-            if !ModelArtifactStatus.isBundled(
+            if ChampionInference.verified,
+               ModelArtifactStatus.isBundled(resource: "champion_1052_search", extension: "mlmodelc") {
+                "Run1052 search active: full-size neural network plus on-device hypothetical-world rollouts. Uses only your hand and public information. Five-player search parity verified on this device; three-player champion preserved."
+            } else if !ModelArtifactStatus.isBundled(
                 resource: "champion_belief_policy", extension: "mlmodelc"
             ) {
                 "Core ML missing; liveness-shielded heuristic fallback active."

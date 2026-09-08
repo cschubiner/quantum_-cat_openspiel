@@ -13,6 +13,7 @@ xcrun swiftc -parse-as-library \
   QuantumCatIOS/QuantumCatIOS/Models/BotCatalog.swift \
   QuantumCatIOS/QuantumCatIOS/Models/QuantumCatMLFeatureEncoder.swift \
   QuantumCatIOS/QuantumCatIOS/Models/QuantumCatMLPolicy.swift \
+  QuantumCatIOS/QuantumCatIOS/Models/QuantumCatChampionSearch.swift \
   QuantumCatIOS/QuantumCatIOS/Models/QuantumCatGame.swift \
   QuantumCatIOS/Tools/engine_smoke.swift \
   -o /tmp/quantum-cat-engine-smoke

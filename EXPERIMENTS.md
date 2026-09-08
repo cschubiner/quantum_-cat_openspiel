@@ -1,5 +1,14 @@
 # Quantum Cat Training Experiments
 
+## 2026-09-08: Run1052 native full-search deployment
+
+The frozen confirmed champion and complete experiment archive are preserved in
+`research/run1052/`. Native Swift/Core ML search is documented in
+`research/mobile1052/README.md`: 299 existing tests, 441 continuation decisions,
+25 sampled worlds, and ten all-round root-search cases passed on Mac, including
+exact multi-candidate rollout/audit outcomes. The full network is retained.
+On-device receipts are recorded separately; Mac parity is not deployment proof.
+
 This ledger tracks attempts to build a full Cat in the Box bot, train/evaluate it, and verify strength. Use it for both successful runs and dead ends so future work does not repeat stale experiments.
 
 ## 2026-06-07

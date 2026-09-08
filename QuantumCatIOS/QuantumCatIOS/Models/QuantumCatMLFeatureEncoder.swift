@@ -33,6 +33,9 @@ struct QuantumCatMLLiveState: Codable, Equatable {
     let matchRound: Int
     let isTerminal: Bool
 
+}
+
+extension QuantumCatMLLiveState {
     init(game: QuantumCatGame, player: Int) {
         numPlayers = game.players.count
         numRanks = game.rankCount

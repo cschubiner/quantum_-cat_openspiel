@@ -1,0 +1,3322 @@
+ö
+
+observation
+*
+q†Ä
+
+action_features*
+
+$÷†ÄR
+policy_logits
+*
+$†ÄR
+state_values
+*
+†ÄR#
+action_paradox_logits
+*
+$†ÄR
+action_values
+*
+$†Ä¢ﬂ¢4
+#com.github.apple.coremltools.sourcetorch==2.12.0¢+
+$com.github.apple.coremltools.version9.0¢:
++com.github.apple.coremltools.source_dialectTorchScript¢:
+,com.github.apple.coremltools.conversion_date
+2026-09-08≤öÏ´Í
+main°Í
+!
+observation
+
+
+q
+,
+action_features
+
+
+$
+÷CoreML7√È
+CoreML7∂Èpolicy_logitsstate_valuesaction_paradox_logitsaction_valuesê
+const"
+model_body_0_bias
+
+Ä*'
+name
+
+"
+model_body_0_bias*:
+val3
+
+Ä*"
+@model_path/weights/weight.bin@°
+const*
+model_body_0_weight
+
+Ä
+q*)
+name!
+
+"
+model_body_0_weight*A
+val:
+
+Ä
+q*#
+@model_path/weights/weight.binÄ	í
+const"
+model_body_2_bias
+
+Ä*'
+name
+
+"
+model_body_2_bias*<
+val5
+
+Ä*$
+@model_path/weights/weight.bin¿ë§
+const+
+model_body_2_weight
+
+Ä
+Ä*)
+name!
+
+"
+model_body_2_weight*C
+val<
+
+Ä
+Ä*$
+@model_path/weights/weight.binÄöí
+const"
+model_body_4_bias
+
+Ä*'
+name
+
+"
+model_body_4_bias*<
+val5
+
+Ä*$
+@model_path/weights/weight.bin¿ö§
+const+
+model_body_4_weight
+
+Ä
+Ä*)
+name!
+
+"
+model_body_4_weight*C
+val<
+
+Ä
+Ä*$
+@model_path/weights/weight.binÄ£¶
+const,
+model_action_encoder_0_bias
+
+Ä*1
+name)
+!
+"
+model_action_encoder_0_bias*<
+val5
+
+Ä*$
+@model_path/weights/weight.bin¿£'∏
+const5
+model_action_encoder_0_weight
+
+Ä
+÷*3
+name+
+#
+!"
+model_action_encoder_0_weight*C
+val<
+
+Ä
+÷*$
+@model_path/weights/weight.binÄ®'¶
+const,
+model_action_encoder_2_bias
+
+Ä*1
+name)
+!
+"
+model_action_encoder_2_bias*<
+val5
+
+Ä*$
+@model_path/weights/weight.bin¿Ä.∏
+const5
+model_action_encoder_2_weight
+
+Ä
+Ä*3
+name+
+#
+!"
+model_action_encoder_2_weight*C
+val<
+
+Ä
+Ä*$
+@model_path/weights/weight.binÄÖ.∏
+const5
+$model_state_action_projection_0_bias
+
+Ä*:
+name2
+*
+("&
+$model_state_action_projection_0_bias*<
+val5
+
+Ä*$
+@model_path/weights/weight.bin¿Ö2 
+const>
+&model_state_action_projection_0_weight
+
+Ä
+Ä*<
+name4
+,
+*"(
+&model_state_action_projection_0_weight*C
+val<
+
+Ä
+Ä*$
+@model_path/weights/weight.binÄä2ñ
+const$
+model_policy_0_bias
+
+Ä*)
+name!
+
+"
+model_policy_0_bias*<
+val5
+
+Ä*$
+@model_path/weights/weight.bin¿ä:®
+const-
+model_policy_0_weight
+
+Ä
+Ä*+
+name#
+
+"
+model_policy_0_weight*C
+val<
+
+Ä
+Ä*$
+@model_path/weights/weight.binÄì:z
+const#
+model_policy_2_bias
+
+
+*)
+name!
+
+"
+model_policy_2_bias*!
+val
+
+
+
+
+
+
+E(∏ª¶
+const,
+model_policy_2_weight
+
+
+Ä*+
+name#
+
+"
+model_policy_2_weight*B
+val;
+
+
+Ä*$
+@model_path/weights/weight.bin¿ìr¨
+const/
+model_prediction_policy_0_bias
+
+Ä*4
+name,
+$
+"" 
+model_prediction_policy_0_bias*<
+val5
+
+Ä*$
+@model_path/weights/weight.binÄúræ
+const8
+ model_prediction_policy_0_weight
+
+Ä
+÷*6
+name.
+&
+$""
+ model_prediction_policy_0_weight*C
+val<
+
+Ä
+÷*$
+@model_path/weights/weight.bin¿§rê
+const.
+model_prediction_policy_2_bias
+
+
+*4
+name,
+$
+"" 
+model_prediction_policy_2_bias*!
+val
+
+
+
+
+
+
+‰Tæº
+const7
+ model_prediction_policy_2_weight
+
+
+Ä*6
+name.
+&
+$""
+ model_prediction_policy_2_weight*B
+val;
+
+
+Ä*$
+@model_path/weights/weight.binÄ’î
+const#
+model_value_0_bias
+
+Ä*(
+name 
+
+"
+model_value_0_bias*<
+val5
+
+Ä*$
+@model_path/weights/weight.bin¿›¶
+const,
+model_value_0_weight
+
+Ä
+Ä**
+name"
+
+"
+model_value_0_weight*C
+val<
+
+Ä
+Ä*$
+@model_path/weights/weight.binÄÊà
+const"
+model_value_2_bias
+
+
+*(
+name 
+
+"
+model_value_2_bias*1
+val*
+
+
+
+
+
+íœªªp†;È'Ωu:∫_{Q∫•
+const+
+model_value_2_weight
+
+
+Ä**
+name"
+
+"
+model_value_2_weight*C
+val<
+
+
+Ä*%
+@model_path/weights/weight.bin¿Êü∑
+const4
+#model_action_paradox_encoder_0_bias
+
+Ä*9
+name1
+)
+'"%
+#model_action_paradox_encoder_0_bias*=
+val6
+
+Ä*%
+@model_path/weights/weight.binÄè†…
+const=
+%model_action_paradox_encoder_0_weight
+
+Ä
+÷*;
+name3
++
+)"'
+%model_action_paradox_encoder_0_weight*D
+val=
+
+Ä
+÷*%
+@model_path/weights/weight.bin¿ì†∑
+const4
+#model_action_paradox_encoder_2_bias
+
+Ä*9
+name1
+)
+'"%
+#model_action_paradox_encoder_2_bias*=
+val6
+
+Ä*%
+@model_path/weights/weight.binÄÏ¶…
+const=
+%model_action_paradox_encoder_2_weight
+
+Ä
+Ä*;
+name3
++
+)"'
+%model_action_paradox_encoder_2_weight*D
+val=
+
+Ä
+Ä*%
+@model_path/weights/weight.bin¿¶◊
+constD
+3model_action_paradox_state_action_projection_0_bias
+
+Ä*I
+nameA
+9
+7"5
+3model_action_paradox_state_action_projection_0_bias*=
+val6
+
+Ä*%
+@model_path/weights/weight.binÄÒ™È
+constM
+5model_action_paradox_state_action_projection_0_weight
+
+Ä
+Ä*K
+nameC
+;
+9"7
+5model_action_paradox_state_action_projection_0_weight*D
+val=
+
+Ä
+Ä*%
+@model_path/weights/weight.bin¿ı™≥
+const2
+!model_action_value_encoder_0_bias
+
+Ä*7
+name/
+'
+%"#
+!model_action_value_encoder_0_bias*=
+val6
+
+Ä*%
+@model_path/weights/weight.binÄˆ≤≈
+const;
+#model_action_value_encoder_0_weight
+
+Ä
+÷*9
+name1
+)
+'"%
+#model_action_value_encoder_0_weight*D
+val=
+
+Ä
+÷*%
+@model_path/weights/weight.bin¿˙≤≥
+const2
+!model_action_value_encoder_2_bias
+
+Ä*7
+name/
+'
+%"#
+!model_action_value_encoder_2_bias*=
+val6
+
+Ä*%
+@model_path/weights/weight.binÄ”π≈
+const;
+#model_action_value_encoder_2_weight
+
+Ä
+Ä*9
+name1
+)
+'"%
+#model_action_value_encoder_2_weight*D
+val=
+
+Ä
+Ä*%
+@model_path/weights/weight.bin¿◊π”
+constB
+1model_action_value_state_action_projection_0_bias
+
+Ä*G
+name?
+7
+5"3
+1model_action_value_state_action_projection_0_bias*=
+val6
+
+Ä*%
+@model_path/weights/weight.binÄÿΩÂ
+constK
+3model_action_value_state_action_projection_0_weight
+
+Ä
+Ä*I
+nameA
+9
+7"5
+3model_action_value_state_action_projection_0_weight*D
+val=
+
+Ä
+Ä*%
+@model_path/weights/weight.bin¿‹Ωß
+const,
+model_action_paradox_0_bias
+
+Ä*1
+name)
+!
+"
+model_action_paradox_0_bias*=
+val6
+
+Ä*%
+@model_path/weights/weight.binÄ›≈π
+const5
+model_action_paradox_0_weight
+
+Ä
+Ä*3
+name+
+#
+!"
+model_action_paradox_0_weight*D
+val=
+
+Ä
+Ä*%
+@model_path/weights/weight.bin¿Â≈ä
+const+
+model_action_paradox_2_bias
+
+
+*1
+name)
+!
+"
+model_action_paradox_2_bias*!
+val
+
+
+
+
+
+
+Âu=∑
+const4
+model_action_paradox_2_weight
+
+
+Ä*3
+name+
+#
+!"
+model_action_paradox_2_weight*C
+val<
+
+
+Ä*%
+@model_path/weights/weight.binÄÊ˝£
+const*
+model_action_value_0_bias
+
+Ä*/
+name'
+
+"
+model_action_value_0_bias*=
+val6
+
+Ä*%
+@model_path/weights/weight.bin¿Ó˝µ
+const3
+model_action_value_0_weight
+
+Ä
+Ä*1
+name)
+!
+"
+model_action_value_0_weight*D
+val=
+
+Ä
+Ä*%
+@model_path/weights/weight.binÄ˜˝Ü
+const)
+model_action_value_2_bias
+
+
+*/
+name'
+
+"
+model_action_value_2_bias*!
+val
+
+
+
+
+
+
+≤; Ω≥
+const2
+model_action_value_2_weight
+
+
+Ä*1
+name)
+!
+"
+model_action_value_2_weight*C
+val<
+
+
+Ä*%
+@model_path/weights/weight.bin¿˜µ†
+linear
+x
+
+observation!
+weight
+
+model_body_0_weight
+bias
+
+model_body_0_bias
+input_1
+
+
+Ä*
+name
+
+"
+
+linear_0W
+relu
+x
+	
+input_1
+input_3
+
+
+Ä*
+name
+
+"	
+input_3ú
+linear
+x
+	
+input_3!
+weight
+
+model_body_2_weight
+bias
+
+model_body_2_bias
+input_5
+
+
+Ä*
+name
+
+"
+
+linear_1W
+relu
+x
+	
+input_5
+input_7
+
+
+Ä*
+name
+
+"	
+input_7ú
+linear
+x
+	
+input_7!
+weight
+
+model_body_4_weight
+bias
+
+model_body_4_bias
+input_9
+
+
+Ä*
+name
+
+"
+
+linear_2g
+relu
+x
+	
+input_9&
+state_embedding
+
+
+Ä*%
+name
+
+"
+state_embeddingø
+linear
+x
+
+action_features+
+weight!
+
+model_action_encoder_0_weight'
+bias
+
+model_action_encoder_0_bias%
+input_11
+
+
+$
+Ä*
+name
+
+"
+
+linear_3`
+relu
+x
+
+
+input_11%
+input_13
+
+
+$
+Ä*
+name
+
+"
+
+input_13∏
+linear
+x
+
+
+input_13+
+weight!
+
+model_action_encoder_2_weight'
+bias
+
+model_action_encoder_2_bias%
+input_15
+
+
+$
+Ä*
+name
+
+"
+
+linear_4t
+relu
+x
+
+
+input_15/
+action_embedding_1
+
+
+$
+Ä*(
+name 
+
+"
+action_embedding_1n
+const
+var_54_begin_0
+
+
+*#
+name
+
+"
+op_54_begin_0* 
+val
+
+
+	
+
+   j
+const
+var_54_end_0
+
+
+*!
+name
+
+"
+op_54_end_0* 
+val
+
+
+	
+
+$t
+const!
+var_54_end_mask_0
+
+
+*&
+name
+
+"
+op_54_end_mask_0* 
+val
+
+
+	
+
+ |
+const%
+var_54_squeeze_mask_0
+
+
+**
+name"
+
+"
+op_54_squeeze_mask_0* 
+val
+
+
+	
+
+  È
+slice_by_index
+x
+
+action_features
+begin
+
+var_54_begin_0
+end
+
+var_54_end_0!
+end_mask
+
+var_54_end_mask_0)
+squeeze_mask
+
+var_54_squeeze_mask_0
+var_54
+
+
+$*
+name
+
+	"
+op_54O
+const
+var_55
+*
+name
+
+	"
+op_55*
+val
+
+
+
+
+   ?f
+greater
+x
+
+
+var_54
+y
+
+
+var_55
+var_56
+
+
+$*
+name
+
+	"
+op_56v
+const
+legal_1_axes_0
+
+
+*$
+name
+
+"
+legal_1_axes_0*'
+val 
+
+
+
+
+
+ˇˇˇˇˇˇˇˇˇ~
+expand_dims
+x
+
+
+var_56
+axes
+
+legal_1_axes_0#
+legal_1
+
+
+$
+*
+name
+
+"	
+legal_1f
+const
+legal_f_1_dtype_0
+*'
+name
+
+"
+legal_f_1_dtype_0*
+val
+
+
+"
+fp32j
+const
+var_68_axes_0
+
+
+*"
+name
+
+"
+op_68_axes_0*
+val
+
+
+
+
+d
+const
+var_68_keep_dims_0
+*'
+name
+
+"
+op_68_keep_dims_0*
+val
+
+
+ }
+cast
+x
+	
+legal_1
+dtype
+
+legal_f_1_dtype_0%
+	legal_f_1
+
+
+$
+*
+name
+
+
+"
+cast_8õ
+
+reduce_sum
+x
+
+	legal_f_1
+axes
+
+var_68_axes_0#
+	keep_dims
+
+var_68_keep_dims_0
+var_68
+
+
+*
+name
+
+	"
+op_68O
+const
+var_69
+*
+name
+
+	"
+op_69*
+val
+
+
+
+
+  Ä?u
+maximum
+x
+
+
+var_68
+y
+
+
+var_69#
+legal_count_1
+
+
+*#
+name
+
+"
+legal_count_1x
+mul
+x
+
+action_embedding_1
+y
+
+	legal_f_1#
+var_71
+
+
+$
+Ä*
+name
+
+	"
+op_71j
+const
+var_76_axes_0
+
+
+*"
+name
+
+"
+op_76_axes_0*
+val
+
+
+
+
+d
+const
+var_76_keep_dims_0
+*'
+name
+
+"
+op_76_keep_dims_0*
+val
+
+
+ ô
+
+reduce_sum
+x
+
+
+var_71
+axes
+
+var_76_axes_0#
+	keep_dims
+
+var_76_keep_dims_0
+var_76
+
+
+Ä*
+name
+
+	"
+op_76Ñ
+real_div
+x
+
+
+var_76
+y
+
+legal_count_1'
+mean_embedding_1
+
+
+Ä*&
+name
+
+"
+mean_embedding_1`
+logical_not
+x
+	
+legal_1"
+var_78
+
+
+$
+*
+name
+
+	"
+op_78O
+const
+var_79
+*
+name
+
+	"
+op_79*
+val
+
+
+
+
+(knŒ•
+select
+cond
+
+
+var_78
+a
+
+
+var_79
+b
+
+action_embedding_1/
+masked_embedding_1
+
+
+$
+Ä*(
+name 
+
+"
+masked_embedding_1w
+const#
+reduce_max_0_axes_0
+
+
+*)
+name!
+
+"
+reduce_max_0_axes_0*
+val
+
+
+
+
+q
+const 
+reduce_max_0_keep_dims_0
+*.
+name&
+
+"
+reduce_max_0_keep_dims_0*
+val
+
+
+ æ
+
+reduce_max
+x
+
+masked_embedding_1
+axes
+
+reduce_max_0_axes_0)
+	keep_dims
+
+reduce_max_0_keep_dims_0#
+reduce_max_0
+
+
+Ä*"
+name
+
+"
+reduce_max_0U
+const
+var_86
+*
+name
+
+	"
+op_86*
+val
+
+
+
+ˇˇˇˇˇˇˇˇˇk
+const
+input_35_interleave_0
+*+
+name#
+
+"
+input_35_interleave_0*
+val
+
+
+ …
+concatA
+values7
+
+state_embedding
+
+mean_embedding_1
+
+reduce_max_0
+axis
+
+
+var_86'
+
+interleave
+
+input_35_interleave_0
+input_35
+
+
+Ä*
+name
+
+"
+
+input_35j
+const
+var_99_axes_0
+
+
+*"
+name
+
+"
+op_99_axes_0*
+val
+
+
+
+
+Ñ
+expand_dims
+x
+
+state_embedding
+axes
+
+var_99_axes_0#
+var_99
+
+
+
+Ä*
+name
+
+	"
+op_99Å
+const'
+state_expanded_1_reps_0
+
+
+*-
+name%
+
+"
+state_expanded_1_reps_0* 
+val
+
+
+	
+
+$ì
+tile
+x
+
+
+var_99#
+reps
+
+state_expanded_1_reps_0-
+state_expanded_1
+
+
+$
+Ä*&
+name
+
+"
+state_expanded_1À
+linear
+x
+
+state_embedding4
+weight*
+(
+&model_state_action_projection_0_weight0
+bias(
+&
+$model_state_action_projection_0_bias
+input_23
+
+
+Ä*
+name
+
+"
+
+linear_7n
+relu
+x
+
+
+input_23)
+state_for_action_1
+
+
+Ä*(
+name 
+
+"
+state_for_action_1l
+const
+var_112_axes_0
+
+
+*#
+name
+
+"
+op_112_axes_0*
+val
+
+
+
+
+ä
+expand_dims
+x
+
+state_for_action_1
+axes
+
+var_112_axes_0$
+var_112
+
+
+
+Ä*
+name
+
+
+"
+op_112Ö
+const)
+state_for_action_3_reps_0
+
+
+*/
+name'
+
+"
+state_for_action_3_reps_0* 
+val
+
+
+	
+
+$ö
+tile
+x
+	
+var_112%
+reps
+
+state_for_action_3_reps_0/
+state_for_action_3
+
+
+$
+Ä*(
+name 
+
+"
+state_for_action_3l
+const
+var_153_axes_0
+
+
+*#
+name
+
+"
+op_153_axes_0*
+val
+
+
+
+
+à
+expand_dims
+x
+
+mean_embedding_1
+axes
+
+var_153_axes_0$
+var_153
+
+
+
+Ä*
+name
+
+
+"
+op_153
+const&
+mean_expanded_1_reps_0
+
+
+*,
+name$
+
+"
+mean_expanded_1_reps_0* 
+val
+
+
+	
+
+$ë
+tile
+x
+	
+var_153"
+reps
+
+mean_expanded_1_reps_0,
+mean_expanded_1
+
+
+$
+Ä*%
+name
+
+"
+mean_expanded_1l
+const
+var_161_axes_0
+
+
+*#
+name
+
+"
+op_161_axes_0*
+val
+
+
+
+
+Ñ
+expand_dims
+x
+
+reduce_max_0
+axes
+
+var_161_axes_0$
+var_161
+
+
+
+Ä*
+name
+
+
+"
+op_161}
+const%
+max_expanded_1_reps_0
+
+
+*+
+name#
+
+"
+max_expanded_1_reps_0* 
+val
+
+
+	
+
+$é
+tile
+x
+	
+var_161!
+reps
+
+max_expanded_1_reps_0+
+max_expanded_1
+
+
+$
+Ä*$
+name
+
+"
+max_expanded_1É
+mul
+x
+
+state_for_action_3
+y
+
+action_embedding_1$
+var_168
+
+
+$
+Ä*
+name
+
+
+"
+op_168É
+sub
+x
+
+state_for_action_3
+y
+
+action_embedding_1$
+var_170
+
+
+$
+Ä*
+name
+
+
+"
+op_170[
+abs
+x
+	
+var_170$
+var_171
+
+
+$
+Ä*
+name
+
+
+"
+op_171W
+const
+var_173
+*
+name
+
+
+"
+op_173*
+val
+
+
+
+ˇˇˇˇˇˇˇˇˇk
+const
+input_25_interleave_0
+*+
+name#
+
+"
+input_25_interleave_0*
+val
+
+
+ ˛
+concato
+valuese
+
+state_expanded_1
+
+action_embedding_1
+	
+var_168
+	
+var_171
+
+mean_expanded_1
+
+max_expanded_1
+axis
+	
+var_173'
+
+interleave
+
+input_25_interleave_0%
+input_25
+
+
+$
+Ä*
+name
+
+"
+
+input_25®
+linear
+x
+
+
+input_25#
+weight
+
+model_policy_0_weight
+bias
+
+model_policy_0_bias%
+input_27
+
+
+$
+Ä*
+name
+
+"
+
+linear_8`
+relu
+x
+
+
+input_27%
+input_29
+
+
+$
+Ä*
+name
+
+"
+
+input_29¶
+linear
+x
+
+
+input_29#
+weight
+
+model_policy_2_weight
+bias
+
+model_policy_2_bias#
+var_183
+
+
+$
+*
+name
+
+"
+
+linear_9x
+const
+policy_1_axes_0
+
+
+*%
+name
+
+"
+policy_1_axes_0*'
+val 
+
+
+
+
+
+ˇˇˇˇˇˇˇˇˇx
+squeeze
+x
+	
+var_183
+axes
+
+policy_1_axes_0
+policy_1
+
+
+$*
+name
+
+"
+
+policy_1∆
+linear
+x
+
+action_features.
+weight$
+"
+ model_prediction_policy_0_weight*
+bias"
+ 
+model_prediction_policy_0_bias%
+input_31
+
+
+$
+Ä*
+name
+
+"
+	linear_10`
+relu
+x
+
+
+input_31%
+input_33
+
+
+$
+Ä*
+name
+
+"
+
+input_33Ω
+linear
+x
+
+
+input_33.
+weight$
+"
+ model_prediction_policy_2_weight*
+bias"
+ 
+model_prediction_policy_2_bias#
+var_194
+
+
+$
+*
+name
+
+"
+	linear_11u
+const
+var_196_axes_0
+
+
+*#
+name
+
+"
+op_196_axes_0*'
+val 
+
+
+
+
+
+ˇˇˇˇˇˇˇˇˇt
+squeeze
+x
+	
+var_194
+axes
+
+var_196_axes_0
+var_196
+
+
+$*
+name
+
+
+"
+op_196p
+const
+var_199_begin_0
+
+
+*$
+name
+
+"
+op_199_begin_0* 
+val
+
+
+	
+
+  l
+const
+var_199_end_0
+
+
+*"
+name
+
+"
+op_199_end_0* 
+val
+
+
+	
+
+$v
+const"
+var_199_end_mask_0
+
+
+*'
+name
+
+"
+op_199_end_mask_0* 
+val
+
+
+	
+
+ ~
+const&
+var_199_squeeze_mask_0
+
+
+*+
+name#
+
+"
+op_199_squeeze_mask_0* 
+val
+
+
+	
+
+  Ô
+slice_by_index
+x
+
+action_features
+begin
+
+var_199_begin_0
+end
+
+var_199_end_0"
+end_mask
+
+var_199_end_mask_0*
+squeeze_mask
+
+var_199_squeeze_mask_0
+var_199
+
+
+$*
+name
+
+
+"
+op_199f
+mul
+x
+	
+var_196
+y
+	
+var_199
+var_200
+
+
+$*
+name
+
+
+"
+op_200m
+add
+x
+
+
+policy_1
+y
+	
+var_200#
+policy_logits
+
+
+$*
+name
+
+
+"
+op_202°
+linear
+x
+
+
+input_35"
+weight
+
+model_value_0_weight
+bias
+
+model_value_0_bias
+input_37
+
+
+Ä*
+name
+
+"
+	linear_12Z
+relu
+x
+
+
+input_37
+input_39
+
+
+Ä*
+name
+
+"
+
+input_39ü
+linear
+x
+
+
+input_39"
+weight
+
+model_value_2_weight
+bias
+
+model_value_2_bias
+var_211
+
+
+*
+name
+
+"
+	linear_13Z
+tanh
+x
+	
+var_211"
+state_values
+
+
+*
+name
+
+
+"
+op_212–
+linear
+x
+
+action_features3
+weight)
+'
+%model_action_paradox_encoder_0_weight/
+bias'
+%
+#model_action_paradox_encoder_0_bias%
+input_41
+
+
+$
+Ä*
+name
+
+"
+	linear_14`
+relu
+x
+
+
+input_41%
+input_43
+
+
+$
+Ä*
+name
+
+"
+
+input_43…
+linear
+x
+
+
+input_433
+weight)
+'
+%model_action_paradox_encoder_2_weight/
+bias'
+%
+#model_action_paradox_encoder_2_bias%
+input_45
+
+
+$
+Ä*
+name
+
+"
+	linear_15t
+relu
+x
+
+
+input_45/
+action_embedding_5
+
+
+$
+Ä*(
+name 
+
+"
+action_embedding_5Í
+linear
+x
+
+state_embeddingC
+weight9
+7
+5model_action_paradox_state_action_projection_0_weight?
+bias7
+5
+3model_action_paradox_state_action_projection_0_bias
+input_47
+
+
+Ä*
+name
+
+"
+	linear_16n
+relu
+x
+
+
+input_47)
+state_for_action_5
+
+
+Ä*(
+name 
+
+"
+state_for_action_5l
+const
+var_237_axes_0
+
+
+*#
+name
+
+"
+op_237_axes_0*
+val
+
+
+
+
+ä
+expand_dims
+x
+
+state_for_action_5
+axes
+
+var_237_axes_0$
+var_237
+
+
+
+Ä*
+name
+
+
+"
+op_237Ö
+const)
+state_for_action_7_reps_0
+
+
+*/
+name'
+
+"
+state_for_action_7_reps_0* 
+val
+
+
+	
+
+$ö
+tile
+x
+	
+var_237%
+reps
+
+state_for_action_7_reps_0/
+state_for_action_7
+
+
+$
+Ä*(
+name 
+
+"
+state_for_action_7z
+mul
+x
+
+action_embedding_5
+y
+
+	legal_f_1$
+var_263
+
+
+$
+Ä*
+name
+
+
+"
+op_263l
+const
+var_268_axes_0
+
+
+*#
+name
+
+"
+op_268_axes_0*
+val
+
+
+
+
+f
+const
+var_268_keep_dims_0
+*(
+name 
+
+"
+op_268_keep_dims_0*
+val
+
+
+ û
+
+reduce_sum
+x
+	
+var_263
+axes
+
+var_268_axes_0$
+	keep_dims
+
+var_268_keep_dims_0
+var_268
+
+
+Ä*
+name
+
+
+"
+op_268Ö
+real_div
+x
+	
+var_268
+y
+
+legal_count_1'
+mean_embedding_5
+
+
+Ä*&
+name
+
+"
+mean_embedding_5Q
+const
+var_271
+*
+name
+
+
+"
+op_271*
+val
+
+
+
+
+(knŒ¶
+select
+cond
+
+
+var_78
+a
+	
+var_271
+b
+
+action_embedding_5/
+masked_embedding_5
+
+
+$
+Ä*(
+name 
+
+"
+masked_embedding_5w
+const#
+reduce_max_2_axes_0
+
+
+*)
+name!
+
+"
+reduce_max_2_axes_0*
+val
+
+
+
+
+q
+const 
+reduce_max_2_keep_dims_0
+*.
+name&
+
+"
+reduce_max_2_keep_dims_0*
+val
+
+
+ æ
+
+reduce_max
+x
+
+masked_embedding_5
+axes
+
+reduce_max_2_axes_0)
+	keep_dims
+
+reduce_max_2_keep_dims_0#
+reduce_max_2
+
+
+Ä*"
+name
+
+"
+reduce_max_2l
+const
+var_278_axes_0
+
+
+*#
+name
+
+"
+op_278_axes_0*
+val
+
+
+
+
+à
+expand_dims
+x
+
+mean_embedding_5
+axes
+
+var_278_axes_0$
+var_278
+
+
+
+Ä*
+name
+
+
+"
+op_278
+const&
+mean_expanded_3_reps_0
+
+
+*,
+name$
+
+"
+mean_expanded_3_reps_0* 
+val
+
+
+	
+
+$ë
+tile
+x
+	
+var_278"
+reps
+
+mean_expanded_3_reps_0,
+mean_expanded_3
+
+
+$
+Ä*%
+name
+
+"
+mean_expanded_3l
+const
+var_286_axes_0
+
+
+*#
+name
+
+"
+op_286_axes_0*
+val
+
+
+
+
+Ñ
+expand_dims
+x
+
+reduce_max_2
+axes
+
+var_286_axes_0$
+var_286
+
+
+
+Ä*
+name
+
+
+"
+op_286}
+const%
+max_expanded_3_reps_0
+
+
+*+
+name#
+
+"
+max_expanded_3_reps_0* 
+val
+
+
+	
+
+$é
+tile
+x
+	
+var_286!
+reps
+
+max_expanded_3_reps_0+
+max_expanded_3
+
+
+$
+Ä*$
+name
+
+"
+max_expanded_3É
+mul
+x
+
+state_for_action_7
+y
+
+action_embedding_5$
+var_293
+
+
+$
+Ä*
+name
+
+
+"
+op_293É
+sub
+x
+
+state_for_action_7
+y
+
+action_embedding_5$
+var_295
+
+
+$
+Ä*
+name
+
+
+"
+op_295[
+abs
+x
+	
+var_295$
+var_296
+
+
+$
+Ä*
+name
+
+
+"
+op_296W
+const
+var_298
+*
+name
+
+
+"
+op_298*
+val
+
+
+
+ˇˇˇˇˇˇˇˇˇk
+const
+input_57_interleave_0
+*+
+name#
+
+"
+input_57_interleave_0*
+val
+
+
+ ˛
+concato
+valuese
+
+state_expanded_1
+
+action_embedding_5
+	
+var_293
+	
+var_296
+
+mean_expanded_3
+
+max_expanded_3
+axis
+	
+var_298'
+
+interleave
+
+input_57_interleave_0%
+input_57
+
+
+$
+Ä*
+name
+
+"
+
+input_57Ã
+linear
+x
+
+action_features1
+weight'
+%
+#model_action_value_encoder_0_weight-
+bias%
+#
+!model_action_value_encoder_0_bias%
+input_49
+
+
+$
+Ä*
+name
+
+"
+	linear_17`
+relu
+x
+
+
+input_49%
+input_51
+
+
+$
+Ä*
+name
+
+"
+
+input_51≈
+linear
+x
+
+
+input_511
+weight'
+%
+#model_action_value_encoder_2_weight-
+bias%
+#
+!model_action_value_encoder_2_bias%
+input_53
+
+
+$
+Ä*
+name
+
+"
+	linear_18p
+relu
+x
+
+
+input_53-
+action_embedding
+
+
+$
+Ä*&
+name
+
+"
+action_embeddingÊ
+linear
+x
+
+state_embeddingA
+weight7
+5
+3model_action_value_state_action_projection_0_weight=
+bias5
+3
+1model_action_value_state_action_projection_0_bias
+input_55
+
+
+Ä*
+name
+
+"
+	linear_19n
+relu
+x
+
+
+input_55)
+state_for_action_9
+
+
+Ä*(
+name 
+
+"
+state_for_action_9l
+const
+var_324_axes_0
+
+
+*#
+name
+
+"
+op_324_axes_0*
+val
+
+
+
+
+ä
+expand_dims
+x
+
+state_for_action_9
+axes
+
+var_324_axes_0$
+var_324
+
+
+
+Ä*
+name
+
+
+"
+op_324Å
+const'
+state_for_action_reps_0
+
+
+*-
+name%
+
+"
+state_for_action_reps_0* 
+val
+
+
+	
+
+$î
+tile
+x
+	
+var_324#
+reps
+
+state_for_action_reps_0-
+state_for_action
+
+
+$
+Ä*&
+name
+
+"
+state_for_actionx
+mul
+x
+
+action_embedding
+y
+
+	legal_f_1$
+var_350
+
+
+$
+Ä*
+name
+
+
+"
+op_350l
+const
+var_355_axes_0
+
+
+*#
+name
+
+"
+op_355_axes_0*
+val
+
+
+
+
+f
+const
+var_355_keep_dims_0
+*(
+name 
+
+"
+op_355_keep_dims_0*
+val
+
+
+ û
+
+reduce_sum
+x
+	
+var_350
+axes
+
+var_355_axes_0$
+	keep_dims
+
+var_355_keep_dims_0
+var_355
+
+
+Ä*
+name
+
+
+"
+op_355Å
+real_div
+x
+	
+var_355
+y
+
+legal_count_1%
+mean_embedding
+
+
+Ä*$
+name
+
+"
+mean_embeddingQ
+const
+var_358
+*
+name
+
+
+"
+op_358*
+val
+
+
+
+
+(knŒ†
+select
+cond
+
+
+var_78
+a
+	
+var_358
+b
+
+action_embedding-
+masked_embedding
+
+
+$
+Ä*&
+name
+
+"
+masked_embeddingw
+const#
+reduce_max_3_axes_0
+
+
+*)
+name!
+
+"
+reduce_max_3_axes_0*
+val
+
+
+
+
+q
+const 
+reduce_max_3_keep_dims_0
+*.
+name&
+
+"
+reduce_max_3_keep_dims_0*
+val
+
+
+ º
+
+reduce_max
+x
+
+masked_embedding
+axes
+
+reduce_max_3_axes_0)
+	keep_dims
+
+reduce_max_3_keep_dims_0#
+reduce_max_3
+
+
+Ä*"
+name
+
+"
+reduce_max_3l
+const
+var_365_axes_0
+
+
+*#
+name
+
+"
+op_365_axes_0*
+val
+
+
+
+
+Ü
+expand_dims
+x
+
+mean_embedding
+axes
+
+var_365_axes_0$
+var_365
+
+
+
+Ä*
+name
+
+
+"
+op_365{
+const$
+mean_expanded_reps_0
+
+
+**
+name"
+
+"
+mean_expanded_reps_0* 
+val
+
+
+	
+
+$ã
+tile
+x
+	
+var_365 
+reps
+
+mean_expanded_reps_0*
+mean_expanded
+
+
+$
+Ä*#
+name
+
+"
+mean_expandedl
+const
+var_373_axes_0
+
+
+*#
+name
+
+"
+op_373_axes_0*
+val
+
+
+
+
+Ñ
+expand_dims
+x
+
+reduce_max_3
+axes
+
+var_373_axes_0$
+var_373
+
+
+
+Ä*
+name
+
+
+"
+op_373y
+const#
+max_expanded_reps_0
+
+
+*)
+name!
+
+"
+max_expanded_reps_0* 
+val
+
+
+	
+
+$à
+tile
+x
+	
+var_373
+reps
+
+max_expanded_reps_0)
+max_expanded
+
+
+$
+Ä*"
+name
+
+"
+max_expanded
+mul
+x
+
+state_for_action
+y
+
+action_embedding$
+var_380
+
+
+$
+Ä*
+name
+
+
+"
+op_380
+sub
+x
+
+state_for_action
+y
+
+action_embedding$
+var_382
+
+
+$
+Ä*
+name
+
+
+"
+op_382[
+abs
+x
+	
+var_382$
+var_383
+
+
+$
+Ä*
+name
+
+
+"
+op_383W
+const
+var_385
+*
+name
+
+
+"
+op_385*
+val
+
+
+
+ˇˇˇˇˇˇˇˇˇk
+const
+input_63_interleave_0
+*+
+name#
+
+"
+input_63_interleave_0*
+val
+
+
+ ¯
+concati
+values_
+
+state_expanded_1
+
+action_embedding
+	
+var_380
+	
+var_383
+
+mean_expanded
+
+max_expanded
+axis
+	
+var_385'
+
+interleave
+
+input_63_interleave_0%
+input_63
+
+
+$
+Ä*
+name
+
+"
+
+input_63π
+linear
+x
+
+
+input_57+
+weight!
+
+model_action_paradox_0_weight'
+bias
+
+model_action_paradox_0_bias%
+input_59
+
+
+$
+Ä*
+name
+
+"
+	linear_20`
+relu
+x
+
+
+input_59%
+input_61
+
+
+$
+Ä*
+name
+
+"
+
+input_61∑
+linear
+x
+
+
+input_61+
+weight!
+
+model_action_paradox_2_weight'
+bias
+
+model_action_paradox_2_bias#
+var_395
+
+
+$
+*
+name
+
+"
+	linear_21u
+const
+var_397_axes_0
+
+
+*#
+name
+
+"
+op_397_axes_0*'
+val 
+
+
+
+
+
+ˇˇˇˇˇˇˇˇˇÇ
+squeeze
+x
+	
+var_395
+axes
+
+var_397_axes_0+
+action_paradox_logits
+
+
+$*
+name
+
+
+"
+op_397µ
+linear
+x
+
+
+input_63)
+weight
+
+model_action_value_0_weight%
+bias
+
+model_action_value_0_bias%
+input_65
+
+
+$
+Ä*
+name
+
+"
+	linear_22Z
+relu
+x
+
+
+input_65"
+input
+
+
+$
+Ä*
+name
+
+	"
+input∞
+linear
+x	
+
+input)
+weight
+
+model_action_value_2_weight%
+bias
+
+model_action_value_2_bias#
+var_406
+
+
+$
+*
+name
+
+"
+	linear_23u
+const
+var_408_axes_0
+
+
+*#
+name
+
+"
+op_408_axes_0*'
+val 
+
+
+
+
+
+ˇˇˇˇˇˇˇˇˇt
+squeeze
+x
+	
+var_406
+axes
+
+var_408_axes_0
+var_408
+
+
+$*
+name
+
+
+"
+op_408[
+tanh
+x
+	
+var_408#
+action_values
+
+
+$*
+name
+
+
+"
+op_409"Ê
+	buildInfoÿ"
+
+
+≈"¬
+6
+!
+
+"
+coremltools-version
+	
+"
+9.0
+A
+)
+!
+"
+coremltools-component-torch
+
+
+"
+2.12.0
+E
+(
+ 
+"
+coremltools-source-dialect
+
+"
+TorchScript

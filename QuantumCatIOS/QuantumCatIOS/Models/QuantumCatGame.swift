@@ -419,7 +419,9 @@ final class GameStore: ObservableObject {
 
     func apply(_ move: Move) {
         guard game.activeHuman != nil else { return }
-        let context = telemetryMoveContext(move: move, recommendation: game.botRecommendationForCurrentHuman())
+        // Taking a human move must not launch a new multi-second search merely
+        // for telemetry. Recommendations are computed asynchronously by the UI.
+        let context = telemetryMoveContext(move: move, recommendation: nil)
         guard game.applyHumanMove(move, autoAdvanceBots: false) else { return }
         appendTelemetryMove(context)
         finalizeTelemetryRoundIfNeeded()
@@ -569,7 +571,17 @@ final class GameStore: ObservableObject {
             botStatus = "P\(player) \(botName) is thinking..."
             try? await Task.sleep(nanoseconds: 450_000_000)
             guard !Task.isCancelled else { return }
-            let move = game.applyBotMoveForCurrentPlayer()
+            let snapshot = game
+            let result: (QuantumCatGame, Move?) = await withCheckedContinuation { continuation in
+                ChampionInference.queue.async {
+                    var updated = snapshot
+                    let move = updated.applyBotMoveForCurrentPlayer()
+                    continuation.resume(returning: (updated, move))
+                }
+            }
+            guard !Task.isCancelled else { return }
+            game = result.0
+            let move = result.1
             if let move {
                 appendTelemetryMove(context.with(move: move))
                 finalizeTelemetryRoundIfNeeded()
@@ -1399,6 +1411,11 @@ struct QuantumCatGame: Codable {
         if kind == .random {
             return legal[rng.int(upperBound: legal.count)]
         }
+        if kind == .championBeliefPolicy, players.count == 5, phase == .play,
+           let move = ChampionInference.move(QuantumCatMLLiveState(game: self, player: player)),
+           legal.contains(move) {
+            return move
+        }
         let modelPreferredMove = QuantumCatMLPolicy.shared.chooseMove(kind: kind, game: self, player: player, legalMoves: legal)
         let weights = kind.weights
         let scored = legal.map { move -> (Double, Move) in
@@ -1660,7 +1677,7 @@ struct QuantumCatGame: Codable {
             .max { lhs, rhs in (trick[lhs]?.rank ?? -1) < (trick[rhs]?.rank ?? -1) }
     }
 
-    private static func competitiveLargestCluster(board: [[Int]], player: Int) -> Int {
+    static func competitiveLargestCluster(board: [[Int]], player: Int) -> Int {
         guard let width = board.first?.count, width > 0 else { return 0 }
         var visited = Array(repeating: Array(repeating: false, count: width), count: board.count)
         var best = 0
@@ -1689,7 +1706,7 @@ struct QuantumCatGame: Codable {
         return best
     }
 
-    private static func competitiveAdversarialMargin(
+    static func competitiveAdversarialMargin(
         counts: [Int],
         caps: [Int],
         playsRemaining: Int

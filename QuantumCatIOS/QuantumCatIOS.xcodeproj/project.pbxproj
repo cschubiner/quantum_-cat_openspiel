@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		105200000000000000000103 /* ChampionSearchParity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 105200000000000000000203; };
+		105200000000000000000104 /* champion_1052_search_parity.json in Resources */ = {isa = PBXBuildFile; fileRef = 105200000000000000000204; };
+		105200000000000000000101 /* QuantumCatChampionSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 105200000000000000000201; };
+		105200000000000000000102 /* champion_1052_search.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 105200000000000000000202; };
 		100000000000000000000101 /* QuantumCatIOSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000201 /* QuantumCatIOSApp.swift */; };
 		100000000000000000000102 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000202 /* ContentView.swift */; };
 		100000000000000000000103 /* QuantumCatGame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000203 /* QuantumCatGame.swift */; };
@@ -52,6 +56,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		105200000000000000000203 /* ChampionSearchParity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChampionSearchParity.swift; sourceTree = "<group>"; };
+		105200000000000000000204 /* champion_1052_search_parity.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = champion_1052_search_parity.json; sourceTree = "<group>"; };
+		105200000000000000000201 /* QuantumCatChampionSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuantumCatChampionSearch.swift; sourceTree = "<group>"; };
+		105200000000000000000202 /* champion_1052_search.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = champion_1052_search.mlpackage; sourceTree = "<group>"; };
 		100000000000000000000001 /* QuantumCatIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = QuantumCatIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		100000000000000000000201 /* QuantumCatIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuantumCatIOSApp.swift; sourceTree = "<group>"; };
 		100000000000000000000202 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -158,6 +166,8 @@
 				100000000000000000000204 /* BotCatalog.swift */,
 				100000000000000000000214 /* QuantumCatMLPolicy.swift */,
 				100000000000000000000220 /* QuantumCatMLFeatureEncoder.swift */,
+				105200000000000000000201 /* QuantumCatChampionSearch.swift */,
+				105200000000000000000203 /* ChampionSearchParity.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -186,6 +196,8 @@
 				100000000000000000000207 /* BotModels.json */,
 				100000000000000000000219 /* champion_move_parity.json */,
 				100000000000000000000222 /* champion_5p_move_parity.json */,
+				105200000000000000000202 /* champion_1052_search.mlpackage */,
+				105200000000000000000204 /* champion_1052_search_parity.json */,
 				100000000000000000000209 /* champion_belief_policy.pt */,
 				100000000000000000000213 /* champion_belief_policy.mlpackage */,
 				100000000000000000000221 /* champion_5p.mlpackage */,
@@ -324,6 +336,8 @@
 				100000000000000000000107 /* BotModels.json in Resources */,
 				100000000000000000000112 /* champion_move_parity.json in Resources */,
 				100000000000000000000115 /* champion_5p_move_parity.json in Resources */,
+				105200000000000000000102 /* champion_1052_search.mlpackage in Resources */,
+				105200000000000000000104 /* champion_1052_search_parity.json in Resources */,
 				100000000000000000000108 /* champion_belief_policy.pt in Resources */,
 				10000000000000000000010C /* champion_belief_policy.mlpackage in Resources */,
 				100000000000000000000114 /* champion_5p.mlpackage in Resources */,
@@ -364,6 +378,8 @@
 				100000000000000000000104 /* BotCatalog.swift in Sources */,
 				10000000000000000000010D /* QuantumCatMLPolicy.swift in Sources */,
 				100000000000000000000113 /* QuantumCatMLFeatureEncoder.swift in Sources */,
+				105200000000000000000101 /* QuantumCatChampionSearch.swift in Sources */,
+				105200000000000000000103 /* ChampionSearchParity.swift in Sources */,
 				100000000000000000000105 /* GameSetupView.swift in Sources */,
 				100000000000000000000106 /* GameTableView.swift in Sources */,
 			);

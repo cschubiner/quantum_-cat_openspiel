@@ -7,8 +7,33 @@ struct QuantumCatIOSApp: App {
     @StateObject private var store = GameStore()
 
     init() {
+        Self.runDeviceChampionSearchParityIfRequested()
         Self.runDeviceModelMoveParityIfRequested()
         Self.runDeviceParadoxBenchmarkIfRequested()
+    }
+
+    private static func runDeviceChampionSearchParityIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("-deviceChampionSearchParity") else { return }
+        // Return from app initialization promptly to avoid the launch watchdog.
+        ChampionInference.queue.async {
+            UserDefaults.standard.set(false, forKey: ChampionInference.receiptKey)
+            do {
+                guard let fixture = Bundle.main.url(forResource: "champion_1052_search_parity", withExtension: "json"),
+                      let model = Bundle.main.url(forResource: "champion_1052_search", withExtension: "mlmodelc") else {
+                    throw ChampionSearchError.missingModel
+                }
+                let passed = try ChampionSearchParity.run(fixtureURL: fixture, modelURL: model)
+                UserDefaults.standard.set(passed, forKey: ChampionInference.receiptKey)
+                UserDefaults.standard.synchronize()
+                print("DEVICE_CHAMPION_1052_SEARCH_PARITY passed=\(passed) enabled=\(ChampionInference.verified)")
+                fflush(stdout)
+                exit(passed ? 0 : 3)
+            } catch {
+                print("DEVICE_CHAMPION_1052_SEARCH_PARITY passed=false error=\(error)")
+                fflush(stdout)
+                exit(3)
+            }
+        }
     }
 
     var body: some Scene {

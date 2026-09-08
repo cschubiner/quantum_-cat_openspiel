@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT_DIR"
 
+if [[ "${CHAMPION_SEARCH:-0}" == "1" ]]; then
+  exec bash QuantumCatIOS/Tools/run_champion_search_bridge.sh
+fi
+
 CHECKPOINT="${CHECKPOINT:-az_runs/best_3p_policy_checkpoint.pt}"
 DEVICE_ID="${IPHONE_DEVICE_ID:-${IPHONE_UDID:-}}"
 APP="${APP:-/tmp/QuantumCatIOSDeviceDD/Build/Products/Debug-iphoneos/QuantumCatIOS.app}"
