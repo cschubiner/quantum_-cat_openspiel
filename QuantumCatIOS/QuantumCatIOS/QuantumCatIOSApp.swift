@@ -9,7 +9,9 @@ struct QuantumCatIOSApp: App {
     init() {
         Self.runDeviceChampionSearchParityIfRequested()
         Self.runDeviceModelMoveParityIfRequested()
-        Self.runDeviceParadoxBenchmarkIfRequested()
+        ChampionInference.queue.async {
+            Self.runDeviceParadoxBenchmarkIfRequested()
+        }
     }
 
     private static func runDeviceChampionSearchParityIfRequested() {
@@ -155,6 +157,7 @@ struct QuantumCatIOSApp: App {
             for: .championBeliefPolicy,
             players: seatCount
         )
+        let searchUsage = ChampionInference.usage
 
         let result = """
         {
@@ -175,6 +178,9 @@ struct QuantumCatIOSApp: App {
           "coreml_successes": \(coreMLSuccesses),
           "coreml_attempts": \(coreMLAttempts),
           "coreml_failures": \(coreMLFailures)
+          ,"search_enabled": \(ChampionInference.verified)
+          ,"search_expanded_decisions": \(searchUsage.expanded)
+          ,"search_failures": \(searchUsage.failures)
         }
         """
         if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -200,7 +206,10 @@ struct QuantumCatIOSApp: App {
             "learned_prediction_enabled=\(learnedPredictionEnabled) " +
             "coreml_successes=\(coreMLSuccesses) " +
             "coreml_attempts=\(coreMLAttempts) " +
-            "coreml_failures=\(coreMLFailures)"
+            "coreml_failures=\(coreMLFailures) " +
+            "search_enabled=\(ChampionInference.verified) " +
+            "search_expanded_decisions=\(searchUsage.expanded) " +
+            "search_failures=\(searchUsage.failures)"
         )
         fflush(stdout)
         sleep(1)
@@ -209,6 +218,7 @@ struct QuantumCatIOSApp: App {
             && coreMLFailures == 0
             && liveInferenceVerified
             && (seatCount != 5 || learnedPredictionEnabled)
+            && searchUsage.failures == 0
         exit(inferencePassed && phaseChecks.bid && phaseChecks.discard ? 0 : 2)
     }
 

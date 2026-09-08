@@ -18,12 +18,12 @@ if [[ "${INSTALL:-1}" == "1" ]]; then
   xcrun devicectl device install app --device "$DEVICE_ID" "$APP" | tee "$LOG_DIR/install.txt"
 fi
 xcrun devicectl -t 180 device process launch --device "$DEVICE_ID" --terminate-existing --console \
-  com.canal.quantumcat -deviceModelMoveParity -deviceModelMoveParityPlayers 5 \
+  com.canal.quantumcat -- -deviceModelMoveParity -deviceModelMoveParityPlayers 5 \
   > "$LOG_DIR/neural_parity.txt" 2>&1
 rg 'DEVICE_MODEL_MOVE_PARITY' "$LOG_DIR/neural_parity.txt"
 rg -q 'mismatches=0.*live_input_mismatches=0.*passed=true' "$LOG_DIR/neural_parity.txt"
 xcrun devicectl -t 300 device process launch --device "$DEVICE_ID" --terminate-existing --console \
-  com.canal.quantumcat -deviceChampionSearchParity \
+  com.canal.quantumcat -- -deviceChampionSearchParity \
   > "$LOG_DIR/search_parity.txt" 2>&1
 rg 'ROOT |SEARCH_.*PARITY|DEVICE_CHAMPION' "$LOG_DIR/search_parity.txt"
 rg -q 'DEVICE_CHAMPION_1052_SEARCH_PARITY passed=true enabled=true' "$LOG_DIR/search_parity.txt"

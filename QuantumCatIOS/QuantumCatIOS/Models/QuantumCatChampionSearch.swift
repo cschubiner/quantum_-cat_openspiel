@@ -10,6 +10,13 @@ enum ChampionInference {
     private static let lock = NSRecursiveLock()
     private static var search: QuantumCatChampionSearch?
     private static var cached: [Data: Move] = [:]
+    private static var expandedDecisions = 0
+    private static var failures = 0
+
+    static var usage: (expanded: Int, failures: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (expandedDecisions, failures)
+    }
 
     private static func key(_ state: QuantumCatMLLiveState) throws -> Data {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
@@ -36,6 +43,7 @@ enum ChampionInference {
             }
             let started = Date()
             let decision = try search!.decide(state)
+            if decision.candidates.count > 1 { expandedDecisions += 1 }
             guard let move = QuantumCatMLFeatureEncoder.move(forPythonAction: decision.action, state: state) else {
                 throw ChampionSearchError.invalidOutput
             }
@@ -44,6 +52,7 @@ enum ChampionInference {
             print("CHAMPION_1052 round=\(state.matchRound) trick=\(state.trickNumber) calls=\(decision.neuralCalls) seconds=\(Date().timeIntervalSince(started))")
             return move
         } catch {
+            failures += 1
             print("CHAMPION_1052_FAILURE \(error)")
             return nil
         }
