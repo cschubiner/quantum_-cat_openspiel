@@ -1,0 +1,4 @@
+15:01:32  Acquired tunnel connection to device.
+15:01:32  Enabling developer disk image services.
+15:01:33  Acquired usage assertion.
+Launched application with com.canal.quantumcat bundle identifier.

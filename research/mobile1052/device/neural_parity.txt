@@ -1,14 +1,7 @@
-14:51:55  Acquired tunnel connection to device.
-14:51:55  Enabling developer disk image services.
-14:51:56  Acquired usage assertion.
-ERROR: The application failed to launch. (com.apple.dt.CoreDeviceError error 10002 (0x2712))
-       BundleIdentifier = com.canal.quantumcat
-       ----------------------------------------
-           The request to open "com.canal.quantumcat" failed. (FBSOpenApplicationServiceErrorDomain error 1 (0x01))
-           BSErrorCodeDescription = RequestDenied
-           NSLocalizedFailureReason = The request was denied by service delegate (SBMainWorkspace) for reason: Locked ("Unable to launch com.canal.quantumcat because the device was not, or could not be, unlocked").
-           FBSOpenApplicationRequestID = 0x77cc
-       ----------------------------------------
-               The operation couldn’t be completed. Unable to launch com.canal.quantumcat because the device was not, or could not be, unlocked. (FBSOpenApplicationErrorDomain error 7 (0x07))
-               NSLocalizedFailureReason = Unable to launch com.canal.quantumcat because the device was not, or could not be, unlocked.
-               BSErrorCodeDescription = Locked
+15:00:26  Acquired tunnel connection to device.
+15:00:26  Enabling developer disk image services.
+15:00:27  Acquired usage assertion.
+Launched application with com.canal.quantumcat bundle identifier.
+Waiting for the application to terminate…
+DEVICE_MODEL_MOVE_PARITY players=5 fixtures=40 mismatches=0 max_abs_diff=0.00009155 live_input_mismatches=0 max_live_input_abs_diff=0.00000963 checkpoint_sha256=b9c1d5fd3ce60ea528cd7955a4e07868cd75eb203593c4cee8e0bb6a1281be4d learned_prediction_enabled=true passed=true error=none
+The app terminated with the exit code 0.

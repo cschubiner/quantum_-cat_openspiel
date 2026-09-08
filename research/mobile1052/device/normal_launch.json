@@ -1,0 +1,59 @@
+{
+  "info" : {
+    "arguments" : [
+      "devicectl",
+      "-t",
+      "60",
+      "device",
+      "process",
+      "launch",
+      "--device",
+      "7F494DB0-B84F-5ECE-8B15-52C8F081AEC8",
+      "--terminate-existing",
+      "--json-output",
+      "research/mobile1052/device/normal_launch.json",
+      "com.canal.quantumcat"
+    ],
+    "commandType" : "devicectl.device.process.launch",
+    "environment" : {
+      "TERM" : "dumb"
+    },
+    "jsonVersion" : 3,
+    "outcome" : "success",
+    "version" : "518.33"
+  },
+  "result" : {
+    "deviceIdentifier" : "7F494DB0-B84F-5ECE-8B15-52C8F081AEC8",
+    "launchOptions" : {
+      "activatedWhenStarted" : true,
+      "arguments" : [
+
+      ],
+      "environmentVariables" : {
+        "TERM" : "dumb"
+      },
+      "platformSpecificOptions" : {
+
+      },
+      "startStopped" : false,
+      "terminateExistingInstances" : true,
+      "user" : {
+        "active" : true
+      }
+    },
+    "process" : {
+      "auditToken" : [
+        4294967295,
+        501,
+        501,
+        501,
+        501,
+        3814,
+        0,
+        272496
+      ],
+      "executable" : "file:///private/var/containers/Bundle/Application/B3976413-0297-41C1-8B70-ED185C568937/QuantumCatIOS.app/QuantumCatIOS",
+      "processIdentifier" : 3814
+    }
+  }
+}

@@ -1,5 +1,9 @@
 # Run1052 native iPhone search port
 
+Deployment complete: physical-iPhone neural and full-search parity passed, actual
+gameplay exercised 12 expanded searches without failures, and the app is open
+with full search enabled. See `DEPLOYMENT.md` and `device/` for receipts.
+
 The full checkpoint is `../run1052/champion.pt` (SHA-256
 `b9c1d5fd3ce60ea528cd7955a4e07868cd75eb203593c4cee8e0bb6a1281be4d`).
 The original frozen Python source, selector, and confirmation receipts are unchanged.

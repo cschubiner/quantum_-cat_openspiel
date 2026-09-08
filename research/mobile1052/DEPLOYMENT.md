@@ -1,7 +1,7 @@
 # September 8, 2026 deployment receipt
 
-Status: **signed app installed; physical-device verification and search activation
-blocked by the iPhone lock screen**. Do not describe the full champion as active yet.
+Status: **installed, verified on the physical Wi-Fi iPhone, full Run1052 search
+enabled, and app launched normally**. Verification completed after unlock.
 
 - Repository branch: `codex/quantum-cat-ios-tap-bidding`.
 - Installed app source commit: `b6ee89f6` (native search implementation was
@@ -17,18 +17,33 @@ blocked by the iPhone lock screen**. Do not describe the full champion as active
 - Search fixture SHA-256:
   `cbb81b7b4c006cb441d7ad084c45f3679dce00f339ed03fb1ea5786a9fc19c60`.
 - `codesign --verify --deep --strict` passed on the installed build artifact.
-- CoreDevice confirmed installation, then rejected the launch with
-  `FBSOpenApplicationErrorDomain code 7: Locked`; see `device/neural_parity.txt`.
+- Initial launches were blocked by the lock screen; the user unlocked the phone
+  and all subsequent verification completed successfully at 15:00–15:01 EDT.
 
-The app's previous neural/tactical policy remains the fallback until the new
-search parity receipt is successfully written on this physical device. No
-on-device search latency or gameplay claim has been made.
+## Physical-device results
+
+- Neural parity: 40 fixtures, zero move or native-input mismatches; all four
+  model outputs passed. Maximum output difference was 0.00009155.
+- Full-search parity: 441 continuations, 25 sampled worlds, ten root cases
+  covering all five rounds; zero failures, including exact rollout/audit scores.
+- Search activation persisted: `passed=true enabled=true`, followed by a new
+  process exercising the actual gameplay route with `search_enabled=true`.
+- Three five-player gameplay smoke rounds exercised 101 play decisions and
+  12 expanded searches, with zero Core ML or search failures. Learned bidding
+  remained enabled, and shared discard/bid checks passed.
+- Maximum observed search latency was about 1.68 seconds in this small gameplay
+  smoke; parity-case searches took about 0.06–1.40 seconds. These are observed
+  test timings, not a worst-case guarantee or a new statistical strength result.
+- The gameplay JSON was copied back from the phone's app container, not inferred
+  from local logs. See `device/gameplay_smoke.json` and `device/gameplay_smoke.txt`.
+- Normal foreground launch succeeded at 15:01 EDT, PID 3814, with no test
+  arguments. See `device/normal_launch.json`.
 
 The final iOS Simulator regression run passed all 27 tests, including the full
-Run1052 search fixture suite. See `ios_tests.json`; this does not substitute for
-the blocked physical-device verification.
+Run1052 search fixture suite. See `ios_tests.json`; separate physical-device
+receipts are in `device/`.
 
-## Resume after unlock
+## Repeat verification
 
 Leave the iPhone awake, then run:
 

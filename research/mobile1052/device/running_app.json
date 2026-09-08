@@ -1,0 +1,9 @@
+{
+  "deviceIdentifier": "7F494DB0-B84F-5ECE-8B15-52C8F081AEC8",
+  "processes": [
+    {
+      "executable": "file:///private/var/containers/Bundle/Application/B3976413-0297-41C1-8B70-ED185C568937/QuantumCatIOS.app/QuantumCatIOS",
+      "processIdentifier": 3814
+    }
+  ]
+}
