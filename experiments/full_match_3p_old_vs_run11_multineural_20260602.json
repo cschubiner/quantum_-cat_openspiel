@@ -1,0 +1,227 @@
+{
+  "players": 3,
+  "matches": 1200,
+  "rounds_per_match": 3,
+  "checkpoint": null,
+  "neural_bots": {
+    "old": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "policy"
+    },
+    "run11": {
+      "checkpoint": "az_runs/az_3p_random_start_20260602/checkpoint_0008.pt",
+      "mode": "policy"
+    }
+  },
+  "candidate": null,
+  "ratings": {
+    "run11": 1092.37,
+    "old": 1056.33,
+    "heuristic_target2": 1012.34,
+    "heuristic": 948.83,
+    "heuristic_adj2": 890.12
+  },
+  "stats": {
+    "heuristic": {
+      "matches": 720,
+      "avg_match_total": 1.7375,
+      "paradoxes_per_match": 1.3361
+    },
+    "heuristic_adj2": {
+      "matches": 720,
+      "avg_match_total": 1.3403,
+      "paradoxes_per_match": 1.2181
+    },
+    "heuristic_target2": {
+      "matches": 720,
+      "avg_match_total": 2.9,
+      "paradoxes_per_match": 1.1319
+    },
+    "old": {
+      "matches": 720,
+      "avg_match_total": 6.0083,
+      "paradoxes_per_match": 0.6111
+    },
+    "run11": {
+      "matches": 720,
+      "avg_match_total": 5.7556,
+      "paradoxes_per_match": 0.65
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "heuristic",
+        "heuristic_adj2",
+        "heuristic_target2"
+      ],
+      "totals": [
+        8.0,
+        2.0,
+        9.0
+      ],
+      "paradoxes": [
+        1,
+        1,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            6.0,
+            -4.0,
+            2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            2.0,
+            0.0,
+            -3.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            0.0,
+            6.0,
+            10.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "heuristic_adj2",
+        "old",
+        "heuristic"
+      ],
+      "totals": [
+        -8.0,
+        -2.0,
+        3.0
+      ],
+      "paradoxes": [
+        2,
+        1,
+        0
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            -7.0,
+            0.0,
+            0.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            -1.0,
+            3.0,
+            3.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            0.0,
+            -5.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "run11",
+        "heuristic",
+        "heuristic_adj2"
+      ],
+      "totals": [
+        21.0,
+        6.0,
+        1.0
+      ],
+      "paradoxes": [
+        0,
+        2,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            6.0,
+            0.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            8.0,
+            0.0,
+            2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            7.0,
+            6.0,
+            -1.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    }
+  ]
+}

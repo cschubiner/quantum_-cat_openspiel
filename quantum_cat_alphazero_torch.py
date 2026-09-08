@@ -30,6 +30,7 @@ from quantum_cat_ai import (
     multiplayer_elo_update,
     play_game,
     prediction_top_rank_score,
+    shared_discard_action,
     shared_prediction_action,
 )
 
@@ -193,6 +194,10 @@ APPENDED_ACTION_FEATURE_INDEX = {
     for idx, name in enumerate(APPENDED_ACTION_FEATURE_NAMES)
 }
 ACTION_FEATURE_PREFIX_SIZE = 26
+ACTION_FEATURE_WANTS_MORE_TRICKS_INDEX = ACTION_FEATURE_PREFIX_SIZE + 6
+ACTION_FEATURE_AT_OR_ABOVE_PREDICTION_INDEX = ACTION_FEATURE_PREFIX_SIZE + 7
+ACTION_FEATURE_WOULD_WIN_TRICK_INDEX = ACTION_FEATURE_PREFIX_SIZE + 19
+ACTION_FEATURE_WIN_ALIGNS_TARGET_INDEX = ACTION_FEATURE_PREFIX_SIZE + 20
 ACTION_FEATURE_RANK_NORM_INDEX = ACTION_FEATURE_PREFIX_SIZE + 9
 ACTION_FEATURE_FOLLOWS_LED_INDEX = ACTION_FEATURE_PREFIX_SIZE + 16
 ACTION_FEATURE_OFF_LED_LOSES_TOKEN_INDEX = ACTION_FEATURE_PREFIX_SIZE + 17
@@ -213,6 +218,8 @@ TACTICAL_POLICY_BUCKET_NAMES = (
     "high_rank",
     "cluster_growth",
     "red",
+    "red_switch",
+    "red_win_switch",
     "red_cluster_growth",
     "red_prediction_feasible",
     "red_hits_prediction",
@@ -405,7 +412,9 @@ class AZNet(nn.Module):
   def __init__(
       self, obs_size, num_actions, num_players, width=256, depth=3,
       arch="mlp", separate_action_value_encoder=False,
-      separate_action_paradox_encoder=False
+      separate_action_paradox_encoder=False,
+      separate_prediction_policy_head=False,
+      prediction_policy_input="pair",
   ):
     super().__init__()
     if arch not in ("mlp", "residual", *ACTION_CONDITIONED_ARCHS):
@@ -415,6 +424,12 @@ class AZNet(nn.Module):
     self.action_feature_size = ACTION_FEATURE_SIZE
     self.separate_action_value_encoder = bool(separate_action_value_encoder)
     self.separate_action_paradox_encoder = bool(separate_action_paradox_encoder)
+    self.separate_prediction_policy_head = bool(
+        separate_prediction_policy_head
+    )
+    self.prediction_policy_input = str(prediction_policy_input or "pair")
+    if self.prediction_policy_input not in ("pair", "raw"):
+      raise ValueError("Prediction policy input must be 'pair' or 'raw'")
     if arch in ("mlp", *ACTION_CONDITIONED_ARCHS):
       layers = []
       in_size = obs_size
@@ -458,6 +473,20 @@ class AZNet(nn.Module):
           nn.ReLU(),
           nn.Linear(width, 1),
       )
+      if self.separate_prediction_policy_head:
+        prediction_width = (
+            ACTION_FEATURE_SIZE if self.prediction_policy_input == "raw"
+            else pair_width
+        )
+        self.prediction_policy = nn.Sequential(
+            nn.Linear(prediction_width, width),
+            nn.ReLU(),
+            nn.Linear(width, 1),
+        )
+        # Adding a bidding head to an existing champion must not alter any
+        # action until its own game-derived targets have actually trained it.
+        nn.init.zeros_(self.prediction_policy[-1].weight)
+        nn.init.zeros_(self.prediction_policy[-1].bias)
       value_width = (
           width + 4 * action_width
           if arch == "action_setpool"
@@ -689,9 +718,21 @@ class AZNet(nn.Module):
 
   def _policy_logits(self, state_embedding, action_features=None):
     if self.arch in ACTION_CONDITIONED_ARCHS:
-      return self.policy(
-          self._pair_features(state_embedding, action_features)
-      ).squeeze(-1)
+      pair_features = self._pair_features(state_embedding, action_features)
+      logits = self.policy(pair_features).squeeze(-1)
+      if self.separate_prediction_policy_head and action_features is not None:
+        # Action-type one-hot columns start at six; column seven is prediction.
+        # The exact zero mask makes every play/discard/Q/risk decision stable.
+        prediction_mask = action_features[..., 7].to(logits.dtype)
+        prediction_features = (
+            action_features if self.prediction_policy_input == "raw"
+            else pair_features
+        )
+        logits = logits + (
+            self.prediction_policy(prediction_features).squeeze(-1)
+            * prediction_mask
+        )
+      return logits
     return self.policy(state_embedding)
 
   def _action_value_pair_features(self, state_embedding, action_features):
@@ -857,6 +898,12 @@ def parse_args():
           "action_paradox_validation_auc",
           "action_paradox_validation_brier",
           "action_paradox_validation_corr",
+          "action_paradox_validation_top1",
+          "action_paradox_validation_mean_regret",
+          "action_paradox_validation_mean_state_corr",
+          "action_paradox_validation_contrast_top1",
+          "action_paradox_validation_contrast_mean_regret",
+          "action_paradox_validation_contrast_mean_state_corr",
           "value_validation_acting_auc",
           "value_validation_acting_brier",
           "value_validation_acting_corr",
@@ -892,6 +939,25 @@ def parse_args():
           "Use a dedicated action encoder/projection/attention stack for the "
           "auxiliary per-action paradox/risk head. This lets survival-risk "
           "fits train without changing policy action logits."
+      ),
+  )
+  parser.add_argument(
+      "--separate-prediction-policy-head",
+      action="store_true",
+      help=(
+          "Add an initially zero prediction-only policy residual to the real "
+          "action-conditioned network. Non-bidding policy, Q, risk, and value "
+          "outputs remain unchanged while the bid head learns from self-play."
+      ),
+  )
+  parser.add_argument(
+      "--prediction-policy-input",
+      choices=("pair", "raw"),
+      default="pair",
+      help=(
+          "Use existing state/action pair embeddings or direct public/own-hand "
+          "action features for the dedicated bid policy. Raw exposes existing "
+          "expected-trick and legal bid-gap signals without affecting play."
       ),
   )
   parser.add_argument("--lr", type=float, default=1e-3)
@@ -930,6 +996,32 @@ def parse_args():
       ),
   )
   parser.add_argument(
+      "--train-policy-head-only",
+      action="store_true",
+      help=(
+          "Freeze every parameter except the final policy MLP. This is the "
+          "lowest-drift option for sparse policy-correction replay."
+      ),
+  )
+  parser.add_argument(
+      "--train-prediction-head-only",
+      action="store_true",
+      help=(
+          "Train only --separate-prediction-policy-head, freezing the entire "
+          "existing champion including its playing policy and safety heads."
+      ),
+  )
+  parser.add_argument(
+      "--train-policy-and-action-value-stacks-only",
+      action="store_true",
+      help=(
+          "Freeze the shared state body and unrelated heads, training the "
+          "policy action scorer plus the separate auxiliary action-value "
+          "scorer stack. Requires an action-conditioned arch and "
+          "--separate-action-value-encoder."
+      ),
+  )
+  parser.add_argument(
       "--train-value-head-only",
       action="store_true",
       help=(
@@ -939,12 +1031,30 @@ def parse_args():
       ),
   )
   parser.add_argument(
+      "--train-value-output-only",
+      action="store_true",
+      help=(
+          "Freeze all shared encoders and the hidden value layer, training "
+          "only the final value projection. Useful for low-capacity, "
+          "source-disjoint survival calibration."
+      ),
+  )
+  parser.add_argument(
       "--train-action-value-head-only",
       action="store_true",
       help=(
           "Freeze all model weights except the auxiliary per-action value "
           "head. This isolates sparse counterfactual Q-label diagnostics from "
           "policy/value drift."
+      ),
+  )
+  parser.add_argument(
+      "--train-action-paradox-head-only",
+      action="store_true",
+      help=(
+          "Freeze all model weights except the auxiliary per-action "
+          "paradox/risk head. This isolates sparse counterfactual risk-label "
+          "diagnostics from policy/value/action-value drift."
       ),
   )
   parser.add_argument(
@@ -971,6 +1081,16 @@ def parse_args():
           "Freeze all model weights except the auxiliary per-action value and "
           "paradox/risk heads. This trains vector-style action diagnostics "
           "without drifting the policy, value trunk, or action encoder."
+      ),
+  )
+  parser.add_argument(
+      "--train-action-aux-stacks-only",
+      action="store_true",
+      help=(
+          "Freeze all model weights except the dedicated auxiliary action-value "
+          "and action-paradox/risk stacks and heads. Requires "
+          "--separate-action-value-encoder and "
+          "--separate-action-paradox-encoder."
       ),
   )
   parser.add_argument(
@@ -1166,7 +1286,7 @@ def parse_args():
   parser.add_argument("--action-paradox-root-only", action="store_true")
   parser.add_argument(
       "--action-paradox-rerank-mode",
-      choices=("additive", "threshold", "relative"),
+      choices=("additive", "threshold", "relative", "relative_dominance"),
       default="additive",
       help=(
           "How q_policy uses the action paradox-risk head. additive preserves "
@@ -1175,7 +1295,10 @@ def parse_args():
           "a lower-risk action is within the configured policy log-gap. "
           "relative first builds a lowest-risk safe set using "
           "--action-paradox-min-risk-margin as slack, then picks the best "
-          "policy/value action inside that set."
+          "policy/value action inside that set. relative_dominance does the "
+          "same, but abstains unless the raw top policy action is at least "
+          "--action-paradox-min-risk-margin riskier than the minimum-risk "
+          "legal action."
       ),
   )
   parser.add_argument("--action-paradox-risk-threshold", type=float, default=0.0)
@@ -1201,6 +1324,16 @@ def parse_args():
       ),
   )
   parser.add_argument(
+      "--action-value-max-policy-log-gap",
+      type=float,
+      default=-1.0,
+      help=(
+          "For q_policy action-value reranking, reject actions whose raw policy "
+          "log probability is more than this far below the raw top policy "
+          "action. Negative preserves the historical unguarded behavior."
+      ),
+  )
+  parser.add_argument(
       "--prediction-hit-policy-loss-weight",
       type=float,
       default=0.0,
@@ -1210,6 +1343,23 @@ def parse_args():
           "probability mass on those actions toward "
           "--prediction-hit-policy-target-mass."
       ),
+  )
+  parser.add_argument(
+      "--bid-regime-policy-loss-weight",
+      type=float,
+      default=0.0,
+      help=(
+          "Optional information-safe auxiliary policy loss for final-actor "
+          "trick decisions. Below or already above the bid, favor safe winning "
+          "actions; exactly at the bid, favor safe losing actions. Disabled "
+          "by default and never replaces the official full-match objective."
+      ),
+  )
+  parser.add_argument(
+      "--bid-regime-policy-target-mass",
+      type=float,
+      default=0.65,
+      help="Minimum probability mass sought on safe bid-regime-aligned moves.",
   )
   parser.add_argument(
       "--prediction-hit-policy-target-mass",
@@ -1493,6 +1643,8 @@ def parse_args():
   parser.add_argument("--action-value-rerank-clip", type=float, default=0.5)
   parser.add_argument("--action-value-rerank-phases", default="")
   parser.add_argument("--action-value-rerank-min-margin", type=float, default=0.0)
+  parser.add_argument("--action-value-rerank-min-trick-number", type=int, default=-1)
+  parser.add_argument("--action-value-rerank-max-trick-number", type=int, default=-1)
   parser.add_argument(
       "--reset-action-value-head",
       action="store_true",
@@ -1524,14 +1676,16 @@ def parse_args():
   parser.add_argument("--counterfactual-action-value-rollouts", type=int, default=0)
   parser.add_argument(
       "--counterfactual-action-value-objective",
-      choices=("score", "survival"),
+      choices=("score", "survival", "official"),
       default="score",
       help=(
           "Target for sparse counterfactual action-value labels. 'score' keeps "
           "the historical raw-score/value-scale target. 'survival' labels "
           "candidate actions as +1 when the current round reaches terminal "
           "with no scoped paradox and -1 when a scoped paradox occurs, using "
-          "--counterfactual-action-paradox-scope for acting-vs-any scope."
+          "--counterfactual-action-paradox-scope for acting-vs-any scope. "
+          "'official' optimizes final player placement with the official "
+          "final-round-score tiebreak in full-match rollouts."
       ),
   )
   parser.add_argument("--counterfactual-action-value-advantage", action="store_true")
@@ -1820,7 +1974,7 @@ def parse_args():
   )
   parser.add_argument(
       "--counterfactual-rollout-opponent-mode",
-      choices=("", "policy", "mcts", "belief", "belief_policy"),
+      choices=("", "policy", "q_policy", "mcts", "belief", "belief_policy"),
       default="",
       help=(
           "Override old-policy opponent mode inside counterfactual label "
@@ -1870,6 +2024,28 @@ def parse_args():
           "information-state resamples, and q_policy uses the deployed root "
           "action-value/risk reranker. Defaults to belief search so policy "
           "targets do not depend on the simulator's true hidden cards."
+      ),
+  )
+  parser.add_argument(
+      "--self-play-prediction-mode",
+      choices=("shared", "model", "belief_search"),
+      default="shared",
+      help=(
+          "How learner prediction actions are generated. shared preserves the "
+          "historical hand-strength bidder; model trains/plays the actual "
+          "network bid head; belief_search searches legal bids over acting-"
+          "information-state opponent worlds while preserving the configured "
+          "play selector."
+      ),
+  )
+  parser.add_argument(
+      "--prediction-shared-prior-weight",
+      type=float,
+      default=0.35,
+      help=(
+          "Blend a soft hand-strength prior into searched prediction roots. "
+          "This keeps an initially collapsed neural bidding head from "
+          "eliminating reasonable legal bids before search can evaluate them."
       ),
   )
   parser.add_argument("--self-play-belief-samples", type=int, default=4)
@@ -2145,11 +2321,12 @@ def parse_args():
   parser.add_argument("--league-bots", default="heuristic")
   parser.add_argument(
       "--league-opponent-mode",
-      choices=("policy", "mcts", "belief", "belief_policy", "mixed"),
+      choices=("policy", "q_policy", "mcts", "belief", "belief_policy", "mixed"),
       default="policy",
       help=(
           "How frozen neural league opponents choose actions. The default "
-          "keeps the historical greedy policy behavior; mcts/belief train "
+          "keeps the historical greedy policy behavior; q_policy uses the "
+          "actual deployed value/risk/feasibility champion; mcts/belief train "
           "against search-backed checkpoint opponents. mixed cycles frozen "
           "checkpoint roles through policy, mcts, and belief modes."
       ),
@@ -2224,10 +2401,84 @@ def parse_args():
       ),
   )
   parser.add_argument(
+      "--skip-action-value-reports",
+      action="store_true",
+      help=(
+          "Skip action-value and q-label policy diagnostic reports. Useful for "
+          "policy-only loaded-replay fits where value-label reports are "
+          "irrelevant and expensive."
+      ),
+  )
+  parser.add_argument(
+      "--skip-value-prediction-reports",
+      action="store_true",
+      help=(
+          "Skip state-value prediction diagnostic reports. Useful for "
+          "policy-only loaded-replay fits where value calibration is not the "
+          "selection metric."
+      ),
+  )
+  parser.add_argument(
+      "--skip-anchor-policy-reports",
+      action="store_true",
+      help=(
+          "Skip anchor-policy diagnostic reports. Anchor losses are still used; "
+          "this only avoids expensive post-hoc policy alignment summaries."
+      ),
+  )
+  parser.add_argument(
+      "--skip-policy-reports",
+      action="store_true",
+      help=(
+          "Skip policy/action diagnostic reports during loaded-replay fits. "
+          "Useful for action-auxiliary-only runs on compact candidate rows."
+      ),
+  )
+  parser.add_argument(
+      "--loaded-replay-compact-action-labels",
+      action="store_true",
+      help=(
+          "Before loaded-replay training, shrink each row to the actions with "
+          "explicit action-value/paradox labels plus the raw policy top action. "
+          "This is intended for action-conditioned auxiliary-head training; "
+          "it keeps feature/label contrasts while avoiding dense 1000-action "
+          "training tensors."
+      ),
+  )
+  parser.add_argument(
+      "--compact-legal-action-training",
+      action="store_true",
+      help=(
+          "Batch only legal action-feature rows for action-conditioned "
+          "networks while preserving every legal policy/value/risk target. "
+          "Useful for scalable source-held-out survival training."
+      ),
+  )
+  parser.add_argument(
+      "--skip-replay-save",
+      action="store_true",
+      help=(
+          "Skip writing replay_latest.npz when saving training artifacts. "
+          "Useful when --load-replay already points at large immutable replay "
+          "files and only checkpoints/metrics are needed."
+      ),
+  )
+  parser.add_argument(
       "--action-value-validation-seed",
       type=int,
       default=20260603,
       help="Deterministic seed for the loaded-replay action-value validation split.",
+  )
+  parser.add_argument(
+      "--action-value-validation-group-metadata-key",
+      default="",
+      help=(
+          "Optional replay metadata key containing one group id per loaded row. "
+          "When present during --action-value-validation-fraction, validation "
+          "withholds whole groups instead of random individual rows. This is "
+          "useful for exact-veto rows where many examples come from the same "
+          "source round."
+      ),
   )
   parser.add_argument(
       "--action-value-filter-min-spread",
@@ -2844,7 +3095,9 @@ def action_feature_vector(state, player, action, legal_actions=None):
   tricks_won = getattr(state, "_tricks_won", np.zeros(player + 1))
   prediction = int(predictions[player]) if player < len(predictions) else -1
   tricks = int(tricks_won[player]) if player < len(tricks_won) else 0
-  wants_more = prediction < 0 or tricks < prediction
+  # Exact is the only bid state where taking another trick destroys a still
+  # attainable bonus. Below and already above target both value safe tricks.
+  wants_more = prediction < 0 or tricks != prediction
   total_hand = float(np.sum(hand))
   legal_actions = list(legal_actions if legal_actions is not None
                        else state.legal_actions(player))
@@ -2946,6 +3199,7 @@ def action_feature_vector(state, player, action, legal_actions=None):
   can_still_hit_after = (
       prediction >= 0
       and would_win is not None
+      and outcome_tricks <= prediction
       and 0 <= wins_needed_after_count <= remaining_tricks_after_count
   )
   must_win_all_remaining_after = (
@@ -3492,7 +3746,9 @@ def action_feature_vector(state, player, action, legal_actions=None):
       exit_min_lane_surplus_damage,
       exit_lane_pressure_player_count_after,
       token_loss_newly_loses_led,
-      1.0 if outcome_overshoots_prediction else 0.0,
+      1.0 if (
+          would_win is True and prediction >= 0 and tricks == prediction
+      ) else 0.0,
   ])
   numeric.extend([0.0] * len(EXIT_LIQUIDITY_LEGAL_SET_CONTEXT_FEATURE_NAMES))
   numeric.extend([
@@ -3555,6 +3811,21 @@ def action_feature_matrix(state, player, num_actions):
   return add_legal_set_context_features(features, legal)
 
 
+def compact_action_feature_matrix(state, player, legal_actions=None):
+  """Build exactly the legal dense-feature rows without 1000-action padding."""
+  legal = list(
+      state.legal_actions(player)
+      if legal_actions is None else legal_actions
+  )
+  if not legal:
+    return np.zeros((0, ACTION_FEATURE_SIZE), dtype=np.float32)
+  features = np.stack([
+      action_feature_vector(state, player, action, legal)
+      for action in legal
+  ]).astype(np.float32, copy=False)
+  return add_legal_set_context_features(features, list(range(len(legal))))
+
+
 def adapt_action_features(features, num_actions):
   """Pad/truncate persisted action features to the current feature contract."""
   adapted = np.zeros((num_actions, ACTION_FEATURE_SIZE), dtype=np.float32)
@@ -3584,6 +3855,7 @@ def model_input_size(model):
 
 
 def adapt_observation(obs, expected_size):
+  obs = np.asarray(obs, dtype=np.float32).reshape(-1)
   if obs.shape[0] == expected_size:
     return obs
   if obs.shape[0] > expected_size:
@@ -3591,6 +3863,17 @@ def adapt_observation(obs, expected_size):
   padded = np.zeros(expected_size, dtype=np.float32)
   padded[:obs.shape[0]] = obs
   return padded
+
+
+def adapt_action_vector(vector, num_actions, dtype=np.float32):
+  adapted = np.zeros(num_actions, dtype=dtype)
+  if vector is None:
+    return adapted
+  arr = np.asarray(vector, dtype=np.float32).reshape(-1)
+  count = min(num_actions, arr.shape[0])
+  if count > 0:
+    adapted[:count] = arr[:count].astype(dtype, copy=False)
+  return adapted
 
 
 def adapt_observation_batch(obs, expected_size):
@@ -3680,21 +3963,32 @@ def configure_trainable_parameters(model, args):
   restricted_modes = [
       getattr(args, "train_only_appended_action_features", False),
       getattr(args, "train_policy_action_stack_only", False),
+      getattr(args, "train_policy_head_only", False),
+      getattr(args, "train_prediction_head_only", False),
+      getattr(args, "train_policy_and_action_value_stacks_only", False),
       getattr(args, "train_value_head_only", False),
+      getattr(args, "train_value_output_only", False),
       getattr(args, "train_action_stack_only", False),
       getattr(args, "train_action_value_head_only", False),
+      getattr(args, "train_action_paradox_head_only", False),
       getattr(args, "train_action_value_stack_only", False),
       getattr(args, "train_action_paradox_stack_only", False),
       getattr(args, "train_action_aux_heads_only", False),
+      getattr(args, "train_action_aux_stacks_only", False),
       getattr(args, "train_action_attention_only", False),
   ]
   if sum(1 for enabled in restricted_modes if enabled) > 1:
     raise ValueError(
       "--train-only-appended-action-features, --train-action-stack-only, "
       "--train-policy-action-stack-only, --train-value-head-only, "
-      "--train-action-value-head-only, --train-action-value-stack-only, "
-      "--train-action-paradox-stack-only, --train-action-aux-heads-only, "
-      "and --train-action-attention-only are mutually exclusive"
+      "--train-value-output-only, "
+      "--train-policy-head-only, "
+      "--train-prediction-head-only, "
+      "--train-policy-and-action-value-stacks-only, "
+      "--train-action-value-head-only, --train-action-paradox-head-only, "
+      "--train-action-value-stack-only, --train-action-paradox-stack-only, "
+      "--train-action-aux-heads-only, --train-action-aux-stacks-only, and "
+      "--train-action-attention-only are mutually exclusive"
     )
   if getattr(args, "train_value_head_only", False):
     if not hasattr(model, "value"):
@@ -3706,12 +4000,60 @@ def configure_trainable_parameters(model, args):
       if allowed:
         trainable.append(param)
     return trainable
+  if getattr(args, "train_value_output_only", False):
+    if not hasattr(model, "value"):
+      raise ValueError("--train-value-output-only requires value")
+    if isinstance(model.value, nn.Sequential):
+      final_name = str(len(model.value) - 1)
+      allowed_prefix = f"value.{final_name}."
+    else:
+      allowed_prefix = "value."
+    trainable = []
+    for name, param in model.named_parameters():
+      allowed = name.startswith(allowed_prefix)
+      param.requires_grad = allowed
+      if allowed:
+        trainable.append(param)
+    return trainable
+  if getattr(args, "train_policy_head_only", False):
+    if not hasattr(model, "policy"):
+      raise ValueError("--train-policy-head-only requires policy")
+    trainable = []
+    for name, param in model.named_parameters():
+      allowed = name.startswith("policy.")
+      param.requires_grad = allowed
+      if allowed:
+        trainable.append(param)
+    return trainable
+  if getattr(args, "train_prediction_head_only", False):
+    if not getattr(model, "separate_prediction_policy_head", False):
+      raise ValueError(
+          "--train-prediction-head-only requires "
+          "--separate-prediction-policy-head"
+      )
+    trainable = []
+    for name, param in model.named_parameters():
+      allowed = name.startswith("prediction_policy.")
+      param.requires_grad = allowed
+      if allowed:
+        trainable.append(param)
+    return trainable
   if getattr(args, "train_action_value_head_only", False):
     if not hasattr(model, "action_value"):
       raise ValueError("--train-action-value-head-only requires action_value")
     trainable = []
     for name, param in model.named_parameters():
       allowed = name.startswith("action_value.")
+      param.requires_grad = allowed
+      if allowed:
+        trainable.append(param)
+    return trainable
+  if getattr(args, "train_action_paradox_head_only", False):
+    if not hasattr(model, "action_paradox"):
+      raise ValueError("--train-action-paradox-head-only requires action_paradox")
+    trainable = []
+    for name, param in model.named_parameters():
+      allowed = name.startswith("action_paradox.")
       param.requires_grad = allowed
       if allowed:
         trainable.append(param)
@@ -3730,6 +4072,38 @@ def configure_trainable_parameters(model, args):
         "action_value_attention.",
     )
     allowed_names = {"action_value_attention_gate"}
+    for name, param in model.named_parameters():
+      allowed = name in allowed_names or name.startswith(prefixes)
+      param.requires_grad = allowed
+      if allowed:
+        trainable.append(param)
+    return trainable
+  if getattr(args, "train_policy_and_action_value_stacks_only", False):
+    if not hasattr(model, "action_encoder"):
+      raise ValueError(
+          "--train-policy-and-action-value-stacks-only requires an "
+          "action-conditioned arch"
+      )
+    if not getattr(model, "separate_action_value_encoder", False):
+      raise ValueError(
+          "--train-policy-and-action-value-stacks-only requires "
+          "--separate-action-value-encoder"
+      )
+    trainable = []
+    prefixes = (
+        "action_encoder.",
+        "state_action_projection.",
+        "policy.",
+        "action_attention.",
+        "action_value.",
+        "action_value_encoder.",
+        "action_value_state_action_projection.",
+        "action_value_attention.",
+    )
+    allowed_names = {
+        "action_attention_gate",
+        "action_value_attention_gate",
+    }
     for name, param in model.named_parameters():
       allowed = name in allowed_names or name.startswith(prefixes)
       param.requires_grad = allowed
@@ -3770,6 +4144,38 @@ def configure_trainable_parameters(model, args):
       allowed = name.startswith("action_value.") or name.startswith(
           "action_paradox."
       )
+      param.requires_grad = allowed
+      if allowed:
+        trainable.append(param)
+    return trainable
+  if getattr(args, "train_action_aux_stacks_only", False):
+    if not getattr(model, "separate_action_value_encoder", False):
+      raise ValueError(
+          "--train-action-aux-stacks-only requires "
+          "--separate-action-value-encoder"
+      )
+    if not getattr(model, "separate_action_paradox_encoder", False):
+      raise ValueError(
+          "--train-action-aux-stacks-only requires "
+          "--separate-action-paradox-encoder"
+      )
+    trainable = []
+    prefixes = (
+        "action_value.",
+        "action_value_encoder.",
+        "action_value_state_action_projection.",
+        "action_value_attention.",
+        "action_paradox.",
+        "action_paradox_encoder.",
+        "action_paradox_state_action_projection.",
+        "action_paradox_attention.",
+    )
+    allowed_names = {
+        "action_value_attention_gate",
+        "action_paradox_attention_gate",
+    }
+    for name, param in model.named_parameters():
+      allowed = name in allowed_names or name.startswith(prefixes)
       param.requires_grad = allowed
       if allowed:
         trainable.append(param)
@@ -3958,11 +4364,15 @@ def add_frozen_parameter_integrity_or_raise(row, model, before, args):
   report = frozen_parameter_integrity_report(model, before)
   row["frozen_parameter_integrity"] = report
   if (
-      getattr(args, "train_policy_action_stack_only", False)
+      (
+          getattr(args, "train_policy_action_stack_only", False)
+          or getattr(args, "train_policy_head_only", False)
+          or getattr(args, "train_prediction_head_only", False)
+      )
       and not report["exact_match"]
   ):
     raise RuntimeError(
-        "--train-policy-action-stack-only changed frozen parameters: "
+        "policy-only training changed frozen parameters: "
         + ", ".join(report["changed_parameter_names"])
     )
 
@@ -4003,20 +4413,101 @@ def reset_action_paradox_head(model):
       nn.init.zeros_(final_layer.bias)
 
 
+def _inference_action_features(model, state, player, num_actions):
+  """Avoid evaluating padded illegal actions in action-conditioned networks."""
+  legal = list(state.legal_actions(player))
+  compact = getattr(model, "arch", "") in ACTION_CONDITIONED_ARCHS
+  features = (
+      compact_action_feature_matrix(state, player, legal)
+      if compact else action_feature_matrix(state, player, num_actions)
+  )
+  return legal, features, compact
+
+
+def _restore_inference_action_values(
+    values, num_actions, legal, compact, fill_value=0.0
+):
+  values = np.asarray(values, dtype=np.float32)
+  if not compact:
+    return values
+  restored = np.full(num_actions, fill_value, dtype=np.float32)
+  restored[legal] = values
+  return restored
+
+
 def model_policy_value(
     model, state, player, num_actions, value_scale, device,
     paradox_value_penalty=0.0,
+    use_shared_prediction=True,
 ):
-  prediction_action = shared_prediction_action(state, player)
+  policy, value, _, _, _ = model_policy_value_action_aux(
+      model,
+      state,
+      player,
+      num_actions,
+      value_scale,
+      device,
+      paradox_value_penalty=paradox_value_penalty,
+      use_shared_prediction=use_shared_prediction,
+  )
+  return policy, value
+
+
+def model_policy_value_action_aux(
+    model,
+    state,
+    player,
+    num_actions,
+    value_scale,
+    device,
+    paradox_value_penalty=0.0,
+    need_action_values=False,
+    need_action_risks=False,
+    return_action_features=False,
+    use_shared_prediction=True,
+):
+  """Return policy/value plus optional per-action aux heads in one forward."""
+  setup_action = shared_discard_action(state, player)
+  if setup_action is None and use_shared_prediction:
+    setup_action = shared_prediction_action(state, player)
   obs_np = np.array(state.observation_tensor(player), dtype=np.float32)
   obs_np = adapt_observation(obs_np, model_input_size(model))
   obs = torch.tensor(obs_np, dtype=torch.float32, device=device).unsqueeze(0)
-  action_features_np = action_feature_matrix(state, player, num_actions)
+  legal, action_features_np, compact_features = _inference_action_features(
+      model, state, player, num_actions
+  )
   action_features_t = torch.tensor(
       action_features_np, dtype=torch.float32, device=device
   ).unsqueeze(0)
   with torch.no_grad():
-    if paradox_value_penalty > 0 and hasattr(model, "forward_with_aux"):
+    action_values = None
+    action_risks = None
+    if (
+        (need_action_values or need_action_risks)
+        and hasattr(model, "forward_with_all_aux")
+    ):
+      logits, value, paradox_logits, action_paradox_logits, action_values_t = (
+          model.forward_with_all_aux(obs, action_features_t)
+      )
+      if need_action_risks:
+        action_risks = _restore_inference_action_values(
+            torch.sigmoid(action_paradox_logits).squeeze(0).cpu().numpy(),
+            num_actions,
+            legal,
+            compact_features,
+        )
+      if need_action_values:
+        action_values = _restore_inference_action_values(
+            action_values_t.squeeze(0).cpu().numpy(),
+            num_actions,
+            legal,
+            compact_features,
+        )
+      if paradox_value_penalty > 0:
+        paradox_risk = torch.sigmoid(paradox_logits).squeeze(0).cpu().numpy()
+      else:
+        paradox_risk = None
+    elif paradox_value_penalty > 0 and hasattr(model, "forward_with_aux"):
       logits, value, paradox_logits = model.forward_with_aux(
           obs, action_features_t
       )
@@ -4024,11 +4515,20 @@ def model_policy_value(
     else:
       logits, value = model(obs, action_features_t)
       paradox_risk = None
-    logits = logits.squeeze(0).cpu().numpy()
+    logits = _restore_inference_action_values(
+        logits.squeeze(0).cpu().numpy(),
+        num_actions,
+        legal,
+        compact_features,
+        fill_value=-np.inf,
+    )
     value = value.squeeze(0).cpu().numpy() * value_scale
     if paradox_risk is not None:
       value = value - paradox_value_penalty * paradox_risk
-  legal = state.legal_actions(player)
+  if need_action_values and action_values is None:
+    action_values = np.zeros(num_actions, dtype=np.float32)
+  if need_action_risks and action_risks is None:
+    action_risks = np.zeros(num_actions, dtype=np.float32)
   mask = np.full(num_actions, -np.inf, dtype=np.float32)
   mask[legal] = 0.0
   masked = logits + mask
@@ -4040,10 +4540,69 @@ def model_policy_value(
     exp[legal] = 1.0 / len(legal)
   else:
     exp /= total
-  if prediction_action is not None:
+  if setup_action is not None:
     exp[:] = 0.0
-    exp[int(prediction_action)] = 1.0
-  return exp, value.astype(np.float32)
+    exp[int(setup_action)] = 1.0
+  returned_action_features = None
+  if return_action_features:
+    if compact_features:
+      returned_action_features = np.zeros(
+          (num_actions, ACTION_FEATURE_SIZE), dtype=np.float32
+      )
+      returned_action_features[legal] = action_features_np
+    else:
+      returned_action_features = action_features_np
+  return (
+      exp,
+      value.astype(np.float32),
+      None if action_values is None else action_values.astype(np.float32),
+      None if action_risks is None else action_risks.astype(np.float32),
+      returned_action_features,
+  )
+
+
+def model_policy_probs(model, state, player, num_actions, device):
+  """Return policy probabilities without evaluating value heads."""
+  setup_action = shared_discard_action(state, player)
+  if setup_action is None:
+    setup_action = shared_prediction_action(state, player)
+  if setup_action is not None:
+    policy = np.zeros(num_actions, dtype=np.float32)
+    policy[int(setup_action)] = 1.0
+    return policy
+  obs_np = np.array(state.observation_tensor(player), dtype=np.float32)
+  obs_np = adapt_observation(obs_np, model_input_size(model))
+  obs = torch.tensor(obs_np, dtype=torch.float32, device=device).unsqueeze(0)
+  legal, action_features_np, compact_features = _inference_action_features(
+      model, state, player, num_actions
+  )
+  action_features_t = torch.tensor(
+      action_features_np,
+      dtype=torch.float32,
+      device=device,
+  ).unsqueeze(0)
+  with torch.no_grad():
+    state_embedding = model.body(obs)
+    logits = model._policy_logits(state_embedding, action_features_t)
+    logits = _restore_inference_action_values(
+        logits.squeeze(0).cpu().numpy(),
+        num_actions,
+        legal,
+        compact_features,
+        fill_value=-np.inf,
+    )
+  mask = np.full(num_actions, -np.inf, dtype=np.float32)
+  mask[legal] = 0.0
+  masked = logits + mask
+  max_logit = np.max(masked[legal])
+  policy = np.zeros(num_actions, dtype=np.float32)
+  policy[legal] = np.exp(masked[legal] - max_logit)
+  total = float(policy.sum())
+  if not math.isfinite(total) or total <= 0:
+    policy[legal] = 1.0 / len(legal)
+  else:
+    policy /= total
+  return policy
 
 
 def model_action_risks(model, state, player, num_actions, device):
@@ -4052,8 +4611,11 @@ def model_action_risks(model, state, player, num_actions, device):
   obs_np = np.array(state.observation_tensor(player), dtype=np.float32)
   obs_np = adapt_observation(obs_np, model_input_size(model))
   obs = torch.tensor(obs_np, dtype=torch.float32, device=device).unsqueeze(0)
+  legal, action_features_np, compact_features = _inference_action_features(
+      model, state, player, num_actions
+  )
   action_features_t = torch.tensor(
-      action_feature_matrix(state, player, num_actions),
+      action_features_np,
       dtype=torch.float32,
       device=device,
   ).unsqueeze(0)
@@ -4061,7 +4623,12 @@ def model_action_risks(model, state, player, num_actions, device):
     _, _, _, action_logits = model.forward_with_action_aux(
         obs, action_features_t
     )
-    risks = torch.sigmoid(action_logits).squeeze(0).cpu().numpy()
+    risks = _restore_inference_action_values(
+        torch.sigmoid(action_logits).squeeze(0).cpu().numpy(),
+        num_actions,
+        legal,
+        compact_features,
+    )
   return risks.astype(np.float32)
 
 
@@ -4071,14 +4638,22 @@ def model_action_values(model, state, player, num_actions, device):
   obs_np = np.array(state.observation_tensor(player), dtype=np.float32)
   obs_np = adapt_observation(obs_np, model_input_size(model))
   obs = torch.tensor(obs_np, dtype=torch.float32, device=device).unsqueeze(0)
+  legal, action_features_np, compact_features = _inference_action_features(
+      model, state, player, num_actions
+  )
   action_features_t = torch.tensor(
-      action_feature_matrix(state, player, num_actions),
+      action_features_np,
       dtype=torch.float32,
       device=device,
   ).unsqueeze(0)
   with torch.no_grad():
     x = model.body(obs)
-    values = model._action_values(x, action_features_t).squeeze(0).cpu().numpy()
+    values = _restore_inference_action_values(
+        model._action_values(x, action_features_t).squeeze(0).cpu().numpy(),
+        num_actions,
+        legal,
+        compact_features,
+    )
   return values.astype(np.float32)
 
 
@@ -4091,10 +4666,12 @@ def terminal_search_value(state, args):
   returns = np.array(state.returns(), dtype=np.float32)
   if args is None:
     return returns
+  official_weight = float(getattr(args, "official_outcome_value_weight", 0.0))
   has_terminal_shaping = (
       float(getattr(args, "terminal_paradox_penalty", 0.0)) > 0
       or float(getattr(args, "terminal_any_paradox_penalty", 0.0)) > 0
       or float(getattr(args, "ordinal_value_weight", 0.0)) > 0
+      or official_weight > 0
   )
   if not has_terminal_shaping:
     return returns
@@ -4102,10 +4679,60 @@ def terminal_search_value(state, args):
       getattr(state, "_has_paradoxed", [False] * len(returns)),
       dtype=np.float32,
   )
+  final_round_scores = None
+  if official_weight > 0:
+    if hasattr(state, "raw_round_scores"):
+      final_round_scores = np.asarray(state.raw_round_scores(), dtype=np.float32)
+    else:
+      prior_totals = np.asarray(
+          getattr(state, "_match_totals", np.zeros_like(returns)),
+          dtype=np.float32,
+      )
+      final_round_scores = (
+          returns - prior_totals if prior_totals.shape == returns.shape
+          else returns.copy()
+      )
   return (
-      value_targets_from_scores(returns, paradox_target, args)
+      value_targets_from_scores(
+          returns,
+          paradox_target,
+          args,
+          final_round_scores=final_round_scores,
+      )
       * float(getattr(args, "value_scale", 1.0))
   ).astype(np.float32)
+
+
+def learned_prediction_enabled(state, args):
+  return (
+      int(getattr(state, "_phase", -1)) == 2
+      and str(getattr(args, "self_play_prediction_mode", "shared"))
+      in ("model", "belief_search")
+  )
+
+
+def blend_prediction_search_prior(state, player, priors, args):
+  """Keep all actor-legal bids explorable without inspecting hidden hands."""
+  if not learned_prediction_enabled(state, args):
+    return priors
+  weight = min(
+      1.0,
+      max(0.0, float(getattr(args, "prediction_shared_prior_weight", 0.35))),
+  )
+  if weight <= 0:
+    return priors
+  legal = [int(action) for action in state.legal_actions(player)]
+  shared = shared_prediction_action(state, player, legal)
+  if shared is None or not legal:
+    return priors
+  hand_prior = np.zeros_like(priors, dtype=np.float32)
+  distances = np.asarray(
+      [abs(int(action) - int(shared)) for action in legal],
+      dtype=np.float32,
+  )
+  weights = np.exp(-distances)
+  hand_prior[legal] = weights / max(float(weights.sum()), 1e-12)
+  return ((1.0 - weight) * priors + weight * hand_prior).astype(np.float32)
 
 
 def expand(
@@ -4118,20 +4745,58 @@ def expand(
   if state.is_terminal():
     return terminal_search_value(state, terminal_value_args)
   player = state.current_player()
-  priors, value = model_policy_value(
-      model, state, player, num_actions, value_scale, device,
-      paradox_value_penalty
+  priors, value, action_values, action_risks, _ = model_policy_value_action_aux(
+      model,
+      state,
+      player,
+      num_actions,
+      value_scale,
+      device,
+      paradox_value_penalty=paradox_value_penalty,
+      need_action_values=action_value_selection_weight > 0,
+      need_action_risks=action_paradox_selection_penalty > 0,
+      use_shared_prediction=not learned_prediction_enabled(
+          state, terminal_value_args
+      ),
   )
-  action_risks = (
-      model_action_risks(model, state, player, num_actions, device)
-      if action_paradox_selection_penalty > 0
-      else np.zeros(num_actions, dtype=np.float32)
+  priors = blend_prediction_search_prior(
+      state, player, priors, terminal_value_args
   )
-  action_values = (
-      model_action_values(model, state, player, num_actions, device)
-      if action_value_selection_weight > 0
-      else np.zeros(num_actions, dtype=np.float32)
+  survival_model = getattr(terminal_value_args, "_search_survival_model", None)
+  survival_penalty = float(
+      getattr(terminal_value_args, "survival_value_search_penalty", 0.0)
   )
+  if survival_model is not None and survival_penalty > 0.0:
+    _, survival_values = model_policy_value(
+        survival_model,
+        state,
+        player,
+        num_actions,
+        1.0,
+        device,
+    )
+    survival_value = float(np.mean(np.asarray(survival_values, dtype=np.float32)))
+    paradox_probability = float(np.clip((1.0 - survival_value) / 2.0, 0.0, 1.0))
+    root_paradox_probability = getattr(
+        terminal_value_args, "_survival_search_root_risk", None
+    )
+    if root_paradox_probability is None:
+      root_paradox_probability = paradox_probability
+      terminal_value_args._survival_search_root_risk = paradox_probability
+    value = np.asarray(value, dtype=np.float32) - (
+        survival_penalty * (
+            paradox_probability - float(root_paradox_probability)
+        )
+    )
+    counters = getattr(terminal_value_args, "_survival_search_counters", None)
+    if counters is not None:
+      counters["nonterminal_evaluations"] = (
+          int(counters.get("nonterminal_evaluations", 0)) + 1
+      )
+  if action_risks is None:
+    action_risks = np.zeros(num_actions, dtype=np.float32)
+  if action_values is None:
+    action_values = np.zeros(num_actions, dtype=np.float32)
   for action in state.legal_actions(player):
     node.children[action] = Node(
         priors[action], action_risks[action], action_values[action]
@@ -4150,7 +4815,9 @@ def run_simulation(
     depth=0,
 ):
   if state.is_terminal():
-    return terminal_search_value(state, terminal_value_args)
+    value = terminal_search_value(state, terminal_value_args)
+    node.add_value(value)
+    return value
   if not node.children:
     value = expand(
         node, state, model, num_actions, value_scale, device,
@@ -4167,6 +4834,7 @@ def run_simulation(
         ),
         terminal_value_args,
     )
+    node.add_value(value)
     return value
 
   player = state.current_player()
@@ -4207,17 +4875,19 @@ def run_simulation(
       terminal_value_args,
       depth + 1,
   )
-  child.add_value(value)
   node.add_value(value)
   return value
 
 
 def mcts_policy(state, model, args, device, add_noise=True, sims=None):
   if not state.is_chance_node() and not state.is_terminal():
-    prediction_action = shared_prediction_action(state, state.current_player())
-    if prediction_action is not None:
+    player = state.current_player()
+    setup_action = shared_discard_action(state, player)
+    if setup_action is None and not learned_prediction_enabled(state, args):
+      setup_action = shared_prediction_action(state, player)
+    if setup_action is not None:
       policy = np.zeros(state.num_distinct_actions(), dtype=np.float32)
-      policy[int(prediction_action)] = 1.0
+      policy[int(setup_action)] = 1.0
       return policy
   root = Node(1.0)
   paradox_value_penalty = getattr(args, "paradox_value_penalty", 0.0)
@@ -4227,6 +4897,8 @@ def mcts_policy(state, model, args, device, add_noise=True, sims=None):
   action_paradox_root_only = getattr(args, "action_paradox_root_only", False)
   action_value_selection_weight = getattr(args, "action_value_selection_weight", 0.0)
   action_value_root_only = getattr(args, "action_value_root_only", False)
+  if getattr(args, "_search_survival_model", None) is not None:
+    args._survival_search_root_risk = None
   expand(
       root, state.clone(), model, state.num_distinct_actions(), args.value_scale,
       device, paradox_value_penalty, action_paradox_selection_penalty,
@@ -4519,7 +5191,7 @@ def q_policy_select_action(
         ),
     )
     _selection_add_stat(stats, "rerank_threshold_applied")
-  elif mode == "relative":
+  elif mode in ("relative", "relative_dominance"):
     _selection_add_stat(stats, "rerank_relative_considered")
     if not risk_available:
       _selection_add_stat(stats, "rerank_relative_missing_risk")
@@ -4531,6 +5203,12 @@ def q_policy_select_action(
         getattr(args, "action_paradox_max_policy_log_gap", -1.0)
     )
     min_risk = min(float(action_risks[action]) for action in legal)
+    baseline_risk = float(action_risks[baseline_action])
+    if mode == "relative_dominance":
+      baseline_risk_margin = baseline_risk - min_risk
+      if baseline_risk_margin < safe_slack:
+        _selection_add_stat(stats, "rerank_relative_blocked_risk_margin")
+        return baseline_action
     baseline_log_policy = float(log_policy[baseline_action])
     safe_candidates = []
     gap_filtered = []
@@ -4560,8 +5238,29 @@ def q_policy_select_action(
     )
     _selection_add_stat(stats, "rerank_relative_applied")
   else:
+    value_max_policy_gap = float(
+        getattr(args, "action_value_max_policy_log_gap", -1.0)
+    )
+    candidate_actions = legal
+    if value_max_policy_gap >= 0.0:
+      baseline_log_policy = float(log_policy[baseline_action])
+      candidate_actions = [
+          action for action in legal
+          if baseline_log_policy - float(log_policy[action])
+          <= value_max_policy_gap
+      ]
+      _selection_add_stat(
+          stats,
+          "rerank_value_gap_filtered_candidates",
+          len(candidate_actions),
+      )
+      if not candidate_actions:
+        _selection_add_stat(stats, "rerank_value_blocked_policy_gap")
+        return baseline_action
+      if len(candidate_actions) < len(legal):
+        _selection_add_stat(stats, "rerank_value_filtered_policy_gap")
     selected = max(
-        legal,
+        candidate_actions,
         key=lambda action: log_policy[action]
         + float(value_bonus[action])
         + float(feasibility_bonus[action])
@@ -4584,10 +5283,103 @@ def q_policy_select_action(
 def q_policy_rerank_policy(state, player, model, args, device):
   """Teacher policy from the same root risk/value reranker used by q_policy."""
   legal = state.legal_actions(player)
-  prediction_action = shared_prediction_action(state, player, legal)
-  if prediction_action is not None:
+  setup_action = shared_discard_action(state, player, legal)
+  if setup_action is None:
+    setup_action = shared_prediction_action(state, player, legal)
+  if setup_action is not None:
     target = np.zeros(state.num_distinct_actions(), dtype=np.float32)
-    target[int(prediction_action)] = 1.0
+    target[int(setup_action)] = 1.0
+    return target
+  value_weight = float(getattr(args, "action_value_selection_weight", 0.0))
+  risk_penalty = float(getattr(args, "action_paradox_selection_penalty", 0.0))
+  risk_mode = str(
+      getattr(args, "action_paradox_rerank_mode", "additive") or "additive"
+  ).lower()
+  need_feasibility = (
+      float(getattr(args, "action_feasibility_selection_weight", 0.0)) != 0.0
+  )
+  policy, _, action_values, action_risks, action_features = (
+      model_policy_value_action_aux(
+          model,
+          state,
+          player,
+          state.num_distinct_actions(),
+          args.value_scale,
+          device,
+          need_action_values=value_weight > 0,
+          need_action_risks=(
+              risk_penalty > 0
+              or risk_mode in ("threshold", "relative", "relative_dominance")
+          ),
+          return_action_features=need_feasibility,
+      )
+  )
+  if action_values is None:
+    action_values = np.zeros(state.num_distinct_actions(), dtype=np.float32)
+  if action_risks is None and (
+      risk_penalty > 0
+      or risk_mode in ("threshold", "relative", "relative_dominance")
+  ):
+    action_risks = np.zeros(state.num_distinct_actions(), dtype=np.float32)
+  if len(legal) <= 1:
+    return policy
+  phase_spec = str(getattr(args, "action_value_rerank_phases", "") or "")
+  if phase_spec.strip():
+    allowed = {part.strip().lower() for part in phase_spec.split(",") if part.strip()}
+    if phase_name_for_state(state) not in allowed:
+      return policy
+  if phase_name_for_state(state) == "play":
+    trick_number = int(getattr(state, "_trick_number", 0))
+    min_trick = int(getattr(args, "action_value_rerank_min_trick_number", -1))
+    max_trick = int(getattr(args, "action_value_rerank_max_trick_number", -1))
+    if min_trick >= 0 and trick_number < min_trick:
+      return policy
+    if max_trick >= 0 and trick_number > max_trick:
+      return policy
+  if (
+      value_weight <= 0
+      and risk_penalty <= 0
+      and not need_feasibility
+      and risk_mode not in ("threshold", "relative", "relative_dominance")
+  ):
+    return policy
+  clip = max(0.0, float(getattr(args, "action_value_rerank_clip", 0.5)))
+  if clip > 0:
+    action_values = np.clip(action_values, -clip, clip)
+  min_margin = float(getattr(args, "action_value_rerank_min_margin", 0.0))
+  if min_margin > 0 and len(legal) > 1:
+    legal_values = np.array([float(action_values[action]) for action in legal])
+    top_two = np.partition(legal_values, -2)[-2:]
+    value_margin = float(np.max(top_two) - np.min(top_two))
+    if value_margin < min_margin:
+      return policy
+  feasibility_scores = (
+      action_feasibility_scores(action_features)
+      if need_feasibility else None
+  )
+  selected = q_policy_select_action(
+      legal,
+      policy,
+      action_values,
+      action_risks,
+      args,
+      getattr(args, "value_scale", 1.0),
+      feasibility_scores=feasibility_scores,
+  )
+  target = np.zeros_like(policy, dtype=np.float32)
+  target[selected] = 1.0
+  return target
+
+
+def q_policy_rerank_policy_legacy(state, player, model, args, device):
+  """Deprecated copy retained for comparing one-pass q-policy behavior."""
+  legal = state.legal_actions(player)
+  setup_action = shared_discard_action(state, player, legal)
+  if setup_action is None:
+    setup_action = shared_prediction_action(state, player, legal)
+  if setup_action is not None:
+    target = np.zeros(state.num_distinct_actions(), dtype=np.float32)
+    target[int(setup_action)] = 1.0
     return target
   policy, _ = model_policy_value(
       model,
@@ -4604,6 +5396,14 @@ def q_policy_rerank_policy(state, player, model, args, device):
     allowed = {part.strip().lower() for part in phase_spec.split(",") if part.strip()}
     if phase_name_for_state(state) not in allowed:
       return policy
+  if phase_name_for_state(state) == "play":
+    trick_number = int(getattr(state, "_trick_number", 0))
+    min_trick = int(getattr(args, "action_value_rerank_min_trick_number", -1))
+    max_trick = int(getattr(args, "action_value_rerank_max_trick_number", -1))
+    if min_trick >= 0 and trick_number < min_trick:
+      return policy
+    if max_trick >= 0 and trick_number > max_trick:
+      return policy
   value_weight = float(getattr(args, "action_value_selection_weight", 0.0))
   risk_penalty = float(getattr(args, "action_paradox_selection_penalty", 0.0))
   risk_mode = str(
@@ -4613,7 +5413,7 @@ def q_policy_rerank_policy(state, player, model, args, device):
       value_weight <= 0
       and risk_penalty <= 0
       and float(getattr(args, "action_feasibility_selection_weight", 0.0)) == 0.0
-      and risk_mode not in ("threshold", "relative")
+      and risk_mode not in ("threshold", "relative", "relative_dominance")
   ):
     return policy
   action_values = (
@@ -4637,7 +5437,8 @@ def q_policy_rerank_policy(state, player, model, args, device):
       model_action_risks(
           model, state, player, state.num_distinct_actions(), device
       )
-      if risk_penalty > 0 or risk_mode in ("threshold", "relative") else
+      if risk_penalty > 0
+      or risk_mode in ("threshold", "relative", "relative_dominance") else
       None
   )
   feasibility_scores = (
@@ -5040,10 +5841,28 @@ def belief_raw_policy(
 
 
 def learner_policy(state, player, model, args, device, add_noise=True):
-  prediction_action = shared_prediction_action(state, player)
-  if prediction_action is not None:
+  setup_action = shared_discard_action(state, player)
+  prediction_mode = str(getattr(args, "self_play_prediction_mode", "shared"))
+  if setup_action is None and not learned_prediction_enabled(state, args):
+    setup_action = shared_prediction_action(state, player)
+  if setup_action is not None:
     policy = np.zeros(state.num_distinct_actions(), dtype=np.float32)
-    policy[int(prediction_action)] = 1.0
+    policy[int(setup_action)] = 1.0
+    return policy
+  if learned_prediction_enabled(state, args):
+    if prediction_mode == "belief_search":
+      return belief_mcts_policy(
+          state, player, model, args, device, add_noise=add_noise
+      )
+    policy, _ = model_policy_value(
+        model,
+        state,
+        player,
+        state.num_distinct_actions(),
+        args.value_scale,
+        device,
+        use_shared_prediction=False,
+    )
     return policy
   mode = getattr(args, "self_play_policy_mode", "belief")
   if mode == "policy":
@@ -5217,8 +6036,7 @@ def self_play_game(game, model, args, device):
 def self_play_match(model, args, device, initial_start):
   match_totals = np.zeros(args.players, dtype=np.float32)
   final_round_scores = np.zeros(args.players, dtype=np.float32)
-  all_examples = []
-  terminal_action_paradox_targets = []
+  round_example_groups = []
   start_counts = [0] * args.players
   terminal_states = []
   for round_index in range(args.players):
@@ -5239,26 +6057,14 @@ def self_play_match(model, args, device, initial_start):
     round_paradox_target = terminal_paradox_target(terminal_state, args.players)
     match_totals += np.array(raw_scores, dtype=np.float32)
     final_round_scores = np.array(raw_scores, dtype=np.float32)
-    all_examples.extend(examples)
-    terminal_action_paradox_targets.extend(
-        [round_paradox_target] * len(examples)
-    )
+    round_example_groups.append((examples, round_paradox_target))
     terminal_states.append(terminal_state)
-  paradox_target = np.zeros(args.players, dtype=np.float32)
-  for terminal_state in terminal_states:
-    paradox_target = np.maximum(
-        paradox_target,
-        terminal_paradox_target(terminal_state, args.players),
-    )
-  final_returns = value_targets_from_scores(
-      match_totals, paradox_target, args, final_round_scores
-  )
   return (
-      with_terminal_targets(
-          all_examples,
-          final_returns,
-          paradox_target,
-          terminal_action_paradox_targets=terminal_action_paradox_targets,
+      with_match_round_terminal_targets(
+          round_example_groups,
+          match_totals,
+          args,
+          final_round_scores=final_round_scores,
       ),
       match_totals,
       start_counts,
@@ -5497,8 +6303,7 @@ def teacher_policy_match(teacher_model, args, device, initial_start,
                          teacher_stats=None):
   match_totals = np.zeros(args.players, dtype=np.float32)
   final_round_scores = np.zeros(args.players, dtype=np.float32)
-  all_examples = []
-  terminal_action_paradox_targets = []
+  round_example_groups = []
   start_counts = [0] * args.players
   terminal_states = []
   for round_index in range(args.players):
@@ -5519,26 +6324,14 @@ def teacher_policy_match(teacher_model, args, device, initial_start,
     round_paradox_target = terminal_paradox_target(terminal_state, args.players)
     match_totals += np.array(raw_scores, dtype=np.float32)
     final_round_scores = np.array(raw_scores, dtype=np.float32)
-    all_examples.extend(examples)
-    terminal_action_paradox_targets.extend(
-        [round_paradox_target] * len(examples)
-    )
+    round_example_groups.append((examples, round_paradox_target))
     terminal_states.append(terminal_state)
-  paradox_target = np.zeros(args.players, dtype=np.float32)
-  for terminal_state in terminal_states:
-    paradox_target = np.maximum(
-        paradox_target,
-        terminal_paradox_target(terminal_state, args.players),
-    )
-  final_returns = value_targets_from_scores(
-      match_totals, paradox_target, args, final_round_scores
-  )
   return (
-      with_terminal_targets(
-          all_examples,
-          final_returns,
-          paradox_target,
-          terminal_action_paradox_targets=terminal_action_paradox_targets,
+      with_match_round_terminal_targets(
+          round_example_groups,
+          match_totals,
+          args,
+          final_round_scores=final_round_scores,
       ),
       match_totals,
       start_counts,
@@ -5579,6 +6372,44 @@ def with_terminal_targets(
         action_targets, action_mask, action_value_targets, action_value_mask,
         action_features, terminal_action_paradox_target,
     ))
+  return rows
+
+
+def with_match_round_terminal_targets(
+    round_example_groups,
+    match_totals,
+    args,
+    final_round_scores=None,
+):
+  """Attaches match score plus round-local survival targets to replay rows.
+
+  A full match contains one independently dealt round per player. Using a
+  match-wide OR of those rounds' paradox flags makes nearly every decision a
+  failure example once per-round failure is common. Keep the final match score
+  target shared, but apply paradox penalties and paradox classification labels
+  only from the round that produced each observation.
+  """
+  rows = []
+  for examples, round_paradox_target in round_example_groups:
+    round_paradox_target = adapt_player_target_vector(
+        round_paradox_target, int(args.players)
+    )
+    round_returns = value_targets_from_scores(
+        match_totals,
+        round_paradox_target,
+        args,
+        final_round_scores=final_round_scores,
+    )
+    rows.extend(
+        with_terminal_targets(
+            examples,
+            round_returns,
+            round_paradox_target,
+            terminal_action_paradox_targets=[
+                round_paradox_target
+            ] * len(examples),
+        )
+    )
   return rows
 
 
@@ -5626,6 +6457,8 @@ def _make_worker_model(args, state_dict, device):
       args.arch,
       getattr(args, "separate_action_value_encoder", False),
       getattr(args, "separate_action_paradox_encoder", False),
+      getattr(args, "separate_prediction_policy_head", False),
+      getattr(args, "prediction_policy_input", "pair"),
   ).to(device)
   load_compatible_state_dict(model, state_dict)
   initialize_missing_action_value_stack_from_policy(model, state_dict)
@@ -6124,7 +6957,9 @@ def old_policy_action(
 ):
   model = old_policy_model(opponent_model, role)
   mode = mode_override or old_policy_mode(role, args)
-  if mode == "mcts":
+  if mode == "q_policy":
+    policy = q_policy_rerank_policy(state, player, model, args, device)
+  elif mode == "mcts":
     policy = mcts_policy(state, model, args, device, add_noise=False)
   elif mode == "belief":
     policy = belief_mcts_policy(
@@ -6446,6 +7281,13 @@ def rollout_match_score_after_action(
     )
     match_totals += np.array(raw_scores, dtype=np.float32)
 
+  if str(getattr(args, "counterfactual_action_value_objective", "score")) == "official":
+    official_scores = match_outcome_scores(match_totals, raw_scores)
+    official_placement = ordinal_value_targets(official_scores)
+    return float(
+        official_placement[int(acting_player)]
+        * float(getattr(args, "value_scale", 1.0))
+    )
   return float(match_totals[acting_player])
 
 
@@ -6910,36 +7752,72 @@ def _model_policy_action_probs_batch(ref_model, shadows, players, actions, args,
   if not shadows:
     return []
   num_actions = int(shadows[0].num_distinct_actions())
+  compact_features = getattr(ref_model, "arch", "") in ACTION_CONDITIONED_ARCHS
+  probabilities = [0.0 for _ in shadows]
+  model_row_indices = []
   obs_rows = []
   action_feature_rows = []
   legal_rows = []
-  for shadow, player in zip(shadows, players):
+  for index, (shadow, player, action) in enumerate(
+      zip(shadows, players, actions)
+  ):
+    legal = shadow.legal_actions(player)
+    if action not in legal:
+      continue
+    setup_action = shared_discard_action(shadow, player, legal)
+    if setup_action is None:
+      setup_action = shared_prediction_action(shadow, player, legal)
+    if setup_action is not None:
+      probabilities[index] = float(int(action) == int(setup_action))
+      continue
+    model_row_indices.append(index)
     obs_rows.append(np.array(shadow.observation_tensor(player), dtype=np.float32))
-    action_feature_rows.append(action_feature_matrix(shadow, player, num_actions))
-    legal_rows.append(shadow.legal_actions(player))
+    action_feature_rows.append(
+        compact_action_feature_matrix(shadow, player, legal)
+        if compact_features
+        else action_feature_matrix(shadow, player, num_actions)
+    )
+    legal_rows.append(legal)
+  if not model_row_indices:
+    return probabilities
   obs_t = torch.tensor(np.stack(obs_rows), dtype=torch.float32, device=device)
   obs_t = adapt_observation_batch(obs_t, model_input_size(ref_model))
+  if compact_features:
+    max_legal = max(len(legal) for legal in legal_rows)
+    padded_features = np.zeros(
+        (len(action_feature_rows), max_legal, ACTION_FEATURE_SIZE),
+        dtype=np.float32,
+    )
+    for index, features in enumerate(action_feature_rows):
+      padded_features[index, :len(features)] = features
+    feature_batch = padded_features
+  else:
+    feature_batch = np.stack(action_feature_rows)
   action_features_t = torch.tensor(
-      np.stack(action_feature_rows), dtype=torch.float32, device=device
+      feature_batch, dtype=torch.float32, device=device
   )
-  with torch.no_grad():
-    logits_t, _ = ref_model(obs_t, action_features_t)
+  with torch.inference_mode():
+    state_embedding = ref_model.body(obs_t)
+    logits_t = ref_model._policy_logits(state_embedding, action_features_t)
     logits = logits_t.detach().cpu().numpy()
-  probs = []
-  for row_idx, (legal, action) in enumerate(zip(legal_rows, actions)):
-    if action not in legal:
-      probs.append(0.0)
-      continue
-    legal_logits = logits[row_idx, legal]
+  for row_idx, (original_index, legal) in enumerate(
+      zip(model_row_indices, legal_rows)
+  ):
+    action = actions[original_index]
+    legal_logits = (
+        logits[row_idx, :len(legal)]
+        if compact_features
+        else logits[row_idx, legal]
+    )
     max_logit = float(np.max(legal_logits))
     exp = np.exp(legal_logits - max_logit)
     total = float(np.sum(exp))
     if total <= 0 or not math.isfinite(total):
-      probs.append(1.0 / float(len(legal)))
+      probabilities[original_index] = 1.0 / float(len(legal))
       continue
     action_pos = legal.index(action)
-    probs.append(float(exp[action_pos] / total))
-  return probs
+    probabilities[original_index] = float(exp[action_pos] / total)
+  return probabilities
 
 
 def _reference_policy_action_probs_batch(shadows, players, actions, model, args, device):
@@ -7018,7 +7896,23 @@ def _score_observed_trick_likelihood_batch(sampled_states, model, args, device):
       except Exception:
         mark_none(idx)
 
+  def apply_without_probability(records):
+    for idx, shadow, action in records:
+      if status[idx] != "ok":
+        continue
+      try:
+        shadow.apply_action(action)
+      except Exception:
+        mark_none(idx)
+
   try:
+    score_predictions = bool(
+        getattr(args, "counterfactual_belief_score_predictions", True)
+    )
+    score_completed_trick_window = max(
+        0,
+        int(getattr(args, "counterfactual_belief_score_completed_trick_window", 0)),
+    )
     prediction_shadows = [None for _ in states]
     max_players = max(int(getattr(state, "_num_players", 0)) for state in states)
     for idx, state in enumerate(states):
@@ -7041,32 +7935,48 @@ def _score_observed_trick_likelihood_batch(sampled_states, model, args, device):
           prediction_shadows[idx] = None
           continue
         action = 100 + prediction
-        if action not in shadow.legal_actions(replay_player):
+        legal = shadow.legal_actions(replay_player)
+        if action not in legal:
           mark_illegal(idx)
           continue
+        if score_predictions:
+          forced_prediction = shared_prediction_action(
+              shadow, replay_player, legal
+          )
+          if forced_prediction is not None and action != forced_prediction:
+            mark_illegal(idx)
+            continue
         records.append((idx, shadow, action))
         players.append(replay_player)
         actions.append(action)
       if records:
-        probs = _reference_policy_action_probs_batch(
-            [record[1] for record in records], players, actions, model, args, device
-        )
-        apply_probability(records, probs)
+        if score_predictions:
+          probs = _reference_policy_action_probs_batch(
+              [record[1] for record in records], players, actions, model, args, device
+          )
+          apply_probability(records, probs)
+        else:
+          apply_without_probability(records)
 
     trick_shadows = [None for _ in states]
     num_card_types = [0 for _ in states]
     max_completed = 0
+    score_completed_from = [0 for _ in states]
     for idx, state in enumerate(states):
       if status[idx] != "ok":
         continue
       if int(getattr(state, "_phase", -1)) >= 3 and len(_observed_trick_cards(state)) > 0:
         trick_shadows[idx] = _reset_to_trick_replay_start(state)
         num_card_types[idx] = int(getattr(state, "_num_card_types"))
-        max_completed = max(max_completed, len(getattr(state, "_completed_tricks", [])))
+        completed_count = len(getattr(state, "_completed_tricks", []))
+        if score_completed_trick_window > 0:
+          score_completed_from[idx] = max(0, completed_count - score_completed_trick_window)
+        max_completed = max(max_completed, completed_count)
 
     for trick_idx in range(max_completed):
       for _ in range(max_players):
-        records = []
+        score_records = []
+        apply_records = []
         players = []
         actions = []
         for idx, state in enumerate(states):
@@ -7086,14 +7996,20 @@ def _score_observed_trick_likelihood_batch(sampled_states, model, args, device):
           if action not in shadow.legal_actions(replay_player):
             mark_illegal(idx)
             continue
-          records.append((idx, shadow, action))
-          players.append(replay_player)
-          actions.append(action)
-        if records:
+          record = (idx, shadow, action)
+          if trick_idx >= score_completed_from[idx]:
+            score_records.append(record)
+            players.append(replay_player)
+            actions.append(action)
+          else:
+            apply_records.append(record)
+        if apply_records:
+          apply_without_probability(apply_records)
+        if score_records:
           probs = _reference_policy_action_probs_batch(
-              [record[1] for record in records], players, actions, model, args, device
+              [record[1] for record in score_records], players, actions, model, args, device
           )
-          apply_probability(records, probs)
+          apply_probability(score_records, probs)
 
     current_done = [False for _ in states]
     for _ in range(max_players):
@@ -7160,6 +8076,11 @@ def _score_observed_trick_likelihood(sampled_state, model, args, device):
         legal = prediction_shadow.legal_actions(replay_player)
         if action not in legal:
           return -1e9
+        forced_prediction = shared_prediction_action(
+            prediction_shadow, replay_player, legal
+        )
+        if forced_prediction is not None and action != forced_prediction:
+          return -1e9
         prob = _reference_policy_action_prob(
             prediction_shadow, replay_player, action, model, args, device
         )
@@ -7218,11 +8139,53 @@ def _score_observed_trick_likelihood(sampled_state, model, args, device):
 
 def _uniform_counterfactual_resamples(state, player, count):
   states = []
+  observation = getattr(state, "observation_tensor", None)
+  legal_actions = getattr(state, "legal_actions", None)
+  expected_observation = None
+  expected_legal = None
+  initialized_expectations = False
   for _ in range(max(0, int(count))):
     try:
-      states.append(state.resample_from_infostate(player, np.random))
-    except Exception:
-      states.append(state.clone())
+      sampled = state.resample_from_infostate(player, np.random)
+    except Exception as exc:
+      raise RuntimeError(
+          "Information-state belief resampling failed; refusing to use the "
+          "actual hidden state"
+      ) from exc
+    if not initialized_expectations:
+      expected_observation = (
+          np.asarray(observation(player), dtype=np.float32)
+          if callable(observation) else None
+      )
+      expected_legal = (
+          sorted(int(action) for action in legal_actions(player))
+          if callable(legal_actions) else None
+      )
+      initialized_expectations = True
+    if expected_observation is not None:
+      sampled_observation = np.asarray(
+          sampled.observation_tensor(player), dtype=np.float32
+      )
+      if (
+          sampled_observation.shape != expected_observation.shape
+          or not np.allclose(
+              sampled_observation, expected_observation, rtol=0.0, atol=1e-6
+          )
+      ):
+        raise RuntimeError(
+            "Information-state belief resampling changed the acting "
+            "player's observation; refusing hidden-state leakage"
+        )
+    if expected_legal is not None:
+      sampled_legal = sorted(
+          int(action) for action in sampled.legal_actions(player)
+      )
+      if sampled_legal != expected_legal:
+        raise RuntimeError(
+            "Information-state belief resampling changed the acting "
+            "player's legal actions; refusing hidden-state leakage"
+        )
+    states.append(sampled)
   return states
 
 
@@ -7232,32 +8195,78 @@ def policy_weighted_belief_states(state, player, args, model, device):
       samples, int(getattr(args, "counterfactual_belief_candidates", 8))
   )
   score_args = _args_with_phase_ref_mix(args, state)
-  candidates = _uniform_counterfactual_resamples(state, player, candidate_count)
-  scores = _score_observed_trick_likelihood_batch(candidates, model, score_args, device)
-  if not candidates or any(score is None for score in scores):
-    return _uniform_counterfactual_resamples(state, player, samples)
-
-  scores_np = np.array(scores, dtype=np.float64)
-  finite = np.isfinite(scores_np)
-  if not np.any(finite):
-    return _uniform_counterfactual_resamples(state, player, samples)
-  min_finite = float(np.min(scores_np[finite]))
-  scores_np[~finite] = min_finite - 1e6
+  valid = None
+  max_rejection_batch = max(
+      candidate_count,
+      int(getattr(args, "counterfactual_belief_max_rejection_candidates", 2048)),
+  )
+  for attempt in range(12):
+    rejection_batch = min(
+        max_rejection_batch, candidate_count * (2 ** attempt)
+    )
+    candidates = _uniform_counterfactual_resamples(
+        state, player, rejection_batch
+    )
+    scores = _score_observed_trick_likelihood_batch(
+        candidates, model, score_args, device
+    )
+    if not candidates or any(score is None for score in scores):
+      raise RuntimeError(
+          "Policy-weighted belief scoring failed; refusing to sample "
+          "unverified hidden worlds"
+      )
+    scores_np = np.array(scores, dtype=np.float64)
+    valid = np.isfinite(scores_np) & (scores_np > -1e8)
+    if np.any(valid):
+      break
+  else:
+    mismatch_counts = {}
+    if isinstance(getattr(state, "_predictions", None), (list, tuple, np.ndarray)):
+      for candidate in candidates:
+        shadow = _reset_to_prediction_replay_start(candidate)
+        for _ in range(int(getattr(candidate, "_num_players", 0))):
+          replay_player = int(shadow.current_player())
+          observed = int(candidate._predictions[replay_player])
+          if observed < 0:
+            break
+          observed_action = 100 + observed
+          legal = shadow.legal_actions(replay_player)
+          predicted = shared_prediction_action(shadow, replay_player, legal)
+          if predicted is not None and observed_action != predicted:
+            mismatch_counts[replay_player] = (
+                mismatch_counts.get(replay_player, 0) + 1
+            )
+            break
+          if observed_action not in legal:
+            break
+          shadow.apply_action(observed_action)
+    raise RuntimeError(
+        "Policy-weighted belief resampling found no hidden worlds "
+        "consistent with observed public history "
+        f"(player={player}, phase={getattr(state, '_phase', None)}, "
+        f"trick={getattr(state, '_trick_number', None)}, "
+        f"predictions={getattr(state, '_predictions', None)}, "
+        f"last_batch_prediction_mismatches={mismatch_counts})"
+    )
   temperature = max(
       1e-6, float(getattr(args, "counterfactual_belief_policy_temperature", 1.0))
   )
-  logits = (scores_np - float(np.max(scores_np))) / temperature
-  weights = np.exp(logits)
+  weights = np.zeros(len(candidates), dtype=np.float64)
+  valid_logits = (
+      scores_np[valid] - float(np.max(scores_np[valid]))
+  ) / temperature
+  weights[valid] = np.exp(valid_logits)
   total = float(weights.sum())
   if total <= 0 or not math.isfinite(total):
-    probs = np.ones(len(candidates), dtype=np.float64) / float(len(candidates))
+    probs = valid.astype(np.float64) / float(np.sum(valid))
   else:
     probs = weights / total
   mix = min(
       1.0,
       max(0.0, float(getattr(args, "counterfactual_belief_uniform_mix", 0.15))),
   )
-  probs = (1.0 - mix) * probs + mix / float(len(candidates))
+  uniform_valid = valid.astype(np.float64) / float(np.sum(valid))
+  probs = (1.0 - mix) * probs + mix * uniform_valid
   probs = probs / float(probs.sum())
   chosen = np.random.choice(len(candidates), size=samples, replace=True, p=probs)
   return [candidates[int(idx)].clone() for idx in chosen]
@@ -7731,8 +8740,7 @@ def league_policy_match(
 
   match_totals = np.zeros(args.players, dtype=np.float32)
   final_round_scores = np.zeros(args.players, dtype=np.float32)
-  all_examples = []
-  terminal_action_paradox_targets = []
+  round_example_groups = []
   start_counts = [0] * args.players
   learner_seat = seat_roles.index("learner")
   learner_plys = 0
@@ -7745,7 +8753,7 @@ def league_policy_match(
     start_counts[start_player] += 1
     round_game = make_game(args, start_player)
     state = round_game.new_initial_state()
-    round_example_start = len(all_examples)
+    round_examples = []
     if getattr(args, "match_context", False):
       state.set_match_context(match_totals, round_index)
 
@@ -7821,7 +8829,7 @@ def league_policy_match(
         else:
           cf_targets = cf_mask = None
           cf_value_targets = cf_value_mask = None
-        all_examples.append((
+        round_examples.append((
             np.array(state.observation_tensor(player), dtype=np.float32),
             legal_mask,
             policy,
@@ -7854,22 +8862,14 @@ def league_policy_match(
     final_round_scores = np.array(raw_scores, dtype=np.float32)
     round_paradox_target = terminal_paradox_target(state, args.players)
     paradoxes += round_paradox_target
-    terminal_action_paradox_targets.extend(
-        [round_paradox_target] * (len(all_examples) - round_example_start)
-    )
+    round_example_groups.append((round_examples, round_paradox_target))
 
-  final_returns = value_targets_from_scores(
-      match_totals,
-      (paradoxes > 0).astype(np.float32),
-      args,
-      final_round_scores,
-  )
   return (
-      with_terminal_targets(
-          all_examples,
-          final_returns,
-          (paradoxes > 0),
-          terminal_action_paradox_targets=terminal_action_paradox_targets,
+      with_match_round_terminal_targets(
+          round_example_groups,
+          match_totals,
+          args,
+          final_round_scores=final_round_scores,
       ),
       match_totals,
       start_counts,
@@ -7948,15 +8948,17 @@ def policy_target_bucket_masks(action_rows):
   )
   mid_rank = (rank_norm > 0.5) & (rank_norm <= (5.0 / 6.0))
   red = action_rows[:, ACTION_FEATURE_IS_RED_INDEX] > 0.5
+  token_loss = (
+      (action_rows[:, ACTION_FEATURE_OFF_LED_LOSES_TOKEN_INDEX] > 0.5)
+      | (
+          action_rows[
+              :, APPENDED_ACTION_FEATURE_INDEX["token_loss_newly_loses_led"]
+          ] > 0.5
+      )
+  )
+  would_win = action_rows[:, ACTION_FEATURE_PREFIX_SIZE + 19] > 0.5
   masks = {
-      "token_loss": (
-          (action_rows[:, ACTION_FEATURE_OFF_LED_LOSES_TOKEN_INDEX] > 0.5)
-          | (
-              action_rows[
-                  :, APPENDED_ACTION_FEATURE_INDEX["token_loss_newly_loses_led"]
-              ] > 0.5
-          )
-      ),
+      "token_loss": token_loss,
       "follows_led": follows_led,
       "prediction_feasible": prediction_feasible,
       "hits_prediction": hits_prediction,
@@ -7972,6 +8974,8 @@ def policy_target_bucket_masks(action_rows):
       "high_rank": rank_norm > (5.0 / 6.0),
       "cluster_growth": cluster_growth,
       "red": red,
+      "red_switch": red & token_loss,
+      "red_win_switch": red & token_loss & would_win,
       "red_cluster_growth": red & cluster_growth,
       "red_prediction_feasible": red & prediction_feasible,
       "red_hits_prediction": red & hits_prediction,
@@ -8126,6 +9130,141 @@ def filter_action_value_labels_for_training(replay, args):
   }
 
 
+def compact_action_label_example(example, include_policy_top=True):
+  """Shrink a loaded replay row to explicitly labeled candidate actions.
+
+  This is for action-conditioned auxiliary training. The model learns from the
+  retained action-feature rows and labels; runtime inference still scores the
+  full legal action set. Because positions are remapped inside the compact
+  tensor, selected global action ids are intentionally cleared.
+  """
+  if len(example) <= 11 or example[11] is None:
+    return example, {
+        "compact_action_label_skipped": True,
+        "compact_action_label_reason": "missing_action_features",
+    }
+  mask = np.asarray(example[1], dtype=np.float32)
+  policy = np.asarray(example[2], dtype=np.float32)
+  action_targets = (
+      np.asarray(example[7], dtype=np.float32)
+      if len(example) > 8 and example[7] is not None
+      else np.zeros_like(mask, dtype=np.float32)
+  )
+  action_target_mask = (
+      np.asarray(example[8], dtype=np.float32)
+      if len(example) > 8 and example[8] is not None
+      else np.zeros_like(mask, dtype=np.float32)
+  )
+  action_value_targets = (
+      np.asarray(example[9], dtype=np.float32)
+      if len(example) > 10 and example[9] is not None
+      else np.zeros_like(mask, dtype=np.float32)
+  )
+  action_value_mask = (
+      np.asarray(example[10], dtype=np.float32)
+      if len(example) > 10 and example[10] is not None
+      else np.zeros_like(mask, dtype=np.float32)
+  )
+  num_actions = int(max(
+      len(mask),
+      len(policy),
+      len(action_targets),
+      len(action_target_mask),
+      len(action_value_targets),
+      len(action_value_mask),
+  ))
+  mask = adapt_action_vector(mask, num_actions, dtype=np.float32)
+  policy = adapt_action_vector(policy, num_actions, dtype=np.float32)
+  action_targets = adapt_action_vector(
+      action_targets, num_actions, dtype=np.float32
+  )
+  action_target_mask = adapt_action_vector(
+      action_target_mask, num_actions, dtype=np.float32
+  )
+  action_value_targets = adapt_action_vector(
+      action_value_targets, num_actions, dtype=np.float32
+  )
+  action_value_mask = adapt_action_vector(
+      action_value_mask, num_actions, dtype=np.float32
+  )
+  keep = set(int(idx) for idx in np.flatnonzero(
+      (action_target_mask > 0.0) | (action_value_mask > 0.0)
+  ))
+  legal = np.flatnonzero(mask > 0.5)
+  if include_policy_top and legal.size:
+    keep.add(int(max(legal, key=lambda action: float(policy[int(action)]))))
+  if not keep:
+    return example, {
+        "compact_action_label_skipped": True,
+        "compact_action_label_reason": "no_labeled_actions",
+    }
+  keep_indices = np.array(sorted(keep), dtype=np.int64)
+  action_features = adapt_action_features(example[11], num_actions)
+  compact_policy = policy[keep_indices].astype(np.float32, copy=True)
+  policy_total = float(np.sum(compact_policy))
+  if policy_total > 1e-12:
+    compact_policy /= policy_total
+  else:
+    compact_policy[:] = 1.0 / float(len(compact_policy))
+  compact_mask = np.ones(len(keep_indices), dtype=np.float32)
+  items = list(example)
+  items[1] = compact_mask
+  items[2] = compact_policy
+  items[5] = -1
+  items[7] = action_targets[keep_indices].astype(np.float32, copy=True)
+  items[8] = action_target_mask[keep_indices].astype(np.float32, copy=True)
+  items[9] = action_value_targets[keep_indices].astype(np.float32, copy=True)
+  items[10] = action_value_mask[keep_indices].astype(np.float32, copy=True)
+  items[11] = action_features[keep_indices].astype(np.float32, copy=True)
+  return tuple(items), {
+      "compact_action_label_skipped": False,
+      "compact_original_action_count": int(num_actions),
+      "compact_action_count": int(len(keep_indices)),
+      "compact_labeled_action_count": int(np.sum(
+          (action_target_mask[keep_indices] > 0.0)
+          | (action_value_mask[keep_indices] > 0.0)
+      )),
+  }
+
+
+def compact_action_label_replay(replay, args):
+  if not bool(getattr(args, "loaded_replay_compact_action_labels", False)):
+    return list(replay), None
+  compacted = []
+  skipped = 0
+  counts = []
+  original_counts = []
+  labeled_counts = []
+  include_policy_top = True
+  for example in replay:
+    compact, stats = compact_action_label_example(
+        example, include_policy_top=include_policy_top
+    )
+    if stats.get("compact_action_label_skipped"):
+      skipped += 1
+    else:
+      counts.append(int(stats["compact_action_count"]))
+      original_counts.append(int(stats["compact_original_action_count"]))
+      labeled_counts.append(int(stats["compact_labeled_action_count"]))
+    compacted.append(compact)
+  report = {
+      "loaded_replay_compact_action_labels": True,
+      "compact_rows": int(len(compacted) - skipped),
+      "compact_skipped_rows": int(skipped),
+      "compact_action_count_mean": (
+          None if not counts else round(float(np.mean(counts)), 4)
+      ),
+      "compact_action_count_max": None if not counts else int(max(counts)),
+      "compact_original_action_count_max": (
+          None if not original_counts else int(max(original_counts))
+      ),
+      "compact_labeled_action_count_mean": (
+          None if not labeled_counts else round(float(np.mean(labeled_counts)), 4)
+      ),
+  }
+  return compacted, report
+
+
 def sample_training_batch(replay, batch_size, args):
   value_labeled_fraction = float(
       getattr(args, "action_value_labeled_batch_fraction", 0.0)
@@ -8184,7 +9323,7 @@ def sample_training_batch(replay, batch_size, args):
   return batch
 
 
-def split_action_value_validation_replay(replay, args):
+def split_action_value_validation_replay(replay, args, group_ids=None):
   replay = list(replay)
   fraction = float(getattr(args, "action_value_validation_fraction", 0.0))
   label_kind = str(
@@ -8192,11 +9331,37 @@ def split_action_value_validation_replay(replay, args):
   )
   if fraction <= 0.0:
     return replay, [], None
+  group_key = str(
+      getattr(args, "action_value_validation_group_metadata_key", "") or ""
+  )
+  normalized_group_ids = None
+  if group_key:
+    if group_ids is None:
+      raise ValueError(
+          "Grouped replay validation requires source-group metadata; "
+          f"{group_key!r} is unavailable"
+      )
+    if len(group_ids) != len(replay):
+      raise ValueError(
+          "Grouped replay validation requires one source-group id per row; "
+          f"received {len(group_ids)} ids for {len(replay)} replay rows"
+      )
+    normalized_group_ids = [str(group).strip() for group in group_ids]
+    if any(not group for group in normalized_group_ids):
+      raise ValueError(
+          "Grouped replay validation requires a nonempty source-group id "
+          "for every replay row"
+      )
   labeled_indices = [
       idx for idx, example in enumerate(replay)
       if has_loaded_replay_validation_labels(example, args)
   ]
   if len(labeled_indices) < 2:
+    if group_key:
+      raise ValueError(
+          "Grouped replay validation requires labeled examples from at "
+          "least two independent source groups"
+      )
     return replay, [], {
       "action_value_validation_fraction": fraction,
       "loaded_replay_validation_label_kind": label_kind,
@@ -8213,7 +9378,43 @@ def split_action_value_validation_replay(replay, args):
   rng = random.Random(int(getattr(args, "action_value_validation_seed", 20260603)))
   validation_count = int(round(len(labeled_indices) * min(1.0, fraction)))
   validation_count = max(1, min(len(labeled_indices) - 1, validation_count))
-  validation_indices = set(rng.sample(labeled_indices, validation_count))
+  split_mode = "row"
+  split_note = ""
+  validation_indices = None
+  if group_key:
+    labeled_groups = {}
+    for idx in labeled_indices:
+      labeled_groups.setdefault(normalized_group_ids[idx], []).append(idx)
+    group_names = sorted(labeled_groups)
+    if len(group_names) < 2:
+      raise ValueError(
+          "Grouped replay validation requires labeled examples from at "
+          f"least two independent source groups; found {len(group_names)}"
+      )
+    shuffled_groups = list(group_names)
+    rng.shuffle(shuffled_groups)
+    selected = set()
+    selected_count = 0
+    for group in shuffled_groups:
+      if len(selected) >= len(group_names) - 1:
+        break
+      selected.add(group)
+      selected_count += len(labeled_groups[group])
+      if selected_count >= validation_count:
+        break
+    if not selected:
+      raise ValueError(
+          "Grouped replay validation could not select a nonempty held-out "
+          "source without consuming every labeled training source"
+      )
+    validation_indices = {
+        idx
+        for idx, source_group in enumerate(normalized_group_ids)
+        if source_group in selected
+    }
+    split_mode = "group"
+  if validation_indices is None:
+    validation_indices = set(rng.sample(labeled_indices, validation_count))
   train_replay = [
       example for idx, example in enumerate(replay)
       if idx not in validation_indices
@@ -8222,7 +9423,7 @@ def split_action_value_validation_replay(replay, args):
       example for idx, example in enumerate(replay)
       if idx in validation_indices
   ]
-  return train_replay, validation_replay, {
+  split_report = {
       "action_value_validation_fraction": fraction,
       "loaded_replay_validation_label_kind": label_kind,
       "action_value_labeled_rows": len(labeled_indices),
@@ -8234,7 +9435,38 @@ def split_action_value_validation_replay(replay, args):
       "action_value_validation_seed": int(
           getattr(args, "action_value_validation_seed", 20260603)
       ),
+      "action_value_validation_split_mode": split_mode,
+      "action_value_validation_group_metadata_key": group_key,
+      "action_value_validation_split_note": split_note,
   }
+  if normalized_group_ids is not None:
+    train_groups = {
+        source_group
+        for idx, source_group in enumerate(normalized_group_ids)
+        if idx not in validation_indices
+    }
+    validation_groups = {
+        source_group
+        for idx, source_group in enumerate(normalized_group_ids)
+        if idx in validation_indices
+    }
+    overlapping_groups = train_groups & validation_groups
+    if overlapping_groups:
+      raise ValueError(
+          "Grouped replay validation leaked independent source groups "
+          f"between training and validation: {sorted(overlapping_groups)}"
+      )
+    split_report.update({
+        "action_value_validation_train_group_ids": sorted(train_groups),
+        "action_value_validation_group_ids": sorted(validation_groups),
+        "action_value_validation_train_group_count": len(train_groups),
+        "action_value_validation_group_count": len(validation_groups),
+        "action_value_validation_group_overlap_count": 0,
+        "action_value_validation_heldout_labeled_rows": sum(
+            idx in validation_indices for idx in labeled_indices
+        ),
+    })
+  return train_replay, validation_replay, split_report
 
 
 def load_action_value_validation_replay(args):
@@ -8275,6 +9507,88 @@ def load_action_value_validation_replay(args):
   if action_value_filter is not None:
     validation_split["action_value_validation_filter"] = action_value_filter
   return validation_replay, validation_split
+
+
+def explicit_validation_source_group_report(
+    train_paths, train_metadata, validation_split, args
+):
+  """Reject reused replay files and shared collector sources across holdouts."""
+  validation_paths = list(
+      validation_split.get("action_value_validation_replay_paths", [])
+  )
+  train_real_paths = {str(Path(path).resolve()) for path in train_paths}
+  validation_real_paths = {
+      str(Path(path).resolve()) for path in validation_paths
+  }
+  overlapping_paths = sorted(train_real_paths & validation_real_paths)
+  if overlapping_paths:
+    raise ValueError(
+        "Training and explicit validation reuse the same replay files: "
+        + ", ".join(overlapping_paths)
+    )
+
+  requested_group_key = str(
+      getattr(args, "action_value_validation_group_metadata_key", "") or ""
+  ).strip()
+  group_key = requested_group_key or "row_group_ids"
+  validation_metadata = list(
+      validation_split.get("action_value_validation_replay_metadata", [])
+  )
+  train_metadata = list(train_metadata)
+
+  def metadata_has_groups(metadata):
+    return isinstance(metadata, dict) and isinstance(
+        metadata.get(group_key), list
+    )
+
+  all_metadata = [*train_metadata, *validation_metadata]
+  present = [metadata_has_groups(metadata) for metadata in all_metadata]
+  if not requested_group_key and not any(present):
+    return {
+        "action_value_validation_replay_path_overlap_count": 0,
+    }
+  if (
+      len(train_metadata) != len(train_paths)
+      or len(validation_metadata) != len(validation_paths)
+      or not train_metadata
+      or not validation_metadata
+      or not all(present)
+  ):
+    raise ValueError(
+        "Explicit replay validation requires complete source-group metadata "
+        f"under {group_key!r} for every training and validation replay"
+    )
+
+  def collect_groups(metadata_items, kind):
+    groups = set()
+    for metadata in metadata_items:
+      group_ids = [str(group).strip() for group in metadata[group_key]]
+      if not group_ids or any(not group for group in group_ids):
+        raise ValueError(
+            f"Explicit {kind} replay has empty source-group ids under "
+            f"{group_key!r}"
+        )
+      groups.update(group_ids)
+    return groups
+
+  train_groups = collect_groups(train_metadata, "training")
+  validation_groups = collect_groups(validation_metadata, "validation")
+  overlap = sorted(train_groups & validation_groups)
+  if overlap:
+    raise ValueError(
+        "Training and explicit validation share collector source groups: "
+        + ", ".join(overlap)
+    )
+  return {
+      "action_value_validation_split_mode": "explicit_group",
+      "action_value_validation_group_metadata_key": group_key,
+      "action_value_validation_train_group_ids": sorted(train_groups),
+      "action_value_validation_group_ids": sorted(validation_groups),
+      "action_value_validation_train_group_count": len(train_groups),
+      "action_value_validation_group_count": len(validation_groups),
+      "action_value_validation_group_overlap_count": 0,
+      "action_value_validation_replay_path_overlap_count": 0,
+  }
 
 
 def action_value_pairwise_ranking_loss(
@@ -8441,6 +9755,74 @@ def policy_target_pairwise_ranking_loss(logits, policy_t, mask_t, args):
   return torch.stack(losses).mean()
 
 
+def bid_regime_policy_loss(logits, action_features_t, mask_t, args):
+  """Teach below/exact/above bid choices without rewarding paradox exposure."""
+  target_mass = min(
+      0.999, max(0.0, float(getattr(args, "bid_regime_policy_target_mass", 0.65)))
+  )
+  known_idx = APPENDED_ACTION_FEATURE_INDEX["trick_result_known"]
+  deficit_idx = APPENDED_ACTION_FEATURE_INDEX["future_rank_deficit_after"]
+  buffer_idx = APPENDED_ACTION_FEATURE_INDEX["future_buffer_deficit_after"]
+  no_exit_idx = APPENDED_ACTION_FEATURE_INDEX["own_future_zero_exit_frac_after"]
+  token_loss_idx = APPENDED_ACTION_FEATURE_INDEX["token_loss_newly_loses_led"]
+  log_probs = F.log_softmax(logits.masked_fill(~mask_t, -1e9), dim=1)
+  losses = []
+  for row_index in range(logits.shape[0]):
+    known = mask_t[row_index] & (
+        action_features_t[row_index, :, known_idx] > 0.5
+    )
+    if not known.any():
+      continue
+    legal = torch.nonzero(known, as_tuple=False).flatten()
+    if legal.numel() < 2:
+      continue
+    prediction_known = (
+        action_features_t[
+            row_index, legal[0], ACTION_FEATURE_PREFIX_SIZE + 5
+        ] > 0.5
+    )
+    if not bool(prediction_known):
+      continue
+    wants_more = bool(
+        action_features_t[
+            row_index, legal[0], ACTION_FEATURE_WANTS_MORE_TRICKS_INDEX
+        ] > 0.5
+    )
+    winners = known & (
+        action_features_t[
+            row_index, :, ACTION_FEATURE_WOULD_WIN_TRICK_INDEX
+        ] > 0.5
+    )
+    desired = winners if wants_more else (known & ~winners)
+    opposite = (known & ~winners) if wants_more else winners
+    if not desired.any() or not opposite.any():
+      continue
+    opposite_indices = torch.nonzero(opposite, as_tuple=False).flatten()
+    reference_index = min(
+        (int(value) for value in opposite_indices.tolist()),
+        key=lambda index: (
+            float(action_features_t[row_index, index, no_exit_idx]),
+            float(action_features_t[row_index, index, deficit_idx]),
+            float(action_features_t[row_index, index, buffer_idx]),
+            float(action_features_t[row_index, index, token_loss_idx]),
+        ),
+    )
+    safe = desired
+    for feature_index in (no_exit_idx, deficit_idx, buffer_idx, token_loss_idx):
+      safe = safe & (
+          action_features_t[row_index, :, feature_index]
+          <= action_features_t[row_index, reference_index, feature_index] + 1e-6
+      )
+    if not safe.any():
+      continue
+    safe_mass = torch.exp(log_probs[row_index, safe]).sum()
+    shortfall = F.relu(target_mass - safe_mass)
+    losses.append(shortfall * shortfall)
+  if not losses:
+    return torch.tensor(0.0, device=logits.device)
+  return torch.stack(losses).mean()
+
+
 def lane_capacity_pairwise_policy_loss(
     logits,
     action_features_t,
@@ -8558,63 +9940,174 @@ def selected_terminal_paradox_targets(
   ]
 
 
+def compact_legal_replay_batch(batch, num_actions):
+  """Remap all replay action fields to padded, per-example legal-action rows."""
+  legal_rows = []
+  for item in batch:
+    mask = adapt_action_vector(item[1], num_actions, dtype=np.float32)
+    legal = np.flatnonzero(mask > 0.5).astype(np.int64)
+    if legal.size == 0:
+      raise ValueError("Cannot compact a replay row with no legal actions")
+    legal_rows.append(legal)
+  max_legal = max(len(legal) for legal in legal_rows)
+
+  def compact_vector(item, index, legal):
+    result = np.zeros(max_legal, dtype=np.float32)
+    if len(item) > index and item[index] is not None:
+      source = adapt_action_vector(item[index], num_actions, dtype=np.float32)
+      result[:len(legal)] = source[legal]
+    return result
+
+  masks = []
+  policies = []
+  actions = []
+  action_target_vectors = []
+  action_target_masks = []
+  action_value_target_vectors = []
+  action_value_target_masks = []
+  action_features = []
+  for item, legal in zip(batch, legal_rows):
+    mask = np.zeros(max_legal, dtype=np.float32)
+    mask[:len(legal)] = 1.0
+    masks.append(mask)
+    policies.append(compact_vector(item, 2, legal))
+    original_action = int(item[5]) if len(item) > 5 else -1
+    matching_action = np.flatnonzero(legal == original_action)
+    actions.append(int(matching_action[0]) if matching_action.size else -1)
+    action_target_vectors.append(compact_vector(item, 7, legal))
+    action_target_masks.append(compact_vector(item, 8, legal))
+    action_value_target_vectors.append(compact_vector(item, 9, legal))
+    action_value_target_masks.append(compact_vector(item, 10, legal))
+    source_features = (
+        np.asarray(item[11], dtype=np.float32)
+        if len(item) > 11 and item[11] is not None
+        else np.zeros((num_actions, ACTION_FEATURE_SIZE), dtype=np.float32)
+    )
+    if source_features.ndim != 2 or source_features.shape[0] <= int(np.max(legal)):
+      source_features = adapt_action_features(source_features, num_actions)
+    action_features.append(
+        adapt_action_features(source_features[legal], max_legal)
+    )
+  return {
+      "num_actions": max_legal,
+      "legal_actions": legal_rows,
+      "masks": masks,
+      "policies": policies,
+      "actions": actions,
+      "action_target_vectors": action_target_vectors,
+      "action_target_masks": action_target_masks,
+      "action_value_target_vectors": action_value_target_vectors,
+      "action_value_target_masks": action_value_target_masks,
+      "action_features": action_features,
+  }
+
+
 def train_steps(model, optimizer, replay, args, device, anchor_model=None):
   if args.train_steps <= 0:
     return None
   if len(replay) < args.batch_size:
     return None
   losses = []
+  expected_obs_size = model_input_size(model)
+  model_num_actions = int(getattr(model, "num_actions", 0))
   for _ in range(args.train_steps):
     batch = sample_training_batch(replay, args.batch_size, args)
-    obs = [item[0] for item in batch]
-    masks = [item[1] for item in batch]
-    policies = [item[2] for item in batch]
-    values = [item[3] for item in batch]
+    compact_batch = None
+    if bool(getattr(args, "compact_legal_action_training", False)):
+      if getattr(model, "arch", "") not in ACTION_CONDITIONED_ARCHS:
+        raise ValueError(
+            "--compact-legal-action-training requires an action-conditioned model"
+        )
+      if bool(getattr(args, "loaded_replay_compact_action_labels", False)):
+        raise ValueError(
+            "--compact-legal-action-training cannot be combined with "
+            "--loaded-replay-compact-action-labels"
+        )
+      compact_batch = compact_legal_replay_batch(batch, model_num_actions)
+    expected_num_actions = model_num_actions
+    if compact_batch is not None:
+      expected_num_actions = compact_batch["num_actions"]
+    elif bool(getattr(args, "loaded_replay_compact_action_labels", False)):
+      expected_num_actions = max(
+          1,
+          max(len(np.asarray(item[1]).reshape(-1)) for item in batch),
+      )
+    obs = [adapt_observation(item[0], expected_obs_size) for item in batch]
+    masks = compact_batch["masks"] if compact_batch is not None else [
+        adapt_action_vector(item[1], expected_num_actions, dtype=np.float32)
+        for item in batch
+    ]
+    policies = compact_batch["policies"] if compact_batch is not None else [
+        adapt_action_vector(item[2], expected_num_actions, dtype=np.float32)
+        for item in batch
+    ]
+    values = [
+        adapt_player_target_vector(item[3], args.players)
+        if item[3] is not None
+        else np.zeros(args.players, dtype=np.float32)
+        for item in batch
+    ]
     paradoxes = [
-        item[4] if len(item) > 4 else np.zeros(args.players, dtype=np.float32)
+        adapt_player_target_vector(item[4], args.players)
+        if len(item) > 4 and item[4] is not None
+        else np.zeros(args.players, dtype=np.float32)
         for item in batch
     ]
-    actions = [item[5] if len(item) > 5 else -1 for item in batch]
+    actions = (
+        compact_batch["actions"]
+        if compact_batch is not None
+        else [item[5] if len(item) > 5 else -1 for item in batch]
+    )
     players = [item[6] if len(item) > 6 else -1 for item in batch]
-    action_target_vectors = [
+    action_target_vectors = (
+        compact_batch["action_target_vectors"]
+        if compact_batch is not None else [
         (
-            item[7]
+            adapt_action_vector(item[7], expected_num_actions, dtype=np.float32)
             if len(item) > 8 and item[7] is not None
-            else np.zeros_like(masks[0], dtype=np.float32)
+            else np.zeros(expected_num_actions, dtype=np.float32)
         )
         for item in batch
-    ]
-    action_target_masks = [
+    ])
+    action_target_masks = (
+        compact_batch["action_target_masks"]
+        if compact_batch is not None else [
         (
-            item[8]
+            adapt_action_vector(item[8], expected_num_actions, dtype=np.float32)
             if len(item) > 8 and item[8] is not None
-            else np.zeros_like(masks[0], dtype=np.float32)
+            else np.zeros(expected_num_actions, dtype=np.float32)
         )
         for item in batch
-    ]
-    action_value_target_vectors = [
+    ])
+    action_value_target_vectors = (
+        compact_batch["action_value_target_vectors"]
+        if compact_batch is not None else [
         (
-            item[9]
+            adapt_action_vector(item[9], expected_num_actions, dtype=np.float32)
             if len(item) > 10 and item[9] is not None
-            else np.zeros_like(masks[0], dtype=np.float32)
+            else np.zeros(expected_num_actions, dtype=np.float32)
         )
         for item in batch
-    ]
-    action_value_target_masks = [
+    ])
+    action_value_target_masks = (
+        compact_batch["action_value_target_masks"]
+        if compact_batch is not None else [
         (
-            item[10]
+            adapt_action_vector(item[10], expected_num_actions, dtype=np.float32)
             if len(item) > 10 and item[10] is not None
-            else np.zeros_like(masks[0], dtype=np.float32)
+            else np.zeros(expected_num_actions, dtype=np.float32)
         )
         for item in batch
-    ]
-    action_features = [
+    ])
+    action_features = (
+        compact_batch["action_features"]
+        if compact_batch is not None else [
         adapt_action_features(
             item[11] if len(item) > 11 else None,
-            len(item[1]),
+            expected_num_actions,
         )
         for item in batch
-    ]
+    ])
     terminal_action_paradox_targets = []
     terminal_action_paradox_target_masks = []
     for item in batch:
@@ -8629,7 +10122,6 @@ def train_steps(model, optimizer, replay, args, device, anchor_model=None):
         )
         terminal_action_paradox_target_masks.append(0.0)
     obs_t = torch.tensor(np.array(obs), dtype=torch.float32, device=device)
-    obs_t = adapt_observation_batch(obs_t, model_input_size(model))
     mask_t = torch.tensor(np.array(masks), dtype=torch.bool, device=device)
     policy_t = torch.tensor(np.array(policies), dtype=torch.float32, device=device)
     value_t = torch.tensor(np.array(values), dtype=torch.float32, device=device)
@@ -8708,6 +10200,11 @@ def train_steps(model, optimizer, replay, args, device, anchor_model=None):
         per_example_policy_loss * policy_weights
     ).sum() / policy_weights.sum().clamp_min(1e-6)
     prediction_hit_loss = torch.tensor(0.0, device=device)
+    bid_regime_loss = torch.tensor(0.0, device=device)
+    if getattr(args, "bid_regime_policy_loss_weight", 0.0) > 0:
+      bid_regime_loss = bid_regime_policy_loss(
+          logits, action_features_t, mask_t, args
+      )
     probs = None
     if getattr(args, "prediction_hit_policy_loss_weight", 0.0) > 0:
       hit_idx = APPENDED_ACTION_FEATURE_INDEX["hits_prediction"]
@@ -8954,6 +10451,7 @@ def train_steps(model, optimizer, replay, args, device, anchor_model=None):
         + getattr(args, "action_value_ranking_loss_weight", 0.0) *
         action_value_ranking_loss
         + args.prediction_hit_policy_loss_weight * prediction_hit_loss
+        + getattr(args, "bid_regime_policy_loss_weight", 0.0) * bid_regime_loss
         + args.future_hit_policy_loss_weight * future_hit_loss
         + getattr(args, "led_token_loss_policy_loss_weight", 0.0) *
         led_token_loss
@@ -8998,6 +10496,31 @@ def mean_loss(losses):
   return np.mean(np.array(valid, dtype=np.float32), axis=0).tolist()
 
 
+def summarized_replay_metadata(metadata):
+  """Keep provenance readable without repeating one source id per replay row."""
+  if not isinstance(metadata, dict):
+    return metadata
+  summary = dict(metadata)
+  row_groups = summary.get("row_group_ids")
+  if isinstance(row_groups, list):
+    summary["row_group_count"] = len(row_groups)
+    summary["source_group_ids"] = sorted({str(group) for group in row_groups})
+    del summary["row_group_ids"]
+  return summary
+
+
+def summarized_validation_split(validation_split):
+  if not isinstance(validation_split, dict):
+    return validation_split
+  summary = dict(validation_split)
+  metadata = summary.get("action_value_validation_replay_metadata")
+  if isinstance(metadata, list):
+    summary["action_value_validation_replay_metadata"] = [
+        summarized_replay_metadata(item) for item in metadata
+    ]
+  return summary
+
+
 def loaded_replay_report_row(
     model, anchor_model, replay, args, loaded_args, device, loss, trained_steps,
     eval_result=None, checkpoint_path=None, iteration="loaded_replay_train",
@@ -9015,75 +10538,90 @@ def loaded_replay_report_row(
   if checkpoint_path is not None:
     row["checkpoint"] = str(checkpoint_path)
   if validation_split is not None:
-    row["validation_split"] = validation_split
-  maybe_add_value_prediction_report(row, model, replay, loaded_args, device)
-  maybe_add_action_report(row, model, replay, loaded_args, device)
-  maybe_add_action_value_report(row, model, replay, loaded_args, device)
-  q_policy_report = q_label_policy_report(
-      model, list(replay), loaded_args, device
+    row["validation_split"] = summarized_validation_split(validation_split)
+  skip_value_prediction_reports = bool(
+      getattr(loaded_args, "skip_value_prediction_reports", False)
   )
-  if q_policy_report is not None:
-    row["q_label_policy_report"] = q_policy_report
+  if not skip_value_prediction_reports:
+    maybe_add_value_prediction_report(row, model, replay, loaded_args, device)
+  skip_policy_reports = bool(getattr(loaded_args, "skip_policy_reports", False))
+  if not skip_policy_reports:
+    maybe_add_action_report(row, model, replay, loaded_args, device)
+  skip_action_value_reports = bool(
+      getattr(loaded_args, "skip_action_value_reports", False)
+  )
+  if not skip_action_value_reports:
+    maybe_add_action_value_report(row, model, replay, loaded_args, device)
+    q_policy_report = q_label_policy_report(
+        model, list(replay), loaded_args, device
+    )
+    if q_policy_report is not None:
+      row["q_label_policy_report"] = q_policy_report
   if validation_replay:
-    maybe_add_value_prediction_report(
-        row,
-        model,
-        list(validation_replay),
-        loaded_args,
-        device,
-        name="value_prediction_validation_report",
-    )
-    validation_report = action_value_report(
-        model, list(validation_replay), loaded_args, device
-    )
-    if validation_report is not None:
-      row["action_value_validation_report"] = validation_report
+    if not skip_value_prediction_reports:
+      maybe_add_value_prediction_report(
+          row,
+          model,
+          list(validation_replay),
+          loaded_args,
+          device,
+          name="value_prediction_validation_report",
+      )
+    if not skip_action_value_reports:
+      validation_report = action_value_report(
+          model, list(validation_replay), loaded_args, device
+      )
+      if validation_report is not None:
+        row["action_value_validation_report"] = validation_report
     action_paradox_validation_report = action_paradox_report(
         model, list(validation_replay), loaded_args, device
     )
     if action_paradox_validation_report is not None:
       row["action_paradox_validation_report"] = action_paradox_validation_report
-    q_policy_validation_report = q_label_policy_report(
-        model, list(validation_replay), loaded_args, device
-    )
-    if q_policy_validation_report is not None:
-      row["q_label_policy_validation_report"] = q_policy_validation_report
+    if not skip_action_value_reports:
+      q_policy_validation_report = q_label_policy_report(
+          model, list(validation_replay), loaded_args, device
+      )
+      if q_policy_validation_report is not None:
+        row["q_label_policy_validation_report"] = q_policy_validation_report
+    if not skip_policy_reports:
+      maybe_add_policy_target_report(
+          row,
+          model,
+          list(validation_replay),
+          loaded_args,
+          device,
+          name="loaded_replay_policy_target_validation_report",
+      )
+      maybe_add_anchor_policy_target_report(
+          row,
+          anchor_model,
+          list(validation_replay),
+          loaded_args,
+          device,
+          name="anchor_policy_target_validation_report",
+      )
+  if not skip_policy_reports:
+    maybe_add_prediction_hit_report(row, model, replay, loaded_args, device)
     maybe_add_policy_target_report(
         row,
         model,
-        list(validation_replay),
+        replay,
         loaded_args,
         device,
-        name="loaded_replay_policy_target_validation_report",
+        name="loaded_replay_policy_target_report",
     )
     maybe_add_anchor_policy_target_report(
         row,
         anchor_model,
-        list(validation_replay),
+        replay,
         loaded_args,
         device,
-        name="anchor_policy_target_validation_report",
+        name="anchor_policy_target_report",
     )
-  maybe_add_prediction_hit_report(row, model, replay, loaded_args, device)
-  maybe_add_policy_target_report(
-      row,
-      model,
-      replay,
-      loaded_args,
-      device,
-      name="loaded_replay_policy_target_report",
-  )
-  maybe_add_anchor_policy_target_report(
-      row,
-      anchor_model,
-      replay,
-      loaded_args,
-      device,
-      name="anchor_policy_target_report",
-  )
-  maybe_add_anchor_policy_report(
-      row, model, anchor_model, replay, loaded_args, device
-  )
+    maybe_add_anchor_policy_report(
+        row, model, anchor_model, replay, loaded_args, device
+    )
   return row
 
 
@@ -9127,11 +10665,15 @@ def loaded_replay_validation_score(row, args):
     if not report:
       return None
     value_name = metric.removeprefix("action_paradox_validation_")
+    value_name = {
+        "top1": "top1_rate",
+        "contrast_top1": "contrast_top1_rate",
+    }.get(value_name, value_name)
     value = report.get(value_name)
     if value is None:
       return None
     value = float(value)
-    if value_name == "brier":
+    if value_name == "brier" or value_name.endswith("mean_regret"):
       value = -value
     return value
   if metric.startswith("q_policy_"):
@@ -9157,6 +10699,14 @@ def loaded_replay_validation_score(row, args):
 
 def replay_metadata_from_args(args):
   return {
+      "full_match_training": bool(
+          getattr(args, "full_match_training", False)
+      ),
+      "full_match_terminal_target_scope": (
+          "round"
+          if bool(getattr(args, "full_match_training", False))
+          else "game"
+      ),
       "counterfactual_full_match_rollout": bool(
           getattr(args, "counterfactual_full_match_rollout", False)
       ),
@@ -9264,6 +10814,8 @@ def save_training_artifacts(model, args, metrics, replay, checkpoint_path, out_d
       "metrics": metrics,
   }, checkpoint_path)
   (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
+  if getattr(args, "skip_replay_save", False):
+    return
   save_replay(
       list(replay), out_dir / "replay_latest.npz",
       metadata=replay_metadata_from_args(args),
@@ -9361,31 +10913,41 @@ def value_prediction_report(model, replay, args, device, max_examples=5000):
     return None
   if len(valid) > max_examples:
     valid = random.sample(valid, max_examples)
-  obs = [item[0] for item in valid]
-  targets = np.array([item[3] for item in valid], dtype=np.float32)
+  expected_obs_size = model_input_size(model)
+  expected_num_actions = int(getattr(model, "num_actions", 0))
+  obs = [adapt_observation(item[0], expected_obs_size) for item in valid]
+  targets = np.array([
+      adapt_player_target_vector(item[3], args.players)
+      for item in valid
+  ], dtype=np.float32)
   players = np.array([
       item[6] if len(item) > 6 else -1 for item in valid
   ], dtype=np.int64)
-  action_features = np.array([
-      adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
-      for item in valid
-  ], dtype=np.float32)
   pred_chunks = []
-  report_batch_size = (
-      128
-      if getattr(model, "arch", "mlp") in ACTION_CONDITIONED_ARCHS
-      else 512
-  )
+  compact_features = getattr(model, "arch", "mlp") in ACTION_CONDITIONED_ARCHS
+  report_batch_size = 128 if compact_features else 512
   obs_array = np.array(obs, dtype=np.float32)
   with torch.no_grad():
     for start in range(0, len(valid), report_batch_size):
       end = min(len(valid), start + report_batch_size)
+      if compact_features:
+        batch_features = compact_legal_replay_batch(
+            valid[start:end], expected_num_actions
+        )["action_features"]
+      else:
+        batch_features = [
+            adapt_action_features(
+                item[11] if len(item) > 11 else None, expected_num_actions
+            )
+            for item in valid[start:end]
+        ]
       obs_t = torch.tensor(
           obs_array[start:end], dtype=torch.float32, device=device
       )
-      obs_t = adapt_observation_batch(obs_t, model_input_size(model))
       action_features_t = torch.tensor(
-          action_features[start:end], dtype=torch.float32, device=device
+          np.asarray(batch_features, dtype=np.float32),
+          dtype=torch.float32,
+          device=device,
       )
       _, values = model(obs_t, action_features_t)
       pred_chunks.append(values.detach().cpu().numpy())
@@ -9420,9 +10982,63 @@ def maybe_add_value_prediction_report(
     row[name] = report
 
 
+def action_paradox_pair_summary(
+    pred_matrix, target_vectors, target_masks, min_target_spread=-1.0
+):
+  """Summarize within-state low-risk action ordering on labeled actions."""
+  state_corrs = []
+  top_hits = []
+  chosen_targets = []
+  best_targets = []
+  mean_targets = []
+  regrets = []
+  for pred_row, target_row, mask_row in zip(
+      pred_matrix, target_vectors, target_masks
+  ):
+    labeled = np.asarray(mask_row) > 0.0
+    if int(np.sum(labeled)) < 2:
+      continue
+    labeled_preds = np.asarray(pred_row)[labeled]
+    labeled_targets = np.asarray(target_row)[labeled]
+    if (
+        float(np.max(labeled_targets) - np.min(labeled_targets))
+        <= float(min_target_spread)
+    ):
+      continue
+    if (
+        float(np.std(labeled_preds)) > 0.0
+        and float(np.std(labeled_targets)) > 0.0
+    ):
+      state_corr = float(np.corrcoef(labeled_preds, labeled_targets)[0, 1])
+      if math.isfinite(state_corr):
+        state_corrs.append(state_corr)
+    chosen_target = float(labeled_targets[int(np.argmin(labeled_preds))])
+    best_target = float(np.min(labeled_targets))
+    chosen_targets.append(chosen_target)
+    best_targets.append(best_target)
+    mean_targets.append(float(np.mean(labeled_targets)))
+    regrets.append(chosen_target - best_target)
+    top_hits.append(1.0 if np.isclose(chosen_target, best_target) else 0.0)
+  if not chosen_targets:
+    return None
+  return {
+      "state_count": int(len(chosen_targets)),
+      "mean_state_corr": (
+          None if not state_corrs else round(float(np.mean(state_corrs)), 4)
+      ),
+      "top1_rate": round(float(np.mean(top_hits)), 4),
+      "top_pred_target_mean": round(float(np.mean(chosen_targets)), 4),
+      "best_target_mean": round(float(np.mean(best_targets)), 4),
+      "mean_target_mean": round(float(np.mean(mean_targets)), 4),
+      "mean_regret": round(float(np.mean(regrets)), 4),
+  }
+
+
 def action_paradox_report(model, replay, args, device, max_examples=5000):
   if not replay or not hasattr(model, "forward_with_action_aux"):
     return None
+  expected_obs_size = model_input_size(model)
+  expected_num_actions = int(getattr(model, "num_actions", 0))
   full_valid = [
       item for item in replay
       if (
@@ -9435,15 +11051,21 @@ def action_paradox_report(model, replay, args, device, max_examples=5000):
   if full_valid:
     if len(full_valid) > max_examples:
       full_valid = random.sample(full_valid, max_examples)
-    obs = [item[0] for item in full_valid]
-    target_vectors = np.array([item[7] for item in full_valid], dtype=np.float32)
-    target_masks = np.array([item[8] for item in full_valid], dtype=np.float32)
+    obs = [adapt_observation(item[0], expected_obs_size) for item in full_valid]
+    target_vectors = np.array([
+        adapt_action_vector(item[7], expected_num_actions, dtype=np.float32)
+        for item in full_valid
+    ], dtype=np.float32)
+    target_masks = np.array([
+        adapt_action_vector(item[8], expected_num_actions, dtype=np.float32)
+        for item in full_valid
+    ], dtype=np.float32)
     action_features = np.array([
-        adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
+        adapt_action_features(item[11] if len(item) > 11 else None,
+                              expected_num_actions)
         for item in full_valid
     ], dtype=np.float32)
     obs_t = torch.tensor(np.array(obs), dtype=torch.float32, device=device)
-    obs_t = adapt_observation_batch(obs_t, model_input_size(model))
     action_features_t = torch.tensor(
         action_features, dtype=torch.float32, device=device
     )
@@ -9472,10 +11094,11 @@ def action_paradox_report(model, replay, args, device, max_examples=5000):
       return None
     if len(valid) > max_examples:
       valid = random.sample(valid, max_examples)
-    obs = [item[0] for item in valid]
+    obs = [adapt_observation(item[0], expected_obs_size) for item in valid]
     actions = [int(item[5]) for item in valid]
     players = [int(item[6]) for item in valid]
-    paradoxes = [item[4] for item in valid]
+    paradoxes = [adapt_player_target_vector(item[4], args.players)
+                 for item in valid]
     terminal_action_paradox_targets = []
     terminal_action_paradox_target_masks = []
     for item in valid:
@@ -9490,9 +11113,9 @@ def action_paradox_report(model, replay, args, device, max_examples=5000):
         )
         terminal_action_paradox_target_masks.append(0.0)
     obs_t = torch.tensor(np.array(obs), dtype=torch.float32, device=device)
-    obs_t = adapt_observation_batch(obs_t, model_input_size(model))
     action_features = np.array([
-        adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
+        adapt_action_features(item[11] if len(item) > 11 else None,
+                              expected_num_actions)
         for item in valid
     ], dtype=np.float32)
     action_features_t = torch.tensor(
@@ -9552,6 +11175,23 @@ def action_paradox_report(model, replay, args, device, max_examples=5000):
       "positive_mean_pred": None,
       "negative_mean_pred": None,
   }
+  if report_kind == "counterfactual_legal_actions":
+    pair_summary = action_paradox_pair_summary(
+        pred_matrix, target_vectors, target_masks
+    )
+    if pair_summary is not None:
+      report.update(pair_summary)
+    contrast_summary = action_paradox_pair_summary(
+        pred_matrix,
+        target_vectors,
+        target_masks,
+        min_target_spread=1e-6,
+    )
+    if contrast_summary is not None:
+      report.update({
+          f"contrast_{name}": value
+          for name, value in contrast_summary.items()
+      })
   if report_kind == "selected_actions":
     report["terminal_action_paradox_sidecar_rows"] = int(
         np.sum(terminal_action_paradox_target_masks)
@@ -9589,6 +11229,8 @@ def maybe_add_action_report(row, model, replay, args, device):
 def counterfactual_action_value_report_kind(args):
   if getattr(args, "counterfactual_action_value_objective", "score") == "survival":
     return "counterfactual_round_survival"
+  if getattr(args, "counterfactual_action_value_objective", "score") == "official":
+    return "counterfactual_full_match_official_placement"
   if getattr(args, "counterfactual_full_match_rollout", False):
     return "counterfactual_full_match_score"
   return "counterfactual_round_score"
@@ -9597,6 +11239,8 @@ def counterfactual_action_value_report_kind(args):
 def action_value_report(model, replay, args, device, max_examples=5000):
   if not replay or not hasattr(model, "action_value"):
     return None
+  expected_obs_size = model_input_size(model)
+  expected_num_actions = int(getattr(model, "num_actions", 0))
   full_valid = [
       item for item in replay
       if (
@@ -9610,15 +11254,21 @@ def action_value_report(model, replay, args, device, max_examples=5000):
     return None
   if len(full_valid) > max_examples:
     full_valid = random.sample(full_valid, max_examples)
-  obs = [item[0] for item in full_valid]
-  target_vectors = np.array([item[9] for item in full_valid], dtype=np.float32)
-  target_masks = np.array([item[10] for item in full_valid], dtype=np.float32)
+  obs = [adapt_observation(item[0], expected_obs_size) for item in full_valid]
+  target_vectors = np.array([
+      adapt_action_vector(item[9], expected_num_actions, dtype=np.float32)
+      for item in full_valid
+  ], dtype=np.float32)
+  target_masks = np.array([
+      adapt_action_vector(item[10], expected_num_actions, dtype=np.float32)
+      for item in full_valid
+  ], dtype=np.float32)
   action_features = np.array([
-      adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
+      adapt_action_features(item[11] if len(item) > 11 else None,
+                            expected_num_actions)
       for item in full_valid
   ], dtype=np.float32)
   obs_t = torch.tensor(np.array(obs), dtype=torch.float32, device=device)
-  obs_t = adapt_observation_batch(obs_t, model_input_size(model))
   action_features_t = torch.tensor(
       action_features, dtype=torch.float32, device=device
   )
@@ -9742,6 +11392,8 @@ def action_value_report(model, replay, args, device, max_examples=5000):
 def q_label_policy_report(model, replay, args, device, max_examples=5000):
   if not replay:
     return None
+  expected_obs_size = model_input_size(model)
+  expected_num_actions = int(getattr(model, "num_actions", 0))
   full_valid = [
       item for item in replay
       if (
@@ -9755,16 +11407,25 @@ def q_label_policy_report(model, replay, args, device, max_examples=5000):
     return None
   if len(full_valid) > max_examples:
     full_valid = random.sample(full_valid, max_examples)
-  obs = [item[0] for item in full_valid]
-  legal_masks = np.array([item[1] for item in full_valid], dtype=bool)
-  target_vectors = np.array([item[9] for item in full_valid], dtype=np.float32)
-  target_masks = np.array([item[10] for item in full_valid], dtype=np.float32)
+  obs = [adapt_observation(item[0], expected_obs_size) for item in full_valid]
+  legal_masks = np.array([
+      adapt_action_vector(item[1], expected_num_actions, dtype=np.float32)
+      for item in full_valid
+  ], dtype=bool)
+  target_vectors = np.array([
+      adapt_action_vector(item[9], expected_num_actions, dtype=np.float32)
+      for item in full_valid
+  ], dtype=np.float32)
+  target_masks = np.array([
+      adapt_action_vector(item[10], expected_num_actions, dtype=np.float32)
+      for item in full_valid
+  ], dtype=np.float32)
   action_features = np.array([
-      adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
+      adapt_action_features(item[11] if len(item) > 11 else None,
+                            expected_num_actions)
       for item in full_valid
   ], dtype=np.float32)
   obs_t = torch.tensor(np.array(obs), dtype=torch.float32, device=device)
-  obs_t = adapt_observation_batch(obs_t, model_input_size(model))
   action_features_t = torch.tensor(
       action_features, dtype=torch.float32, device=device
   )
@@ -10089,6 +11750,8 @@ def maybe_add_action_value_report(row, model, replay, args, device):
 def prediction_hit_report(model, replay, args, device, max_examples=5000):
   if not replay:
     return None
+  expected_obs_size = model_input_size(model)
+  expected_num_actions = int(getattr(model, "num_actions", 0))
   hit_idx = APPENDED_ACTION_FEATURE_INDEX["hits_prediction"]
   future_hit_idx = APPENDED_ACTION_FEATURE_INDEX["hit_with_future_tricks"]
   low_legal_ratio_idx = APPENDED_ACTION_FEATURE_INDEX[
@@ -10104,8 +11767,10 @@ def prediction_hit_report(model, replay, args, device, max_examples=5000):
   for item in replay:
     if len(item) <= 11:
       continue
-    mask = np.array(item[1], dtype=np.float32) > 0.5
-    features = adapt_action_features(item[11], len(item[1]))
+    mask = adapt_action_vector(
+        item[1], expected_num_actions, dtype=np.float32
+    ) > 0.5
+    features = adapt_action_features(item[11], expected_num_actions)
     hit_mask = (features[:, hit_idx] > 0.5) & mask
     if hit_mask.any():
       valid.append((item, hit_mask))
@@ -10115,11 +11780,18 @@ def prediction_hit_report(model, replay, args, device, max_examples=5000):
     valid = random.sample(valid, max_examples)
   items = [entry[0] for entry in valid]
   hit_masks = np.array([entry[1] for entry in valid], dtype=bool)
-  obs = [item[0] for item in items]
-  masks = np.array([item[1] for item in items], dtype=np.float32)
-  policies = np.array([item[2] for item in items], dtype=np.float32)
+  obs = [adapt_observation(item[0], expected_obs_size) for item in items]
+  masks = np.array([
+      adapt_action_vector(item[1], expected_num_actions, dtype=np.float32)
+      for item in items
+  ], dtype=np.float32)
+  policies = np.array([
+      adapt_action_vector(item[2], expected_num_actions, dtype=np.float32)
+      for item in items
+  ], dtype=np.float32)
   action_features = np.array([
-      adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
+      adapt_action_features(item[11] if len(item) > 11 else None,
+                            expected_num_actions)
       for item in items
   ], dtype=np.float32)
   probs_chunks = []
@@ -10133,7 +11805,6 @@ def prediction_hit_report(model, replay, args, device, max_examples=5000):
       obs_t = torch.tensor(
           obs_array[start:end], dtype=torch.float32, device=device
       )
-      obs_t = adapt_observation_batch(obs_t, model_input_size(model))
       mask_t = torch.tensor(
           masks[start:end], dtype=torch.bool, device=device
       )
@@ -10318,12 +11989,18 @@ def policy_alignment_summary(probs, target_policies, action_features):
 def policy_target_report(
     model, replay, args, device, max_examples=5000, one_hot_only=False
 ):
+  expected_obs_size = model_input_size(model)
+  expected_num_actions = int(getattr(model, "num_actions", 0))
   valid = []
   for item in replay:
     if len(item) < 4:
       continue
-    policy = np.array(item[2], dtype=np.float32)
-    mask = np.array(item[1], dtype=np.float32) > 0.5
+    policy = adapt_action_vector(
+        item[2], expected_num_actions, dtype=np.float32
+    )
+    mask = adapt_action_vector(
+        item[1], expected_num_actions, dtype=np.float32
+    ) > 0.5
     if not mask.any():
       continue
     if one_hot_only and (
@@ -10335,11 +12012,18 @@ def policy_target_report(
     return None
   if len(valid) > max_examples:
     valid = random.sample(valid, max_examples)
-  obs = [item[0] for item in valid]
-  masks = np.array([item[1] for item in valid], dtype=np.float32)
-  policies = np.array([item[2] for item in valid], dtype=np.float32)
+  obs = [adapt_observation(item[0], expected_obs_size) for item in valid]
+  masks = np.array([
+      adapt_action_vector(item[1], expected_num_actions, dtype=np.float32)
+      for item in valid
+  ], dtype=np.float32)
+  policies = np.array([
+      adapt_action_vector(item[2], expected_num_actions, dtype=np.float32)
+      for item in valid
+  ], dtype=np.float32)
   action_features = np.array([
-      adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
+      adapt_action_features(item[11] if len(item) > 11 else None,
+                            expected_num_actions)
       for item in valid
   ], dtype=np.float32)
   prob_chunks = []
@@ -10355,7 +12039,6 @@ def policy_target_report(
       obs_t = torch.tensor(
           obs_array[start:end], dtype=torch.float32, device=device
       )
-      obs_t = adapt_observation_batch(obs_t, model_input_size(model))
       mask_t = torch.tensor(
           masks[start:end], dtype=torch.bool, device=device
       )
@@ -10379,21 +12062,29 @@ def anchor_policy_report(
 ):
   if anchor_model is None or not replay:
     return None
+  expected_obs_size = model_input_size(model)
+  expected_num_actions = int(getattr(model, "num_actions", 0))
   valid = []
   for item in replay:
     if len(item) < 4:
       continue
-    mask = np.array(item[1], dtype=np.float32) > 0.5
+    mask = adapt_action_vector(
+        item[1], expected_num_actions, dtype=np.float32
+    ) > 0.5
     if mask.any():
       valid.append(item)
   if not valid:
     return None
   if len(valid) > max_examples:
     valid = random.sample(valid, max_examples)
-  obs = [item[0] for item in valid]
-  masks = np.array([item[1] for item in valid], dtype=np.float32)
+  obs = [adapt_observation(item[0], expected_obs_size) for item in valid]
+  masks = np.array([
+      adapt_action_vector(item[1], expected_num_actions, dtype=np.float32)
+      for item in valid
+  ], dtype=np.float32)
   action_features = np.array([
-      adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
+      adapt_action_features(item[11] if len(item) > 11 else None,
+                            expected_num_actions)
       for item in valid
   ], dtype=np.float32)
   model_prob_chunks = []
@@ -10454,6 +12145,8 @@ def maybe_add_anchor_policy_report(
     row, model, anchor_model, replay, args, device,
     name="anchor_policy_report",
 ):
+  if anchor_model is None or getattr(args, "skip_anchor_policy_reports", False):
+    return
   report = anchor_policy_report(model, anchor_model, list(replay), args, device)
   if report is not None:
     row[name] = report
@@ -10463,7 +12156,7 @@ def maybe_add_anchor_policy_target_report(
     row, anchor_model, replay, args, device,
     name="anchor_policy_target_report",
 ):
-  if anchor_model is None:
+  if anchor_model is None or getattr(args, "skip_anchor_policy_reports", False):
     return
   report = policy_target_report(anchor_model, list(replay), args, device)
   if report is not None:
@@ -10478,50 +12171,72 @@ def save_replay(replay, path, metadata=None):
   tmp_path = path.with_name(
       f".{path.name}.{os.getpid()}.{int(time.time() * 1000)}.tmp"
   )
-  obs = [item[0] for item in replay]
-  masks = [item[1] for item in replay]
-  policies = [item[2] for item in replay]
-  values = [item[3] for item in replay]
+  obs_size = max(len(np.asarray(item[0]).reshape(-1)) for item in replay)
+  num_actions = max(len(np.asarray(item[1]).reshape(-1)) for item in replay)
+  player_count = 1
+  for item in replay:
+    if len(item) > 3 and item[3] is not None:
+      player_count = max(player_count, len(np.asarray(item[3]).reshape(-1)))
+    if len(item) > 4 and item[4] is not None:
+      player_count = max(player_count, len(np.asarray(item[4]).reshape(-1)))
+    if len(item) > 12 and item[12] is not None:
+      player_count = max(player_count, len(np.asarray(item[12]).reshape(-1)))
+  obs = [adapt_observation(item[0], obs_size) for item in replay]
+  masks = [
+      adapt_action_vector(item[1], num_actions, dtype=np.float32)
+      for item in replay
+  ]
+  policies = [
+      adapt_action_vector(item[2], num_actions, dtype=np.float32)
+      for item in replay
+  ]
+  values = [
+      adapt_player_target_vector(item[3], player_count)
+      if item[3] is not None else np.zeros(player_count, dtype=np.float32)
+      for item in replay
+  ]
   paradoxes = [
-      item[4] if len(item) > 4 else np.zeros_like(values[0], dtype=np.float32)
+      adapt_player_target_vector(item[4], player_count)
+      if len(item) > 4 and item[4] is not None
+      else np.zeros(player_count, dtype=np.float32)
       for item in replay
   ]
   actions = [item[5] if len(item) > 5 else -1 for item in replay]
   players = [item[6] if len(item) > 6 else -1 for item in replay]
   action_target_vectors = [
       (
-          item[7]
+          adapt_action_vector(item[7], num_actions, dtype=np.float32)
           if len(item) > 8 and item[7] is not None
-          else np.zeros_like(masks[0], dtype=np.float32)
+          else np.zeros(num_actions, dtype=np.float32)
       )
       for item in replay
   ]
   action_target_masks = [
       (
-          item[8]
+          adapt_action_vector(item[8], num_actions, dtype=np.float32)
           if len(item) > 8 and item[8] is not None
-          else np.zeros_like(masks[0], dtype=np.float32)
+          else np.zeros(num_actions, dtype=np.float32)
       )
       for item in replay
   ]
   action_value_target_vectors = [
       (
-          item[9]
+          adapt_action_vector(item[9], num_actions, dtype=np.float32)
           if len(item) > 10 and item[9] is not None
-          else np.zeros_like(masks[0], dtype=np.float32)
+          else np.zeros(num_actions, dtype=np.float32)
       )
       for item in replay
   ]
   action_value_target_masks = [
       (
-          item[10]
+          adapt_action_vector(item[10], num_actions, dtype=np.float32)
           if len(item) > 10 and item[10] is not None
-          else np.zeros_like(masks[0], dtype=np.float32)
+          else np.zeros(num_actions, dtype=np.float32)
       )
       for item in replay
   ]
   action_features = [
-      adapt_action_features(item[11] if len(item) > 11 else None, len(item[1]))
+      adapt_action_features(item[11] if len(item) > 11 else None, num_actions)
       for item in replay
   ]
   terminal_action_paradox_targets = []
@@ -10529,12 +12244,12 @@ def save_replay(replay, path, metadata=None):
   for item in replay:
     if len(item) > 12 and item[12] is not None:
       terminal_action_paradox_targets.append(
-          adapt_player_target_vector(item[12], len(values[0]))
+          adapt_player_target_vector(item[12], player_count)
       )
       terminal_action_paradox_target_masks.append(1.0)
     else:
       terminal_action_paradox_targets.append(
-          np.zeros(len(values[0]), dtype=np.float32)
+          np.zeros(player_count, dtype=np.float32)
       )
       terminal_action_paradox_target_masks.append(0.0)
   try:
@@ -10691,6 +12406,14 @@ def load_model_payload(checkpoint_path, game, args, device):
           "separate_action_paradox_encoder",
           getattr(args, "separate_action_paradox_encoder", False),
       ),
+      saved_args.get(
+          "separate_prediction_policy_head",
+          getattr(args, "separate_prediction_policy_head", False),
+      ),
+      saved_args.get(
+          "prediction_policy_input",
+          getattr(args, "prediction_policy_input", "pair"),
+      ),
   ).to(device)
   load_compatible_state_dict(model, payload["model"])
   initialize_missing_action_value_stack_from_policy(model, payload["model"])
@@ -10699,19 +12422,26 @@ def load_model_payload(checkpoint_path, game, args, device):
 
 
 class AZPolicyBot:
-  def __init__(self, model, name, device, value_scale):
+  def __init__(
+      self, model, name, device, value_scale, use_shared_prediction=True
+  ):
     self.name = name
     self.model = model
     self.device = device
     self.value_scale = value_scale
+    self.use_shared_prediction = bool(use_shared_prediction)
+    self.uses_neural_prediction = not self.use_shared_prediction
 
   def step(self, state, player):
-    prediction_action = shared_prediction_action(state, player)
-    if prediction_action is not None:
-      return int(prediction_action)
+    setup_action = shared_discard_action(state, player)
+    if setup_action is None and self.use_shared_prediction:
+      setup_action = shared_prediction_action(state, player)
+    if setup_action is not None:
+      return int(setup_action)
     policy, _ = model_policy_value(
         self.model, state, player, state.num_distinct_actions(),
-        self.value_scale, self.device
+        self.value_scale, self.device,
+        use_shared_prediction=self.use_shared_prediction,
     )
     legal = state.legal_actions(player)
     return max(legal, key=lambda action: policy[action])
@@ -10730,9 +12460,11 @@ class AZBeliefPolicyBot:
 
   def step(self, state, player):
     legal = state.legal_actions(player)
-    prediction_action = shared_prediction_action(state, player, legal)
-    if prediction_action is not None:
-      return int(prediction_action)
+    setup_action = shared_discard_action(state, player, legal)
+    if setup_action is None:
+      setup_action = shared_prediction_action(state, player, legal)
+    if setup_action is not None:
+      return int(setup_action)
     if len(legal) == 1:
       return legal[0]
     combined = np.zeros(state.num_distinct_actions(), dtype=np.float32)
@@ -10783,9 +12515,11 @@ class AZSearchBot:
     self.sims = sims
 
   def step(self, state, player):
-    prediction_action = shared_prediction_action(state, player)
-    if prediction_action is not None:
-      return int(prediction_action)
+    setup_action = shared_discard_action(state, player)
+    if setup_action is None:
+      setup_action = shared_prediction_action(state, player)
+    if setup_action is not None:
+      return int(setup_action)
     policy = mcts_policy(
         state, self.model, self.args, self.device, add_noise=False, sims=self.sims
     )
@@ -10806,9 +12540,11 @@ class AZBeliefSearchBot:
 
   def step(self, state, player):
     legal = state.legal_actions(player)
-    prediction_action = shared_prediction_action(state, player, legal)
-    if prediction_action is not None:
-      return int(prediction_action)
+    setup_action = shared_discard_action(state, player, legal)
+    if setup_action is None:
+      setup_action = shared_prediction_action(state, player, legal)
+    if setup_action is not None:
+      return int(setup_action)
     if len(legal) == 1:
       return legal[0]
     combined = np.zeros(state.num_distinct_actions(), dtype=np.float32)
@@ -10932,7 +12668,9 @@ def play_eval_round(round_game, bots, args, seed, match_totals=None, round_index
       action = int(np.random.choice(actions, p=probs))
     else:
       player = state.current_player()
-      action = shared_prediction_action(state, player)
+      action = shared_discard_action(state, player)
+      if action is None:
+        action = shared_prediction_action(state, player)
       if action is None:
         action = bots[player].step(state, player)
     state.apply_action(action)
@@ -11073,6 +12811,9 @@ def wrap_eval_result(args, eval_result, complete=True, completed_games=None):
       "action_paradox_max_policy_log_gap": getattr(
           args, "action_paradox_max_policy_log_gap", 2.0
       ),
+      "action_value_max_policy_log_gap": getattr(
+          args, "action_value_max_policy_log_gap", -1.0
+      ),
       "complete": bool(complete),
       "eval": eval_result,
   }
@@ -11125,8 +12866,17 @@ def wrap_teacher_result(args, result, complete=True, completed_games=None):
       "action_paradox_max_policy_log_gap": getattr(
           args, "action_paradox_max_policy_log_gap", 2.0
       ),
+      "action_value_max_policy_log_gap": getattr(
+          args, "action_value_max_policy_log_gap", -1.0
+      ),
       "action_value_rerank_phases": getattr(
           args, "action_value_rerank_phases", ""
+      ),
+      "action_value_rerank_min_trick_number": getattr(
+          args, "action_value_rerank_min_trick_number", -1
+      ),
+      "action_value_rerank_max_trick_number": getattr(
+          args, "action_value_rerank_max_trick_number", -1
       ),
       "q_policy_teacher_confirm_rollouts": int(
           getattr(args, "q_policy_teacher_confirm_rollouts", 0)
@@ -11396,6 +13146,14 @@ def main():
           "separate_action_paradox_encoder",
           args.separate_action_paradox_encoder,
       )
+      args.separate_prediction_policy_head = saved_args.get(
+          "separate_prediction_policy_head",
+          args.separate_prediction_policy_head,
+      )
+      args.prediction_policy_input = saved_args.get(
+          "prediction_policy_input",
+          args.prediction_policy_input,
+      )
     args.value_scale = saved_args.get("value_scale", args.value_scale)
   model = AZNet(
       game.observation_tensor_shape()[0],
@@ -11406,6 +13164,8 @@ def main():
       args.arch,
       args.separate_action_value_encoder,
       args.separate_action_paradox_encoder,
+      args.separate_prediction_policy_head,
+      args.prediction_policy_input,
   ).to(device)
   if resume_payload is not None:
     load_compatible_state_dict(model, resume_payload["model"])
@@ -11454,25 +13214,44 @@ def main():
     replay_paths = split_csv(args.load_replay)
     replay_counts = {}
     replay_metadata = []
+    replay_group_ids = []
+    group_key = str(
+        getattr(args, "action_value_validation_group_metadata_key", "") or ""
+    )
     for replay_path in replay_paths:
       examples, metadata = load_replay(replay_path, return_metadata=True)
       replay_counts[replay_path] = len(examples)
       replay_metadata.append(metadata)
+      if group_key:
+        ids = metadata.get(group_key) if isinstance(metadata, dict) else None
+        if isinstance(ids, list) and len(ids) == len(examples):
+          replay_group_ids.extend(str(item) for item in ids)
+        else:
+          replay_group_ids = []
       for example in examples:
         replay.append(example)
     replay, action_value_filter = filter_action_value_labels_for_training(
         replay, args
     )
+    replay, compact_action_label_report = compact_action_label_replay(
+        replay, args
+    )
+    if replay_group_ids and len(replay_group_ids) != len(replay):
+      replay_group_ids = []
     load_row = {
         "iteration": "load_replay",
         "load_replay": args.load_replay,
         "load_replay_paths": replay_paths,
         "load_replay_counts": replay_counts,
-        "load_replay_metadata": replay_metadata,
+        "load_replay_metadata": [
+            summarized_replay_metadata(metadata) for metadata in replay_metadata
+        ],
         "replay_size": len(replay),
     }
     if action_value_filter is not None:
       load_row["action_value_filter"] = action_value_filter
+    if compact_action_label_report is not None:
+      load_row["compact_action_label_report"] = compact_action_label_report
     metrics.append(load_row)
     print(json.dumps(load_row, indent=2), flush=True)
 
@@ -11485,13 +13264,23 @@ def main():
     )
     validation_replay, validation_split = load_action_value_validation_replay(args)
     if validation_split is not None:
+      validation_split.update(
+          explicit_validation_source_group_report(
+              locals().get("replay_paths", []),
+              locals().get("replay_metadata", []),
+              validation_split,
+              args,
+          )
+      )
       loaded_args = apply_replay_metadata_to_args(
           loaded_args,
           validation_split.get("action_value_validation_replay_metadata", []),
       )
     if validation_replay is None:
       train_replay, validation_replay, validation_split = (
-          split_action_value_validation_replay(replay, args)
+          split_action_value_validation_replay(
+              replay, args, group_ids=locals().get("replay_group_ids") or None
+          )
       )
     else:
       train_replay = list(replay)
@@ -11774,6 +13563,12 @@ def main():
         "action_value_rerank_phases": str(
             getattr(args, "action_value_rerank_phases", "")
         ),
+        "action_value_rerank_min_trick_number": int(
+            getattr(args, "action_value_rerank_min_trick_number", -1)
+        ),
+        "action_value_rerank_max_trick_number": int(
+            getattr(args, "action_value_rerank_max_trick_number", -1)
+        ),
         "q_policy_teacher_confirm_rollouts": int(
             getattr(args, "q_policy_teacher_confirm_rollouts", 0)
         ),
@@ -11991,10 +13786,11 @@ def main():
         "metrics": metrics,
     }, out_dir / "checkpoint_0000_league.pt")
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-    save_replay(
-        list(replay), out_dir / "replay_latest.npz",
-        metadata=replay_metadata_from_args(league_args),
-    )
+    if not getattr(args, "skip_replay_save", False):
+      save_replay(
+          list(replay), out_dir / "replay_latest.npz",
+          metadata=replay_metadata_from_args(league_args),
+      )
 
   if args.bootstrap_games > 0:
     bot_names = [name.strip() for name in args.bootstrap_bots.split(",")
@@ -12056,10 +13852,11 @@ def main():
         "metrics": metrics,
     }, out_dir / "checkpoint_0000_bootstrap.pt")
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-    save_replay(
-        list(replay), out_dir / "replay_latest.npz",
-        metadata=replay_metadata_from_args(bootstrap_args),
-    )
+    if not getattr(args, "skip_replay_save", False):
+      save_replay(
+          list(replay), out_dir / "replay_latest.npz",
+          metadata=replay_metadata_from_args(bootstrap_args),
+      )
 
   if args.replay_warmup_games > 0:
     warmup_generation = collect_self_play_games(
@@ -12097,16 +13894,41 @@ def main():
         "metrics": metrics,
     }, out_dir / "checkpoint_0000_warmup.pt")
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-    save_replay(
-        list(replay), out_dir / "replay_latest.npz",
-        metadata=replay_metadata_from_args(warmup_args),
-    )
+    if not getattr(args, "skip_replay_save", False):
+      save_replay(
+          list(replay), out_dir / "replay_latest.npz",
+          metadata=replay_metadata_from_args(warmup_args),
+      )
 
   for iteration in range(1, args.iterations + 1):
     generation = collect_self_play_games(model, args, device, args.games_per_iter)
     game_returns = generation["returns"]
     start_counts = generation["start_counts"]
     replay.extend(generation["examples"])
+    generation_row = {
+        "iteration": "self_play_generation_complete",
+        "parent_iteration": iteration,
+        "self_play_games": args.games_per_iter,
+        "full_match_training": args.full_match_training,
+        "generation_workers": generation["workers"],
+        "generation_elapsed_sec": round(generation["elapsed_sec"], 3),
+        "start_counts": start_counts,
+        "replay_size": len(replay),
+        "self_play_avg_returns": np.mean(
+            np.array(game_returns), axis=0
+        ).tolist(),
+    }
+    metrics.append(generation_row)
+    print(json.dumps(generation_row, indent=2), flush=True)
+    (out_dir / "metrics.json").write_text(
+        json.dumps(metrics, indent=2) + "\n"
+    )
+    if not getattr(args, "skip_replay_save", False):
+      save_replay(
+          list(replay),
+          out_dir / "replay_latest.npz",
+          metadata=replay_metadata_from_args(args),
+      )
     snapshot_rows = []
     if args.train_snapshot_interval > 0 and args.train_steps > 0:
       losses = []
@@ -12180,10 +14002,11 @@ def main():
         "metrics": metrics,
     }, out_dir / f"checkpoint_{iteration:04d}.pt")
     (out_dir / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
-  save_replay(
-      list(replay), out_dir / "replay_latest.npz",
-      metadata=replay_metadata_from_args(args),
-  )
+  if not getattr(args, "skip_replay_save", False):
+    save_replay(
+        list(replay), out_dir / "replay_latest.npz",
+        metadata=replay_metadata_from_args(args),
+    )
 
 
 if __name__ == "__main__":

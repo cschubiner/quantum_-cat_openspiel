@@ -22,6 +22,7 @@ from itertools import combinations
 import pyspiel
 
 from mcts_quantum_cat import TrickFollowingEvaluator, TrickFollowingEvaluatorV2
+from quantum_cat_ai import shared_discard_action
 from open_spiel.python.algorithms.ismcts import (
     ISMCTSBot,
     ChildSelectionPolicy,
@@ -320,10 +321,12 @@ def main():
                 chosen = np.random.choice(actions, p=probs)
                 state.apply_action(chosen)
             else:
-                action = all_bots[current_player].step(state)
+                legal_acts = state.legal_actions(current_player)
+                action = shared_discard_action(state, current_player, legal_acts)
+                if action is None:
+                    action = all_bots[current_player].step(state)
                 # fallback if a bot doesn't provide an action
                 if action is None:
-                    legal_acts = state.legal_actions(current_player)
                     if not legal_acts:
                         # No moves => paradox
                         # We'll just let the engine handle it if it does so automatically

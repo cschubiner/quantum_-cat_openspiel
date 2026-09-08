@@ -77,6 +77,15 @@ enum Move: Identifiable, Equatable {
             999
         }
     }
+
+    var telemetryKey: String {
+        switch self {
+        case .discard(let rank): "discard:\(rank)"
+        case .prediction(let value): "prediction:\(value)"
+        case .play(let rank, let suit): "play:\(suit.rawValue):\(rank)"
+        case .paradox: "paradox"
+        }
+    }
 }
 
 struct PlayerState: Identifiable, Codable {
@@ -127,6 +136,25 @@ struct BotMoveAnimation: Identifiable, Equatable {
     }
 }
 
+struct BotMovePreference: Identifiable, Equatable {
+    let move: Move
+    let score: Int
+
+    var id: String { move.id }
+}
+
+struct BotRecommendation: Identifiable, Equatable {
+    let player: Int
+    let botKind: BotKind
+    let move: Move
+    let legalMoveCount: Int
+    let rankedMoves: [BotMovePreference]
+
+    var id: String {
+        "\(player)-\(botKind.id)-\(move.id)"
+    }
+}
+
 enum BotOnlyRunMode: String, CaseIterable, Identifiable {
     case watch
     case bulk
@@ -163,6 +191,80 @@ struct BulkSimulationSummary: Identifiable {
     let generatedAt: Date
 }
 
+struct HumanMatchTelemetry: Codable, Identifiable {
+    struct Seat: Codable, Equatable {
+        let index: Int
+        let participantID: String
+        let actor: String
+        let botKind: String?
+        let modelResource: String?
+        let modelCheckpointSHA256: String?
+        let liveInputContract: String?
+    }
+
+    struct MoveRecord: Codable, Equatable {
+        let sequence: Int
+        let roundIndex: Int
+        let phase: String
+        let player: Int
+        let actor: String
+        let action: String
+        let legalActions: [String]
+        let legalActionCount: Int
+        let trickNumber: Int
+        let ledSuit: String?
+        let championRecommendation: String?
+        let agreedWithChampion: Bool?
+    }
+
+    struct RoundRecord: Codable, Equatable {
+        let index: Int
+        let startingPlayer: Int
+        let startedAt: Date
+        let completedAt: Date
+        let moves: [MoveRecord]
+        let scores: [Double]
+        let paradoxes: [Bool]
+        let winner: Int?
+    }
+
+    static let schemaVersion = 1
+
+    let id: UUID
+    let schemaVersion: Int
+    let createdAt: Date
+    var completedAt: Date?
+    let appVersion: String
+    let buildVersion: String
+    let seats: [Seat]
+    let targetRounds: Int
+    var rounds: [RoundRecord]
+    var currentRoundIndex: Int
+    var currentRoundStartingPlayer: Int
+    var currentRoundStartedAt: Date
+    var currentRoundMoves: [MoveRecord]
+
+    var isComplete: Bool {
+        completedAt != nil && rounds.count >= targetRounds
+    }
+
+    var cumulativeScores: [Double] {
+        var totals = Array(repeating: 0.0, count: seats.count)
+        for round in rounds where round.scores.count == totals.count {
+            for index in totals.indices {
+                totals[index] += round.scores[index]
+            }
+        }
+        return totals
+    }
+
+    var winnerSeats: [Int] {
+        let totals = cumulativeScores
+        guard let best = totals.max() else { return [] }
+        return totals.indices.filter { totals[$0] == best }
+    }
+}
+
 struct SeededGenerator: Codable {
     private var state: UInt64
 
@@ -188,14 +290,20 @@ struct SeededGenerator: Codable {
 @MainActor
 final class GameStore: ObservableObject {
     private static let savedStateKey = "quantum-cat.saved-state.v1"
+    private static let telemetryFileName = "human_match_telemetry.jsonl"
     private struct PersistedState: Codable {
         var humanSeats: Int
+        var humanParticipantIDs: [String]?
         var botSeats: Int
         var botKinds: [BotKind]
         var game: QuantumCatGame
+        var humanMatchTelemetry: HumanMatchTelemetry?
     }
 
     @Published var humanSeats: Int = 1 {
+        didSet { normalizeSetup() }
+    }
+    @Published var humanParticipantIDs: [String] = (1...5).map { "player-\($0)" } {
         didSet { normalizeSetup() }
     }
     @Published var botSeats: Int = 2 {
@@ -210,10 +318,17 @@ final class GameStore: ObservableObject {
     @Published private(set) var botStatus: String?
     @Published private(set) var botMoveAnimation: BotMoveAnimation?
     @Published private(set) var bulkSimulationSummary: BulkSimulationSummary?
+    @Published private(set) var humanMatchTelemetry: HumanMatchTelemetry?
+    @Published private(set) var latestTelemetryExportURL: URL?
+    @Published private(set) var telemetryStatus: String?
     private var isNormalizingSetup = false
     private var botTask: Task<Void, Never>?
+    private let telemetryDirectoryURL: URL
 
-    init() {
+    init(telemetryDirectoryURL: URL? = nil) {
+        self.telemetryDirectoryURL = telemetryDirectoryURL
+            ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
         if ProcessInfo.processInfo.arguments.contains("-uiTestReset") {
             UserDefaults.standard.removeObject(forKey: Self.savedStateKey)
         }
@@ -254,13 +369,16 @@ final class GameStore: ObservableObject {
         } else if let data = UserDefaults.standard.data(forKey: Self.savedStateKey),
            let state = try? JSONDecoder().decode(PersistedState.self, from: data) {
             humanSeats = state.humanSeats
+            humanParticipantIDs = state.humanParticipantIDs ?? (1...5).map { "player-\($0)" }
             botSeats = state.botSeats
             botKinds = state.botKinds
             game = state.game
+            humanMatchTelemetry = state.humanMatchTelemetry
             normalizeSetup()
         } else {
             game = QuantumCatGame(seats: [.human, .bot(.championBeliefPolicy), .bot(.championBeliefPolicy)], seed: 20260606, autoAdvanceBots: false)
         }
+        prepareTelemetryForCurrentGameIfNeeded(startingNewRound: false)
         triggerBotAdvance()
     }
 
@@ -270,10 +388,15 @@ final class GameStore: ObservableObject {
 
     var setupIsValid: Bool {
         let total = humanSeats + botSeats
-        return (0...5).contains(humanSeats) && (0...5).contains(botSeats) && (2...5).contains(total)
+        let activeHumanIDs = (0..<humanSeats).map { humanParticipantID(at: $0) }
+        return (0...5).contains(humanSeats)
+            && (0...5).contains(botSeats)
+            && (2...5).contains(total)
+            && Set(activeHumanIDs).count == activeHumanIDs.count
     }
 
     func newGame() {
+        finalizeTelemetryRoundIfNeeded()
         normalizeSetup()
         let seats = Array(repeating: SeatKind.human, count: humanSeats)
             + (0..<botSeats).map { SeatKind.bot(botKinds[$0]) }
@@ -289,18 +412,30 @@ final class GameStore: ObservableObject {
         } else {
             game = QuantumCatGame(seats: seats, seed: seed, startingPlayer: nextStartingPlayer, autoAdvanceBots: false)
         }
+        prepareTelemetryForCurrentGameIfNeeded(startingNewRound: true)
         save()
         triggerBotAdvance()
     }
 
     func apply(_ move: Move) {
-        game.applyHumanMove(move, autoAdvanceBots: false)
+        guard game.activeHuman != nil else { return }
+        let context = telemetryMoveContext(move: move, recommendation: game.botRecommendationForCurrentHuman())
+        guard game.applyHumanMove(move, autoAdvanceBots: false) else { return }
+        appendTelemetryMove(context)
+        finalizeTelemetryRoundIfNeeded()
         save()
         triggerBotAdvance()
     }
 
     func save() {
-        let state = PersistedState(humanSeats: humanSeats, botSeats: botSeats, botKinds: botKinds, game: game)
+        let state = PersistedState(
+            humanSeats: humanSeats,
+            humanParticipantIDs: humanParticipantIDs,
+            botSeats: botSeats,
+            botKinds: botKinds,
+            game: game,
+            humanMatchTelemetry: humanMatchTelemetry
+        )
         if let data = try? JSONEncoder().encode(state) {
             UserDefaults.standard.set(data, forKey: Self.savedStateKey)
         }
@@ -329,6 +464,12 @@ final class GameStore: ObservableObject {
         if botSeats != normalizedBots { botSeats = normalizedBots }
         while botKinds.count < normalizedBots {
             botKinds.append(.championBeliefPolicy)
+        }
+        while humanParticipantIDs.count < 5 {
+            humanParticipantIDs.append("player-\(humanParticipantIDs.count + 1)")
+        }
+        if humanParticipantIDs.count > 5 {
+            humanParticipantIDs = Array(humanParticipantIDs.prefix(5))
         }
         if botKinds.count > 5 {
             botKinds = Array(botKinds.prefix(5))
@@ -424,11 +565,14 @@ final class GameStore: ObservableObject {
             }
             let player = game.currentPlayer
             let botName = game.activeBotKind?.name ?? "Bot"
+            let context = telemetryMoveContext(move: nil, recommendation: nil)
             botStatus = "P\(player) \(botName) is thinking..."
             try? await Task.sleep(nanoseconds: 450_000_000)
             guard !Task.isCancelled else { return }
             let move = game.applyBotMoveForCurrentPlayer()
             if let move {
+                appendTelemetryMove(context.with(move: move))
+                finalizeTelemetryRoundIfNeeded()
                 let event = BotMoveAnimation(player: player, botName: botName, move: move)
                 botMoveAnimation = event
                 botStatus = "\(event.title) \(event.subtitle)."
@@ -446,9 +590,255 @@ final class GameStore: ObservableObject {
             botMoveAnimation = nil
         }
     }
+
+    private struct PendingTelemetryMove {
+        let phase: String
+        let player: Int
+        let actor: String
+        let move: Move?
+        let legalMoves: [Move]
+        let trickNumber: Int
+        let ledSuit: String?
+        let recommendation: Move?
+
+        func with(move: Move) -> PendingTelemetryMove {
+            PendingTelemetryMove(
+                phase: phase,
+                player: player,
+                actor: actor,
+                move: move,
+                legalMoves: legalMoves,
+                trickNumber: trickNumber,
+                ledSuit: ledSuit,
+                recommendation: recommendation
+            )
+        }
+    }
+
+    private func telemetryMoveContext(
+        move: Move?,
+        recommendation: BotRecommendation?
+    ) -> PendingTelemetryMove {
+        PendingTelemetryMove(
+            phase: game.phase.rawValue,
+            player: game.currentPlayer,
+            actor: game.players[game.currentPlayer].seatKind.isHuman ? "human" : "bot",
+            move: move,
+            legalMoves: game.legalMoves,
+            trickNumber: game.trickNumber,
+            ledSuit: game.ledSuit?.rawValue,
+            recommendation: recommendation?.move
+        )
+    }
+
+    private func appendTelemetryMove(_ pending: PendingTelemetryMove) {
+        guard var telemetry = humanMatchTelemetry, let move = pending.move else { return }
+        let record = HumanMatchTelemetry.MoveRecord(
+            sequence: telemetry.currentRoundMoves.count,
+            roundIndex: telemetry.currentRoundIndex,
+            phase: pending.phase,
+            player: pending.player,
+            actor: pending.actor,
+            action: move.telemetryKey,
+            legalActions: pending.legalMoves.map(\.telemetryKey),
+            legalActionCount: pending.legalMoves.count,
+            trickNumber: pending.trickNumber,
+            ledSuit: pending.ledSuit,
+            championRecommendation: pending.recommendation?.telemetryKey,
+            agreedWithChampion: pending.recommendation.map { $0 == move }
+        )
+        telemetry.currentRoundMoves.append(record)
+        humanMatchTelemetry = telemetry
+    }
+
+    private func prepareTelemetryForCurrentGameIfNeeded(startingNewRound: Bool) {
+        guard game.seats.contains(where: { $0.isHuman }) else {
+            humanMatchTelemetry = nil
+            telemetryStatus = nil
+            return
+        }
+        let seats = telemetrySeats(for: game.seats)
+        let canContinue = humanMatchTelemetry.map { telemetry in
+            !telemetry.isComplete
+                && telemetry.seats == seats
+                && telemetry.rounds.count < telemetry.targetRounds
+                && (!startingNewRound || telemetry.currentRoundMoves.isEmpty)
+        } ?? false
+        if canContinue, var telemetry = humanMatchTelemetry {
+            if startingNewRound {
+                telemetry.currentRoundIndex = telemetry.rounds.count
+                telemetry.currentRoundStartingPlayer = game.currentPlayer
+                telemetry.currentRoundStartedAt = Date()
+            }
+            humanMatchTelemetry = telemetry
+        } else if humanMatchTelemetry == nil
+                    || humanMatchTelemetry?.isComplete == true
+                    || humanMatchTelemetry?.seats != seats
+                    || startingNewRound {
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "development"
+            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "development"
+            humanMatchTelemetry = HumanMatchTelemetry(
+                id: UUID(),
+                schemaVersion: HumanMatchTelemetry.schemaVersion,
+                createdAt: Date(),
+                completedAt: nil,
+                appVersion: version,
+                buildVersion: build,
+                seats: seats,
+                targetRounds: game.seats.count,
+                rounds: [],
+                currentRoundIndex: 0,
+                currentRoundStartingPlayer: game.currentPlayer,
+                currentRoundStartedAt: Date(),
+                currentRoundMoves: []
+            )
+        }
+        if let telemetry = humanMatchTelemetry {
+            game.setMatchContext(
+                totals: telemetry.cumulativeScores,
+                roundIndex: telemetry.rounds.count
+            )
+            telemetryStatus = "Human match \(telemetry.rounds.count + 1)/\(telemetry.targetRounds)"
+        }
+    }
+
+    private func finalizeTelemetryRoundIfNeeded() {
+        guard game.isTerminal, var telemetry = humanMatchTelemetry else { return }
+        guard telemetry.rounds.count == telemetry.currentRoundIndex else { return }
+        let scores = game.players.map { $0.score ?? 0.0 }
+        telemetry.rounds.append(
+            HumanMatchTelemetry.RoundRecord(
+                index: telemetry.currentRoundIndex,
+                startingPlayer: telemetry.currentRoundStartingPlayer,
+                startedAt: telemetry.currentRoundStartedAt,
+                completedAt: Date(),
+                moves: telemetry.currentRoundMoves,
+                scores: scores,
+                paradoxes: game.players.map(\.hasParadoxed),
+                winner: game.roundWinner
+            )
+        )
+        telemetry.currentRoundMoves = []
+        if telemetry.rounds.count >= telemetry.targetRounds {
+            telemetry.completedAt = Date()
+            humanMatchTelemetry = telemetry
+            persistCompletedTelemetry(telemetry)
+            telemetryStatus = "Human match complete: \(telemetry.rounds.count) rounds"
+        } else {
+            humanMatchTelemetry = telemetry
+            telemetryStatus = "Human match \(telemetry.rounds.count)/\(telemetry.targetRounds) rounds complete"
+        }
+    }
+
+    private func telemetrySeats(for seats: [SeatKind]) -> [HumanMatchTelemetry.Seat] {
+        seats.enumerated().map { index, seat in
+            switch seat {
+            case .human:
+                return HumanMatchTelemetry.Seat(
+                    index: index,
+                    participantID: humanParticipantID(at: index),
+                    actor: "human",
+                    botKind: nil,
+                    modelResource: nil,
+                    modelCheckpointSHA256: nil,
+                    liveInputContract: nil
+                )
+            case .bot(let kind):
+                let provenance = QuantumCatMLPolicy.shared.provenance(
+                    for: kind,
+                    players: seats.count
+                )
+                let resource = kind == .championBeliefPolicy
+                    && seats.count == 5
+                    && QuantumCatMLPolicy.shared.usesPlayerCountSpecialist(
+                        for: kind,
+                        players: seats.count
+                    )
+                    ? "champion_5p"
+                    : kind.coreMLResource
+                let version = provenance.checkpointSHA256 ?? "native"
+                let inputContract = provenance.liveInputContract ?? "missing"
+                return HumanMatchTelemetry.Seat(
+                    index: index,
+                    // A fail-closed fallback and verified live inference are
+                    // different competitors even when they bundle the same
+                    // checkpoint. Keep their Elo identities separate.
+                    participantID: "bot:\(kind.rawValue):\(version):\(inputContract)",
+                    actor: "bot",
+                    botKind: kind.rawValue,
+                    modelResource: resource,
+                    modelCheckpointSHA256: provenance.checkpointSHA256,
+                    liveInputContract: inputContract
+                )
+            }
+        }
+    }
+
+    private func humanParticipantID(at index: Int) -> String {
+        let fallback = "player-\(index + 1)"
+        let raw = humanParticipantIDs.indices.contains(index)
+            ? humanParticipantIDs[index]
+            : fallback
+        let normalized = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .map { character in
+                character.isLetter || character.isNumber || character == "-" || character == "_"
+                    ? character
+                    : "-"
+            }
+        let compact = String(normalized)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return "human:\(compact.isEmpty ? fallback : compact)"
+    }
+
+    private func persistCompletedTelemetry(_ telemetry: HumanMatchTelemetry) {
+        do {
+            try FileManager.default.createDirectory(
+                at: telemetryDirectoryURL,
+                withIntermediateDirectories: true
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(telemetry)
+            let individualURL = telemetryDirectoryURL
+                .appendingPathComponent("human_match_\(telemetry.id.uuidString).json")
+            try data.write(to: individualURL, options: .atomic)
+            let jsonlURL = telemetryDirectoryURL.appendingPathComponent(Self.telemetryFileName)
+            var line = data
+            line.append(0x0A)
+            if FileManager.default.fileExists(atPath: jsonlURL.path) {
+                let handle = try FileHandle(forWritingTo: jsonlURL)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: line)
+            } else {
+                try line.write(to: jsonlURL, options: .atomic)
+            }
+            latestTelemetryExportURL = individualURL
+        } catch {
+            telemetryStatus = "Telemetry export failed: \(error.localizedDescription)"
+        }
+    }
 }
 
 struct QuantumCatGame: Codable {
+    static func wantsAdditionalTrick(prediction: Int?, tricksWon: Int) -> Bool {
+        guard let prediction else { return true }
+        return tricksWon != prediction
+    }
+
+    static func winningWouldBreakExactPrediction(
+        prediction: Int?,
+        tricksWon: Int,
+        wouldWin: Bool
+    ) -> Bool {
+        guard let prediction else { return false }
+        return wouldWin && tricksWon == prediction
+    }
+
     private(set) var seats: [SeatKind]
     private(set) var phase: GamePhase = .dealing
     private(set) var players: [PlayerState] = []
@@ -461,14 +851,24 @@ struct QuantumCatGame: Codable {
     private(set) var currentTrick: [PlayedCard?]
     private(set) var completedTricks: [[PlayedCard?]] = []
     private(set) var log: [GameLogEntry] = []
+    private(set) var matchTotals: [Double]?
+    private(set) var matchRound: Int?
 
     private var deck: [Int] = []
     private var rng: SeededGenerator
     private var startPlayer: Int = 0
+    private var roundStartPlayer: Int?
     private var trumpBroken = false
     private static let blocked = -2
 
-    init(seats: [SeatKind], seed: Int, startingPlayer: Int = 0, autoAdvanceBots: Bool = true) {
+    init(
+        seats: [SeatKind],
+        seed: Int,
+        startingPlayer: Int = 0,
+        autoAdvanceBots: Bool = true,
+        matchTotals: [Double]? = nil,
+        matchRound: Int = 0
+    ) {
         self.seats = seats
         let playerCount = seats.count
         self.rankCount = Self.rankCount(for: playerCount)
@@ -477,6 +877,9 @@ struct QuantumCatGame: Codable {
         self.currentTrick = Array(repeating: nil, count: playerCount)
         self.rng = SeededGenerator(seed: seed)
         self.startPlayer = playerCount > 0 ? min(max(startingPlayer, 0), playerCount - 1) : 0
+        self.roundStartPlayer = self.startPlayer
+        self.matchTotals = matchTotals
+        self.matchRound = matchRound
         self.players = seats.enumerated().map { index, kind in
             PlayerState(
                 id: index,
@@ -518,6 +921,26 @@ struct QuantumCatGame: Codable {
     }
 
     var isTerminal: Bool { phase == .scoring }
+    var mlStartPlayer: Int { startPlayer }
+    var mlRoundStartPlayer: Int { roundStartPlayer ?? startPlayer }
+    var mlTrumpBroken: Bool { trumpBroken }
+    var mlMatchTotals: [Double] {
+        let totals = matchTotals ?? []
+        return players.indices.map { totals.indices.contains($0) ? totals[$0] : 0.0 }
+    }
+    var mlMatchRound: Int { matchRound ?? 0 }
+    var mlPlayedCounts: [Int] {
+        players.indices.map { player in
+            completedTricks.reduce(0) { count, trick in
+                count + (trick.indices.contains(player) && trick[player] != nil ? 1 : 0)
+            } + (currentTrick.indices.contains(player) && currentTrick[player] != nil ? 1 : 0)
+        }
+    }
+
+    mutating func setMatchContext(totals: [Double], roundIndex: Int) {
+        matchTotals = players.indices.map { totals.indices.contains($0) ? totals[$0] : 0.0 }
+        matchRound = max(0, roundIndex)
+    }
     var activeHuman: PlayerState? {
         guard !isTerminal, players.indices.contains(currentPlayer), players[currentPlayer].seatKind.isHuman else { return nil }
         return players[currentPlayer]
@@ -560,17 +983,158 @@ struct QuantumCatGame: Codable {
         }
     }
 
-    mutating func applyHumanMove(_ move: Move, autoAdvanceBots: Bool = true) {
-        guard players.indices.contains(currentPlayer), players[currentPlayer].seatKind.isHuman else { return }
+    func botRecommendationForCurrentHuman(kind: BotKind = .championBeliefPolicy) -> BotRecommendation? {
+        guard activeHuman != nil, seats.indices.contains(currentPlayer) else { return nil }
+        let legal = legalMoves
+        guard !legal.isEmpty else { return nil }
+
+        var copy = self
+        copy.seats[currentPlayer] = .bot(kind)
+        copy.players[currentPlayer].seatKind = .bot(kind)
+        let move = copy.botMove(for: currentPlayer)
+        guard legal.contains(move) else { return nil }
+
+        let preferenceValues: [Double]
+        if phase == .play,
+           let modelValues = QuantumCatMLPolicy.shared.movePreferenceLogits(
+            kind: kind,
+            game: copy,
+            player: currentPlayer,
+            legalMoves: legal
+           ) {
+            preferenceValues = modelValues
+        } else if phase == .prediction,
+                  QuantumCatMLPolicy.shared.usesLearnedPrediction(
+                    for: kind,
+                    players: players.count
+                  ),
+                  let modelValues = QuantumCatMLPolicy.shared.movePreferenceLogits(
+                    kind: kind,
+                    game: copy,
+                    player: currentPlayer,
+                    legalMoves: legal
+                  ) {
+            preferenceValues = modelValues
+        } else if phase == .prediction {
+            let expected = Double(copy.sharedPredictionBid(for: currentPlayer))
+            preferenceValues = legal.map { action in
+                guard case .prediction(let value) = action else {
+                    return -Double.infinity
+                }
+                return -1.4 * abs(Double(value) - expected)
+            }
+        } else if phase == .discard {
+            let hand = players[currentPlayer].hand
+            preferenceValues = legal.map { action in
+                guard case .discard(let rank) = action,
+                      hand.indices.contains(rank - 1) else {
+                    return -Double.infinity
+                }
+                let rankPenalty = rank == 6 ? 0.75 : 0.0
+                return Double(hand[rank - 1])
+                    + 0.15 * copy.discardDissimilarityScore(hand: hand, rank: rank)
+                    - rankPenalty
+            }
+        } else if let rows = try? QuantumCatMLFeatureEncoder.actionFeatures(
+            game: copy,
+            player: currentPlayer,
+            legalMoves: legal
+        ) {
+            preferenceValues = rows.map { row in
+                guard row.count > 213 else { return 0.0 }
+                return row[209] + row[199] - row[211] - row[213]
+            }
+        } else {
+            preferenceValues = legal.map { $0 == move ? 1.0 : 0.0 }
+        }
+
+        return BotRecommendation(
+            player: currentPlayer,
+            botKind: kind,
+            move: move,
+            legalMoveCount: legal.count,
+            rankedMoves: Self.normalizedMovePreferences(
+                legalMoves: legal,
+                preferenceValues: preferenceValues,
+                preferredMove: move
+            )
+        )
+    }
+
+    static func normalizedMovePreferences(
+        legalMoves: [Move],
+        preferenceValues: [Double],
+        preferredMove: Move
+    ) -> [BotMovePreference] {
+        guard legalMoves.count == preferenceValues.count,
+              let preferredIndex = legalMoves.firstIndex(of: preferredMove) else {
+            return []
+        }
+
+        var adjusted = preferenceValues.map { value in
+            value.isFinite ? value : -Double.infinity
+        }
+        let highest = adjusted.filter(\.isFinite).max() ?? 0.0
+        // Public risk/tactical protections can override the raw policy. The
+        // coach must rank the move the champion actually plays first.
+        if !adjusted[preferredIndex].isFinite || adjusted[preferredIndex] <= highest {
+            adjusted[preferredIndex] = highest + 0.35
+        }
+        let finite = adjusted.filter(\.isFinite)
+        let spread = (finite.max() ?? 0.0) - (finite.min() ?? 0.0)
+        let temperature = max(1.0, min(6.0, spread / 5.0))
+        let maximum = adjusted.max() ?? 0.0
+        let weights = adjusted.map { value in
+            value.isFinite ? exp(max(-60.0, (value - maximum) / temperature)) : 0.0
+        }
+        let total = weights.reduce(0.0, +)
+        guard total > 0.0 else {
+            return [BotMovePreference(move: preferredMove, score: 100)]
+        }
+
+        let exact = weights.map { 100.0 * $0 / total }
+        var percentages = exact.map { Int($0.rounded(.down)) }
+        let remainder = max(0, 100 - percentages.reduce(0, +))
+        let remainderOrder = exact.indices.sorted { lhs, rhs in
+            let leftFraction = exact[lhs] - Double(percentages[lhs])
+            let rightFraction = exact[rhs] - Double(percentages[rhs])
+            if leftFraction != rightFraction { return leftFraction > rightFraction }
+            if lhs == preferredIndex { return true }
+            if rhs == preferredIndex { return false }
+            return lhs < rhs
+        }
+        for index in remainderOrder.prefix(remainder) {
+            percentages[index] += 1
+        }
+
+        return legalMoves.indices.sorted { lhs, rhs in
+            if lhs == preferredIndex { return true }
+            if rhs == preferredIndex { return false }
+            if percentages[lhs] != percentages[rhs] {
+                return percentages[lhs] > percentages[rhs]
+            }
+            return lhs < rhs
+        }.map { index in
+            BotMovePreference(move: legalMoves[index], score: percentages[index])
+        }
+    }
+
+    @discardableResult
+    mutating func applyHumanMove(_ move: Move, autoAdvanceBots: Bool = true) -> Bool {
+        guard players.indices.contains(currentPlayer),
+              players[currentPlayer].seatKind.isHuman,
+              legalMoves.contains(move) else { return false }
         apply(move)
         if autoAdvanceBots {
             advanceBots()
         }
+        return true
     }
 
     mutating func applyBotMoveForCurrentPlayer() -> Move? {
         guard activeBotKind != nil else { return nil }
         let move = botMove(for: currentPlayer)
+        guard legalMoves.contains(move) else { return nil }
         apply(move)
         return move
     }
@@ -751,8 +1315,9 @@ struct QuantumCatGame: Codable {
 
     private func legalPlays(for player: Int) -> [Move] {
         var moves: [Move] = []
-        for rankIndex in 0..<rankCount where players[player].hand[rankIndex] > 0 {
-            for suitIndex in Suit.allCases.indices where players[player].colorTokens[suitIndex] && board[suitIndex][rankIndex] == -1 {
+        // Match OpenSpiel's sorted integer action ids: color-major, then rank.
+        for suitIndex in Suit.allCases.indices where players[player].colorTokens[suitIndex] {
+            for rankIndex in 0..<rankCount where players[player].hand[rankIndex] > 0 && board[suitIndex][rankIndex] == -1 {
                 let suit = Suit.allCases[suitIndex]
                 if ledSuit == nil, suit == .red, !redRowOccupied() {
                     continue
@@ -761,8 +1326,8 @@ struct QuantumCatGame: Codable {
             }
         }
         if moves.isEmpty {
-            for rankIndex in 0..<rankCount where players[player].hand[rankIndex] > 0 {
-                for suitIndex in Suit.allCases.indices where players[player].colorTokens[suitIndex] && board[suitIndex][rankIndex] == -1 {
+            for suitIndex in Suit.allCases.indices where players[player].colorTokens[suitIndex] {
+                for rankIndex in 0..<rankCount where players[player].hand[rankIndex] > 0 && board[suitIndex][rankIndex] == -1 {
                     moves.append(.play(rank: rankIndex + 1, suit: Suit.allCases[suitIndex]))
                 }
             }
@@ -809,6 +1374,19 @@ struct QuantumCatGame: Codable {
             return sharedDiscard
         }
         if phase == .prediction {
+            if QuantumCatMLPolicy.shared.usesLearnedPrediction(
+                for: kind,
+                players: players.count
+            ),
+               let learnedMove = QuantumCatMLPolicy.shared.chooseMove(
+                kind: kind,
+                game: self,
+                player: player,
+                legalMoves: legal
+               ),
+               legal.contains(learnedMove) {
+                return learnedMove
+            }
             let sharedBid = sharedPredictionBid(for: player)
             let sharedMove = Move.prediction(sharedBid)
             if legal.contains(sharedMove) {
@@ -829,6 +1407,19 @@ struct QuantumCatGame: Codable {
         }
         if kind == .championBeliefPolicy, phase == .play {
             let baseMove = modelPreferredMove ?? scored.max(by: { $0.0 < $1.0 })?.1 ?? legal[0]
+            if players.count == 5,
+               modelPreferredMove != nil,
+               QuantumCatMLPolicy.shared.usesPlayerCountSpecialist(
+                   for: kind,
+                   players: players.count
+               ) {
+                let state = QuantumCatMLLiveState(game: self, player: player)
+                return Self.competitiveTacticalMove(
+                    state: state,
+                    legalMoves: legal,
+                    baseMove: baseMove
+                ) ?? baseMove
+            }
             let shieldedMove = livenessShieldedMove(base: baseMove, legal: legal, player: player)
             if avoidsParadoxAfterMove(shieldedMove) {
                 return shieldedMove
@@ -847,6 +1438,288 @@ struct QuantumCatGame: Codable {
             }
         }
         return scored.max(by: { $0.0 < $1.0 })?.1 ?? legal[0]
+    }
+
+    private struct CompetitiveTacticalRow {
+        let move: Move
+        let action: Int
+        let wins: Bool
+        let feasible: Bool
+        let margin: Int
+        let buffer: Int
+        let tokens: Int
+        let cluster: Int
+        let board: [[Int]]
+        let winner: Int
+    }
+
+    /// Reproduces the verified specialist's public-information tactical guard.
+    /// Opponents' private hands and face-down discards never enter this API.
+    static func competitiveTacticalMove(
+        state: QuantumCatMLLiveState,
+        legalMoves: [Move],
+        baseMove: Move
+    ) -> Move? {
+        let player = state.actingPlayer
+        guard state.phase == 3,
+              state.currentPlayer == player,
+              state.predictions.indices.contains(player),
+              state.tricksWon.indices.contains(player),
+              state.colorTokens.indices.contains(player),
+              state.currentTrick.count == state.numPlayers,
+              state.currentTrick.filter({ $0 != nil }).count == state.numPlayers - 1,
+              state.currentTrick[player] == nil,
+              legalMoves.contains(baseMove)
+        else { return nil }
+
+        let rows = legalMoves.compactMap {
+            competitiveTacticalRow(state: state, move: $0)
+        }
+        guard !rows.isEmpty else { return nil }
+
+        if state.matchRound == state.numPlayers - 1,
+           state.trickNumber == state.numTricks - 1,
+           state.matchTotals.count == state.numPlayers,
+           let selected = competitiveTerminalMove(
+               state: state,
+               rows: rows,
+               baseMove: baseMove
+           ) {
+            return selected
+        }
+
+        let prediction = state.predictions[player]
+        guard prediction >= 0 else { return nil }
+        let won = state.tricksWon[player]
+        let remaining = max(0, state.numTricks - state.trickNumber)
+        let isAbove = won > prediction
+        let isUnreachable = won + remaining < prediction
+        let wantsWin = won != prediction || isUnreachable
+        let preferred = rows.filter { $0.wins == wantsWin }
+        let opposite = rows.filter { $0.wins != wantsWin }
+        guard !preferred.isEmpty,
+              let reference = opposite.max(by: { lhs, rhs in
+                  lexicographicKey(
+                      [lhs.feasible ? 1 : 0, lhs.margin, -lhs.buffer, lhs.tokens],
+                      isLessThan: [rhs.feasible ? 1 : 0, rhs.margin, -rhs.buffer, rhs.tokens]
+                  )
+              })
+        else { return nil }
+
+        let safe = preferred.filter {
+            $0.feasible
+                && $0.margin >= reference.margin
+                && $0.buffer <= reference.buffer
+                && $0.tokens >= reference.tokens
+        }
+        guard !safe.isEmpty else { return nil }
+        if safe.contains(where: { $0.move == baseMove }) {
+            return baseMove
+        }
+        return safe.max(by: { lhs, rhs in
+            lexicographicKey(
+                [lhs.margin, -lhs.buffer, lhs.tokens, isAbove ? 0 : lhs.cluster, -lhs.action],
+                isLessThan: [rhs.margin, -rhs.buffer, rhs.tokens, isAbove ? 0 : rhs.cluster, -rhs.action]
+            )
+        })?.move
+    }
+
+    private static func competitiveTerminalMove(
+        state: QuantumCatMLLiveState,
+        rows: [CompetitiveTacticalRow],
+        baseMove: Move
+    ) -> Move? {
+        struct TerminalRow {
+            let row: CompetitiveTacticalRow
+            let placement: Double
+            let ownTotal: Double
+            let ownRoundScore: Double
+            let ownBonus: Int
+        }
+        let player = state.actingPlayer
+        let terminalRows: [TerminalRow] = rows.map { row in
+            var tricks = state.tricksWon
+            tricks[row.winner] += 1
+            let scores = tricks.indices.map { seat -> Double in
+                let bonus = tricks[seat] == state.predictions[seat]
+                    ? competitiveLargestCluster(board: row.board, player: seat)
+                    : 0
+                return Double(tricks[seat] + bonus)
+            }
+            let totals = scores.indices.map { state.matchTotals[$0] + scores[$0] }
+            let placement = scores.indices.filter { $0 != player }.reduce(0.0) { partial, seat in
+                if totals[player] > totals[seat] {
+                    return partial + 1.0
+                }
+                if totals[player] == totals[seat] {
+                    if scores[player] > scores[seat] {
+                        return partial + 1.0
+                    }
+                    if scores[player] == scores[seat] {
+                        return partial + 0.5
+                    }
+                }
+                return partial
+            }
+            return TerminalRow(
+                row: row,
+                placement: placement,
+                ownTotal: totals[player],
+                ownRoundScore: scores[player],
+                ownBonus: tricks[player] == state.predictions[player] ? row.cluster : 0
+            )
+        }
+        guard let bestPlacement = terminalRows.map(\.placement).max() else { return nil }
+        let best = terminalRows.filter { abs($0.placement - bestPlacement) < 1e-9 }
+        if best.contains(where: { $0.row.move == baseMove }) {
+            return baseMove
+        }
+        return best.max(by: { lhs, rhs in
+            if lhs.ownTotal != rhs.ownTotal { return lhs.ownTotal < rhs.ownTotal }
+            if lhs.ownRoundScore != rhs.ownRoundScore {
+                return lhs.ownRoundScore < rhs.ownRoundScore
+            }
+            if lhs.ownBonus != rhs.ownBonus { return lhs.ownBonus < rhs.ownBonus }
+            return lhs.row.action > rhs.row.action
+        })?.row.move
+    }
+
+    private static func competitiveTacticalRow(
+        state: QuantumCatMLLiveState,
+        move: Move
+    ) -> CompetitiveTacticalRow? {
+        guard case .play(let rank, let suit) = move,
+              let color = Suit.allCases.firstIndex(of: suit),
+              state.actingHand.indices.contains(rank - 1),
+              state.board.indices.contains(color),
+              state.board[color].indices.contains(rank - 1),
+              state.board[color][rank - 1] == -1
+        else { return nil }
+
+        let player = state.actingPlayer
+        var board = state.board
+        board[color][rank - 1] = player
+        var counts = state.actingHand
+        counts[rank - 1] -= 1
+        guard counts[rank - 1] >= 0 else { return nil }
+        var tokens = state.colorTokens[player]
+        if let ledColor = state.ledColor,
+           let ledIndex = Suit.allCases.firstIndex(where: { $0.rawValue == ledColor }),
+           ledIndex != color {
+            tokens[ledIndex] = false
+        }
+        let caps = counts.indices.map { rankIndex in
+            board.indices.reduce(0) { partial, suitIndex in
+                partial + (tokens[suitIndex] && board[suitIndex][rankIndex] == -1 ? 1 : 0)
+            }
+        }
+        let occupiedRanks = counts.indices.filter { counts[$0] > 0 }
+        let feasible = occupiedRanks.allSatisfy { counts[$0] <= caps[$0] }
+        let buffer = occupiedRanks.reduce(0) {
+            $0 + max(0, counts[$1] + 1 - caps[$1])
+        }
+        let remaining = state.numTricks - state.trickNumber - 1
+        let margin = competitiveAdversarialMargin(
+            counts: counts,
+            caps: caps,
+            playsRemaining: remaining
+        )
+        guard let winner = competitiveTrickWinner(
+            state: state,
+            player: player,
+            card: QuantumCatMLPlayedCard(rank: rank, suit: suit.rawValue)
+        ) else { return nil }
+        return CompetitiveTacticalRow(
+            move: move,
+            action: color * state.numRanks + rank - 1,
+            wins: winner == player,
+            feasible: feasible,
+            margin: margin,
+            buffer: buffer,
+            tokens: tokens.filter { $0 }.count,
+            cluster: competitiveLargestCluster(board: board, player: player),
+            board: board,
+            winner: winner
+        )
+    }
+
+    private static func competitiveTrickWinner(
+        state: QuantumCatMLLiveState,
+        player: Int,
+        card: QuantumCatMLPlayedCard
+    ) -> Int? {
+        var trick = state.currentTrick
+        trick[player] = card
+        guard trick.allSatisfy({ $0 != nil }),
+              let ledColor = state.ledColor ?? trick[state.startPlayer]?.suit
+        else { return nil }
+        let trump = "R"
+        let winningColor = trick.contains(where: { $0?.suit == trump }) ? trump : ledColor
+        return trick.indices
+            .filter { trick[$0]?.suit == winningColor }
+            .max { lhs, rhs in (trick[lhs]?.rank ?? -1) < (trick[rhs]?.rank ?? -1) }
+    }
+
+    private static func competitiveLargestCluster(board: [[Int]], player: Int) -> Int {
+        guard let width = board.first?.count, width > 0 else { return 0 }
+        var visited = Array(repeating: Array(repeating: false, count: width), count: board.count)
+        var best = 0
+        for color in board.indices {
+            for rank in 0..<width where board[color][rank] == player && !visited[color][rank] {
+                var pending = [(color, rank)]
+                visited[color][rank] = true
+                var size = 0
+                while let (currentColor, currentRank) = pending.popLast() {
+                    size += 1
+                    for (colorDelta, rankDelta) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let nextColor = currentColor + colorDelta
+                        let nextRank = currentRank + rankDelta
+                        guard board.indices.contains(nextColor),
+                              (0..<width).contains(nextRank),
+                              !visited[nextColor][nextRank],
+                              board[nextColor][nextRank] == player
+                        else { continue }
+                        visited[nextColor][nextRank] = true
+                        pending.append((nextColor, nextRank))
+                    }
+                }
+                best = max(best, size)
+            }
+        }
+        return best
+    }
+
+    private static func competitiveAdversarialMargin(
+        counts: [Int],
+        caps: [Int],
+        playsRemaining: Int
+    ) -> Int {
+        let matching = zip(counts, caps).reduce(0) { $0 + min($1.0, $1.1) }
+        guard matching >= playsRemaining else { return -1 }
+        let needed = matching - playsRemaining + 1
+        guard needed > 0 else { return -1 }
+        let infinity = Int.max / 4
+        var costs = Array(repeating: infinity, count: needed + 1)
+        costs[0] = 0
+        for (count, cap) in zip(counts, caps) {
+            let units = min(count, cap)
+            guard units > 0 else { continue }
+            let surplus = max(0, cap - count)
+            for target in stride(from: needed, through: 1, by: -1) {
+                let source = max(0, target - units)
+                if costs[source] != infinity {
+                    costs[target] = min(costs[target], costs[source] + surplus)
+                }
+            }
+        }
+        return costs[needed] == infinity ? caps.reduce(0, +) : costs[needed] + needed - 1
+    }
+
+    private static func lexicographicKey(_ lhs: [Int], isLessThan rhs: [Int]) -> Bool {
+        for (left, right) in zip(lhs, rhs) where left != right {
+            return left < right
+        }
+        return false
     }
 
     private struct OwnHandFeasibility {
@@ -1107,7 +1980,11 @@ struct QuantumCatGame: Codable {
             minPlayerRankSlotsAfter: after.playerMinRankSlots.min() ?? 0,
             lostLedToken: lostLedToken,
             wouldWinNow: wouldWinNow,
-            overTargetWouldWin: wouldWinNow == true && (prediction.map { tricks >= $0 } ?? false)
+            overTargetWouldWin: Self.winningWouldBreakExactPrediction(
+                prediction: prediction,
+                tricksWon: tricks,
+                wouldWin: wouldWinNow == true
+            )
         )
         return row.withKey(livenessKey(for: row, base: base))
     }
@@ -1374,7 +2251,10 @@ struct QuantumCatGame: Codable {
             let suitIndex = Suit.allCases.firstIndex(of: suit)!
             let rankIndex = rank - 1
             var score = 0.0
-            let wantsMore = players[player].prediction == nil || players[player].tricksWon < (players[player].prediction ?? 0)
+            let wantsMore = Self.wantsAdditionalTrick(
+                prediction: players[player].prediction,
+                tricksWon: players[player].tricksWon
+            )
             if let win = wouldWin(player: player, rank: rank, suit: suit) {
                 score += weights.winner * ((win == wantsMore) ? 1.0 : -1.0)
             }
@@ -1401,13 +2281,29 @@ struct QuantumCatGame: Codable {
     }
 
     private func sharedPredictionBid(for player: Int) -> Int {
-        let hand = players[player].hand
-        guard !hand.isEmpty else { return 1 }
+        Self.sharedPredictionBid(state: QuantumCatMLLiveState(game: self, player: player))
+    }
+
+    static func sharedPredictionBid(state: QuantumCatMLLiveState) -> Int {
+        sharedPredictionBid(
+            hand: state.actingHand,
+            rankCount: state.numRanks,
+            isRoundLeader: state.actingPlayer == state.roundStartPlayer
+        )
+    }
+
+    static func sharedPredictionBid(
+        hand: [Int],
+        rankCount: Int,
+        isRoundLeader: Bool
+    ) -> Int {
+        guard !hand.isEmpty, rankCount > 0 else { return 1 }
         let topRankIndex = min(rankCount, hand.count) - 1
         let secondRankIndex = topRankIndex - 1
         var expectedTricks = Double(hand[topRankIndex])
         if secondRankIndex >= 0 {
-            expectedTricks += (player == startPlayer ? 0.5 : 0.25) * Double(hand[secondRankIndex])
+            expectedTricks += (isRoundLeader ? 0.5 : 0.25)
+                * Double(hand[secondRankIndex])
         }
         return max(1, min(4, Int(expectedTricks.rounded())))
     }

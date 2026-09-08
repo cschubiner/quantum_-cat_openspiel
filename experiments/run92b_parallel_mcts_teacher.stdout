@@ -1,0 +1,2982 @@
+{
+  "event": "start_recipe",
+  "recipe": "champ_mlp_mcts_teacher_balanced",
+  "run_label": "champ_mlp_mcts_teacher_balanced",
+  "repeat": 1,
+  "seed": 20261240,
+  "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+  "cmd": [
+    "/Users/canal/quantum_-cat_openspiel/.venv/bin/python",
+    "quantum_cat_alphazero_torch.py",
+    "--players=3",
+    "--device=auto",
+    "--match-context",
+    "--full-match-training",
+    "--random-start-player",
+    "--discard-resume-metrics",
+    "--seed=20261240",
+    "--resume-checkpoint=az_runs/best_3p_policy_checkpoint.pt",
+    "--anchor-checkpoint=az_runs/best_3p_policy_checkpoint.pt",
+    "--anchor-kl-weight=0.88",
+    "--terminal-paradox-penalty=1.02",
+    "--value-loss-weight=1.00",
+    "--iterations=1",
+    "--games-per-iter=72",
+    "--sims=32",
+    "--self-play-belief-samples=0",
+    "--self-play-belief-sims=24",
+    "--self-play-workers=0",
+    "--worker-torch-threads=1",
+    "--auto-worker-min-games=32",
+    "--temperature=0.98",
+    "--temperature-drop=24",
+    "--train-steps=120",
+    "--train-snapshot-interval=30",
+    "--batch-size=256",
+    "--lr=6e-7",
+    "--eval-games=60",
+    "--eval-rotate-start-player",
+    "--out-dir=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+    "--eval-full-match",
+    "--league-games=72",
+    "--league-checkpoint=az_runs/best_3p_policy_checkpoint.pt,az_runs/best_3p_policy_checkpoint.pt,az_runs/best_3p_policy_checkpoint.pt",
+    "--league-train-steps=80",
+    "--league-opponent-mode=mixed",
+    "--league-bots=heuristic",
+    "--teacher-checkpoint=az_runs/best_3p_policy_checkpoint.pt",
+    "--teacher-mode=mcts",
+    "--teacher-sims=16",
+    "--teacher-games=96",
+    "--teacher-train-steps=140",
+    "--teacher-temperature=0.80",
+    "--value-loss-mode=acting",
+    "--ordinal-value-weight=0.26",
+    "--official-outcome-value-weight=0.62",
+    "--paradox-loss-weight=0.04",
+    "--c-puct=2.00"
+  ]
+}
+{
+  "iteration": "teacher_distill",
+  "teacher_checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+  "teacher_games": 96,
+  "full_match_training": true,
+  "teacher_temperature": 0.8,
+  "teacher_mode": "mcts",
+  "teacher_sims": 16,
+  "generation_workers": 16,
+  "generation_elapsed_sec": 57.418,
+  "start_counts": [
+    96,
+    96,
+    96
+  ],
+  "replay_size": 7740,
+  "loss": [
+    0.7150659275906427,
+    0.24992799524750028,
+    0.42908499177013126,
+    3.438593546312469e-05,
+    0.9005670747586659,
+    0.0,
+    0.0
+  ],
+  "teacher_avg_returns": [
+    4.677083492279053,
+    3.375,
+    3.15625
+  ],
+  "eval": {
+    "full_match": true,
+    "rounds_per_match": 3,
+    "ratings": {
+      "az_policy": 1117.61,
+      "heuristic": 1038.54,
+      "heuristic_target2": 993.8,
+      "random": 850.05
+    },
+    "avg_returns": {
+      "az_policy": 8.5556,
+      "heuristic": 5.2444,
+      "heuristic_target2": 3.2444,
+      "random": 0.0667
+    },
+    "avg_match_total": {
+      "az_policy": 8.5556,
+      "heuristic": 5.2444,
+      "heuristic_target2": 3.2444,
+      "random": 0.0667
+    },
+    "paradoxes_per_match": {
+      "az_policy": 0.5111,
+      "heuristic": 0.8667,
+      "heuristic_target2": 0.9111,
+      "random": 1.7111
+    },
+    "games": {
+      "az_policy": 45,
+      "heuristic": 45,
+      "heuristic_target2": 45,
+      "random": 45
+    }
+  }
+}
+{
+  "iteration": "league",
+  "league_games": 72,
+  "league_checkpoint": "az_runs/best_3p_policy_checkpoint.pt,az_runs/best_3p_policy_checkpoint.pt,az_runs/best_3p_policy_checkpoint.pt",
+  "league_checkpoints": [
+    "az_runs/best_3p_policy_checkpoint.pt",
+    "az_runs/best_3p_policy_checkpoint.pt",
+    "az_runs/best_3p_policy_checkpoint.pt"
+  ],
+  "league_bots": [
+    "heuristic"
+  ],
+  "league_opponent_mode": "mixed",
+  "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0000_league.pt",
+  "full_match_training": true,
+  "generation_workers": 16,
+  "generation_elapsed_sec": 67.912,
+  "start_counts": [
+    72,
+    72,
+    72
+  ],
+  "learner_seat_counts": [
+    24,
+    24,
+    24
+  ],
+  "replay_size": 9627,
+  "loss": [
+    0.7655973345041275,
+    0.30547625198960304,
+    0.42454058974981307,
+    0.00013193615386626335,
+    0.8866097949445247,
+    0.0,
+    0.0
+  ],
+  "league_avg_returns": [
+    4.472222328186035,
+    4.722222328186035,
+    3.5416667461395264
+  ],
+  "learner_avg_return": 5.777777777777778,
+  "paradoxes_per_match_by_seat": [
+    1.1111111640930176,
+    1.0277777910232544,
+    0.8194444179534912
+  ],
+  "eval": {
+    "full_match": true,
+    "rounds_per_match": 3,
+    "ratings": {
+      "az_policy": 1117.67,
+      "heuristic": 1038.58,
+      "heuristic_target2": 996.21,
+      "random": 847.54
+    },
+    "avg_returns": {
+      "az_policy": 8.3778,
+      "heuristic": 5.2444,
+      "heuristic_target2": 3.2444,
+      "random": 0.0
+    },
+    "avg_match_total": {
+      "az_policy": 8.3778,
+      "heuristic": 5.2444,
+      "heuristic_target2": 3.2444,
+      "random": 0.0
+    },
+    "paradoxes_per_match": {
+      "az_policy": 0.5111,
+      "heuristic": 0.8667,
+      "heuristic_target2": 0.9111,
+      "random": 1.7111
+    },
+    "games": {
+      "az_policy": 45,
+      "heuristic": 45,
+      "heuristic_target2": 45,
+      "random": 45
+    }
+  }
+}
+{
+  "iteration": "train_snapshot",
+  "parent_iteration": 1,
+  "train_steps_completed": 30,
+  "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0030.pt",
+  "loss": [
+    0.8319109857082367,
+    0.3752871056397756,
+    0.42107799152533215,
+    0.00018481095661021147,
+    0.8845813572406769,
+    0.0,
+    0.0
+  ],
+  "eval": {
+    "full_match": true,
+    "rounds_per_match": 3,
+    "ratings": {
+      "az_policy": 1117.61,
+      "heuristic": 1038.54,
+      "heuristic_target2": 993.8,
+      "random": 850.05
+    },
+    "avg_returns": {
+      "az_policy": 8.5556,
+      "heuristic": 5.2444,
+      "heuristic_target2": 3.2444,
+      "random": 0.0667
+    },
+    "avg_match_total": {
+      "az_policy": 8.5556,
+      "heuristic": 5.2444,
+      "heuristic_target2": 3.2444,
+      "random": 0.0667
+    },
+    "paradoxes_per_match": {
+      "az_policy": 0.5111,
+      "heuristic": 0.8667,
+      "heuristic_target2": 0.9111,
+      "random": 1.7111
+    },
+    "games": {
+      "az_policy": 45,
+      "heuristic": 45,
+      "heuristic_target2": 45,
+      "random": 45
+    }
+  }
+}
+{
+  "iteration": "train_snapshot",
+  "parent_iteration": 1,
+  "train_steps_completed": 60,
+  "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0060.pt",
+  "loss": [
+    0.840878673394521,
+    0.3923929512500763,
+    0.4128770351409912,
+    0.0001855235731151576,
+    0.8861356774965922,
+    0.0,
+    0.0
+  ],
+  "eval": {
+    "full_match": true,
+    "rounds_per_match": 3,
+    "ratings": {
+      "az_policy": 1117.67,
+      "heuristic": 1038.58,
+      "heuristic_target2": 996.21,
+      "random": 847.54
+    },
+    "avg_returns": {
+      "az_policy": 8.3778,
+      "heuristic": 5.2444,
+      "heuristic_target2": 3.2444,
+      "random": 0.0
+    },
+    "avg_match_total": {
+      "az_policy": 8.3778,
+      "heuristic": 5.2444,
+      "heuristic_target2": 3.2444,
+      "random": 0.0
+    },
+    "paradoxes_per_match": {
+      "az_policy": 0.5111,
+      "heuristic": 0.8667,
+      "heuristic_target2": 0.9111,
+      "random": 1.7111
+    },
+    "games": {
+      "az_policy": 45,
+      "heuristic": 45,
+      "heuristic_target2": 45,
+      "random": 45
+    }
+  }
+}
+{
+  "iteration": "train_snapshot",
+  "parent_iteration": 1,
+  "train_steps_completed": 90,
+  "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0090.pt",
+  "loss": [
+    0.8185326019922893,
+    0.3724908034006755,
+    0.4106278200944265,
+    0.00021134853256323064,
+    0.8807000736395518,
+    0.0,
+    0.0
+  ],
+  "eval": {
+    "full_match": true,
+    "rounds_per_match": 3,
+    "ratings": {
+      "az_policy": 1120.86,
+      "heuristic": 1030.37,
+      "heuristic_target2": 996.02,
+      "random": 852.75
+    },
+    "avg_returns": {
+      "az_policy": 8.4667,
+      "heuristic": 5.0222,
+      "heuristic_target2": 3.2444,
+      "random": 0.1778
+    },
+    "avg_match_total": {
+      "az_policy": 8.4667,
+      "heuristic": 5.0222,
+      "heuristic_target2": 3.2444,
+      "random": 0.1778
+    },
+    "paradoxes_per_match": {
+      "az_policy": 0.4889,
+      "heuristic": 0.9111,
+      "heuristic_target2": 0.9111,
+      "random": 1.6889
+    },
+    "games": {
+      "az_policy": 45,
+      "heuristic": 45,
+      "heuristic_target2": 45,
+      "random": 45
+    }
+  }
+}
+{
+  "iteration": "train_snapshot",
+  "parent_iteration": 1,
+  "train_steps_completed": 120,
+  "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0120.pt",
+  "loss": [
+    0.834961458047231,
+    0.3828078359365463,
+    0.4167636295159658,
+    0.00022379185296207045,
+    0.8798263529936473,
+    0.0,
+    0.0
+  ],
+  "eval": {
+    "full_match": true,
+    "rounds_per_match": 3,
+    "ratings": {
+      "az_policy": 1120.86,
+      "heuristic": 1030.37,
+      "heuristic_target2": 996.02,
+      "random": 852.75
+    },
+    "avg_returns": {
+      "az_policy": 8.4667,
+      "heuristic": 5.0222,
+      "heuristic_target2": 3.2444,
+      "random": 0.1778
+    },
+    "avg_match_total": {
+      "az_policy": 8.4667,
+      "heuristic": 5.0222,
+      "heuristic_target2": 3.2444,
+      "random": 0.1778
+    },
+    "paradoxes_per_match": {
+      "az_policy": 0.4889,
+      "heuristic": 0.9111,
+      "heuristic_target2": 0.9111,
+      "random": 1.6889
+    },
+    "games": {
+      "az_policy": 45,
+      "heuristic": 45,
+      "heuristic_target2": 45,
+      "random": 45
+    }
+  }
+}
+{
+  "iteration": 1,
+  "self_play_games": 72,
+  "full_match_training": true,
+  "generation_workers": 16,
+  "generation_elapsed_sec": 194.622,
+  "start_counts": [
+    72,
+    72,
+    72
+  ],
+  "replay_size": 15376,
+  "loss": [
+    0.8315708637237549,
+    0.38074466586112976,
+    0.41533663868904114,
+    0.00020136873354204,
+    0.8828108310699463,
+    0.0,
+    0.0
+  ],
+  "self_play_avg_returns": [
+    5.18055534362793,
+    3.6388888359069824,
+    3.2083332538604736
+  ],
+  "eval": {
+    "full_match": true,
+    "rounds_per_match": 3,
+    "ratings": {
+      "az_policy": 1120.86,
+      "heuristic": 1030.37,
+      "heuristic_target2": 996.02,
+      "random": 852.75
+    },
+    "avg_returns": {
+      "az_policy": 8.4667,
+      "heuristic": 5.0222,
+      "heuristic_target2": 3.2444,
+      "random": 0.1778
+    },
+    "avg_match_total": {
+      "az_policy": 8.4667,
+      "heuristic": 5.0222,
+      "heuristic_target2": 3.2444,
+      "random": 0.1778
+    },
+    "paradoxes_per_match": {
+      "az_policy": 0.4889,
+      "heuristic": 0.9111,
+      "heuristic_target2": 0.9111,
+      "random": 1.6889
+    },
+    "games": {
+      "az_policy": 45,
+      "heuristic": 45,
+      "heuristic_target2": 45,
+      "random": 45
+    }
+  },
+  "train_snapshots": [
+    {
+      "iteration": "train_snapshot",
+      "parent_iteration": 1,
+      "train_steps_completed": 30,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0030.pt",
+      "loss": [
+        0.8319109857082367,
+        0.3752871056397756,
+        0.42107799152533215,
+        0.00018481095661021147,
+        0.8845813572406769,
+        0.0,
+        0.0
+      ],
+      "eval": {
+        "full_match": true,
+        "rounds_per_match": 3,
+        "ratings": {
+          "az_policy": 1117.61,
+          "heuristic": 1038.54,
+          "heuristic_target2": 993.8,
+          "random": 850.05
+        },
+        "avg_returns": {
+          "az_policy": 8.5556,
+          "heuristic": 5.2444,
+          "heuristic_target2": 3.2444,
+          "random": 0.0667
+        },
+        "avg_match_total": {
+          "az_policy": 8.5556,
+          "heuristic": 5.2444,
+          "heuristic_target2": 3.2444,
+          "random": 0.0667
+        },
+        "paradoxes_per_match": {
+          "az_policy": 0.5111,
+          "heuristic": 0.8667,
+          "heuristic_target2": 0.9111,
+          "random": 1.7111
+        },
+        "games": {
+          "az_policy": 45,
+          "heuristic": 45,
+          "heuristic_target2": 45,
+          "random": 45
+        }
+      }
+    },
+    {
+      "iteration": "train_snapshot",
+      "parent_iteration": 1,
+      "train_steps_completed": 60,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0060.pt",
+      "loss": [
+        0.840878673394521,
+        0.3923929512500763,
+        0.4128770351409912,
+        0.0001855235731151576,
+        0.8861356774965922,
+        0.0,
+        0.0
+      ],
+      "eval": {
+        "full_match": true,
+        "rounds_per_match": 3,
+        "ratings": {
+          "az_policy": 1117.67,
+          "heuristic": 1038.58,
+          "heuristic_target2": 996.21,
+          "random": 847.54
+        },
+        "avg_returns": {
+          "az_policy": 8.3778,
+          "heuristic": 5.2444,
+          "heuristic_target2": 3.2444,
+          "random": 0.0
+        },
+        "avg_match_total": {
+          "az_policy": 8.3778,
+          "heuristic": 5.2444,
+          "heuristic_target2": 3.2444,
+          "random": 0.0
+        },
+        "paradoxes_per_match": {
+          "az_policy": 0.5111,
+          "heuristic": 0.8667,
+          "heuristic_target2": 0.9111,
+          "random": 1.7111
+        },
+        "games": {
+          "az_policy": 45,
+          "heuristic": 45,
+          "heuristic_target2": 45,
+          "random": 45
+        }
+      }
+    },
+    {
+      "iteration": "train_snapshot",
+      "parent_iteration": 1,
+      "train_steps_completed": 90,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0090.pt",
+      "loss": [
+        0.8185326019922893,
+        0.3724908034006755,
+        0.4106278200944265,
+        0.00021134853256323064,
+        0.8807000736395518,
+        0.0,
+        0.0
+      ],
+      "eval": {
+        "full_match": true,
+        "rounds_per_match": 3,
+        "ratings": {
+          "az_policy": 1120.86,
+          "heuristic": 1030.37,
+          "heuristic_target2": 996.02,
+          "random": 852.75
+        },
+        "avg_returns": {
+          "az_policy": 8.4667,
+          "heuristic": 5.0222,
+          "heuristic_target2": 3.2444,
+          "random": 0.1778
+        },
+        "avg_match_total": {
+          "az_policy": 8.4667,
+          "heuristic": 5.0222,
+          "heuristic_target2": 3.2444,
+          "random": 0.1778
+        },
+        "paradoxes_per_match": {
+          "az_policy": 0.4889,
+          "heuristic": 0.9111,
+          "heuristic_target2": 0.9111,
+          "random": 1.6889
+        },
+        "games": {
+          "az_policy": 45,
+          "heuristic": 45,
+          "heuristic_target2": 45,
+          "random": 45
+        }
+      }
+    },
+    {
+      "iteration": "train_snapshot",
+      "parent_iteration": 1,
+      "train_steps_completed": 120,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0120.pt",
+      "loss": [
+        0.834961458047231,
+        0.3828078359365463,
+        0.4167636295159658,
+        0.00022379185296207045,
+        0.8798263529936473,
+        0.0,
+        0.0
+      ],
+      "eval": {
+        "full_match": true,
+        "rounds_per_match": 3,
+        "ratings": {
+          "az_policy": 1120.86,
+          "heuristic": 1030.37,
+          "heuristic_target2": 996.02,
+          "random": 852.75
+        },
+        "avg_returns": {
+          "az_policy": 8.4667,
+          "heuristic": 5.0222,
+          "heuristic_target2": 3.2444,
+          "random": 0.1778
+        },
+        "avg_match_total": {
+          "az_policy": 8.4667,
+          "heuristic": 5.0222,
+          "heuristic_target2": 3.2444,
+          "random": 0.1778
+        },
+        "paradoxes_per_match": {
+          "az_policy": 0.4889,
+          "heuristic": 0.9111,
+          "heuristic_target2": 0.9111,
+          "random": 1.6889
+        },
+        "games": {
+          "az_policy": 45,
+          "heuristic": 45,
+          "heuristic_target2": 45,
+          "random": 45
+        }
+      }
+    }
+  ]
+}
+{
+  "event": "recipe_done",
+  "recipe": "champ_mlp_mcts_teacher_balanced",
+  "run_label": "champ_mlp_mcts_teacher_balanced",
+  "best": {
+    "recipe": "champ_mlp_mcts_teacher_balanced",
+    "iteration": "train_snapshot",
+    "train_steps_completed": 90,
+    "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0090.pt",
+    "az_policy": 1120.86,
+    "az_avg_return": 8.4667,
+    "az_paradoxes": 0.4889,
+    "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+    "recipe_name": "champ_mlp_mcts_teacher_balanced",
+    "repeat": 1,
+    "seed": 20261240
+  }
+}
+{
+  "event": "start_champion_gate",
+  "rank": 1,
+  "candidate": {
+    "recipe": "champ_mlp_mcts_teacher_balanced",
+    "iteration": "train_snapshot",
+    "train_steps_completed": 90,
+    "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0090.pt",
+    "az_policy": 1120.86,
+    "az_avg_return": 8.4667,
+    "az_paradoxes": 0.4889,
+    "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+    "recipe_name": "champ_mlp_mcts_teacher_balanced",
+    "repeat": 1,
+    "seed": 20261240
+  },
+  "cmd": [
+    "/Users/canal/quantum_-cat_openspiel/.venv/bin/python",
+    "quantum_cat_full_match_elo.py",
+    "--players=3",
+    "--matches=300",
+    "--device=cpu",
+    "--schedule=permutations",
+    "--bots",
+    "champion",
+    "candidate_1",
+    "heuristic",
+    "--neural-bot",
+    "champion=az_runs/best_3p_policy_checkpoint.pt",
+    "--neural-bot",
+    "candidate_1=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0090.pt",
+    "--workers=0",
+    "--worker-torch-threads=1",
+    "--auto-worker-min-games=32",
+    "--seed=20266240",
+    "--out=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champion_gates/01_champ_mlp_mcts_teacher_balanced_90.json"
+  ]
+}
+{
+  "players": 3,
+  "matches": 300,
+  "rounds_per_match": 3,
+  "match_context": true,
+  "schedule": "permutations",
+  "workers": 16,
+  "simulation_elapsed_sec": 28.942,
+  "checkpoint": null,
+  "neural_bots": {
+    "champion": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "policy"
+    },
+    "candidate_1": {
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0090.pt",
+      "mode": "policy"
+    }
+  },
+  "candidate": null,
+  "ratings": {
+    "candidate_1": 1064.91,
+    "champion": 1010.31,
+    "heuristic": 924.78
+  },
+  "online_ratings": {
+    "candidate_1": 1064.91,
+    "champion": 1010.31,
+    "heuristic": 924.78
+  },
+  "pairwise_elo_ratings": {
+    "candidate_1": 1047.9,
+    "champion": 1041.88,
+    "heuristic": 910.21
+  },
+  "stats": {
+    "champion": {
+      "matches": 300,
+      "avg_match_total": 4.95,
+      "paradoxes_per_match": 0.7167
+    },
+    "candidate_1": {
+      "matches": 300,
+      "avg_match_total": 5.01,
+      "paradoxes_per_match": 0.7233
+    },
+    "heuristic": {
+      "matches": 300,
+      "avg_match_total": 1.09,
+      "paradoxes_per_match": 1.5267
+    }
+  },
+  "pairwise": {
+    "champion": {
+      "candidate_1": {
+        "matches": 300,
+        "wins": 154,
+        "losses": 145,
+        "ties": 1,
+        "win_rate": 0.5133,
+        "non_loss_rate": 0.5167,
+        "score_rate": 0.515,
+        "score_rate_ci95": [
+          0.4584,
+          0.5716
+        ],
+        "head_to_head_elo_diff": 10.43,
+        "avg_score_diff": -0.06,
+        "avg_score_diff_ci95": [
+          -1.1625,
+          1.0425
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 197,
+        "losses": 101,
+        "ties": 2,
+        "win_rate": 0.6567,
+        "non_loss_rate": 0.6633,
+        "score_rate": 0.66,
+        "score_rate_ci95": [
+          0.6064,
+          0.7136
+        ],
+        "head_to_head_elo_diff": 115.23,
+        "avg_score_diff": 3.86,
+        "avg_score_diff_ci95": [
+          2.9925,
+          4.7275
+        ]
+      }
+    },
+    "candidate_1": {
+      "champion": {
+        "matches": 300,
+        "wins": 145,
+        "losses": 154,
+        "ties": 1,
+        "win_rate": 0.4833,
+        "non_loss_rate": 0.4867,
+        "score_rate": 0.485,
+        "score_rate_ci95": [
+          0.4284,
+          0.5416
+        ],
+        "head_to_head_elo_diff": -10.43,
+        "avg_score_diff": 0.06,
+        "avg_score_diff_ci95": [
+          -1.0425,
+          1.1625
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 211,
+        "losses": 86,
+        "ties": 3,
+        "win_rate": 0.7033,
+        "non_loss_rate": 0.7133,
+        "score_rate": 0.7083,
+        "score_rate_ci95": [
+          0.6569,
+          0.7598
+        ],
+        "head_to_head_elo_diff": 154.14,
+        "avg_score_diff": 3.92,
+        "avg_score_diff_ci95": [
+          3.0391,
+          4.8009
+        ]
+      }
+    },
+    "heuristic": {
+      "champion": {
+        "matches": 300,
+        "wins": 101,
+        "losses": 197,
+        "ties": 2,
+        "win_rate": 0.3367,
+        "non_loss_rate": 0.3433,
+        "score_rate": 0.34,
+        "score_rate_ci95": [
+          0.2864,
+          0.3936
+        ],
+        "head_to_head_elo_diff": -115.23,
+        "avg_score_diff": -3.86,
+        "avg_score_diff_ci95": [
+          -4.7275,
+          -2.9925
+        ]
+      },
+      "candidate_1": {
+        "matches": 300,
+        "wins": 86,
+        "losses": 211,
+        "ties": 3,
+        "win_rate": 0.2867,
+        "non_loss_rate": 0.2967,
+        "score_rate": 0.2917,
+        "score_rate_ci95": [
+          0.2402,
+          0.3431
+        ],
+        "head_to_head_elo_diff": -154.14,
+        "avg_score_diff": -3.92,
+        "avg_score_diff_ci95": [
+          -4.8009,
+          -3.0391
+        ]
+      }
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "champion",
+        "candidate_1",
+        "heuristic"
+      ],
+      "totals": [
+        9.0,
+        7.0,
+        -2.0
+      ],
+      "final_round_returns": [
+        6.0,
+        -1.0,
+        0.0
+      ],
+      "paradoxes": [
+        0,
+        1,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            1.0,
+            5.0,
+            0.0
+          ],
+          "totals_after_round": [
+            1.0,
+            5.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            2.0,
+            3.0,
+            -2.0
+          ],
+          "totals_after_round": [
+            3.0,
+            8.0,
+            -2.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            6.0,
+            -1.0,
+            0.0
+          ],
+          "totals_after_round": [
+            9.0,
+            7.0,
+            -2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "champion",
+        "heuristic",
+        "candidate_1"
+      ],
+      "totals": [
+        3.0,
+        6.0,
+        -2.0
+      ],
+      "final_round_returns": [
+        3.0,
+        0.0,
+        2.0
+      ],
+      "paradoxes": [
+        1,
+        1,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            2.0,
+            0.0,
+            -5.0
+          ],
+          "totals_after_round": [
+            2.0,
+            0.0,
+            -5.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            -2.0,
+            6.0,
+            1.0
+          ],
+          "totals_after_round": [
+            0.0,
+            6.0,
+            -4.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            3.0,
+            0.0,
+            2.0
+          ],
+          "totals_after_round": [
+            3.0,
+            6.0,
+            -2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "candidate_1",
+        "champion",
+        "heuristic"
+      ],
+      "totals": [
+        15.0,
+        -2.0,
+        0.0
+      ],
+      "final_round_returns": [
+        6.0,
+        0.0,
+        0.0
+      ],
+      "paradoxes": [
+        0,
+        1,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            3.0,
+            -4.0,
+            0.0
+          ],
+          "totals_after_round": [
+            3.0,
+            -4.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            6.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            9.0,
+            -2.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            6.0,
+            0.0,
+            0.0
+          ],
+          "totals_after_round": [
+            15.0,
+            -2.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+{
+  "event": "champion_gate_done",
+  "rank": 1,
+  "summary": {
+    "candidate_over_champion": {
+      "matches": 300,
+      "wins": 145,
+      "losses": 154,
+      "ties": 1,
+      "win_rate": 0.4833,
+      "non_loss_rate": 0.4867,
+      "score_rate": 0.485,
+      "score_rate_ci95": [
+        0.4284,
+        0.5416
+      ],
+      "head_to_head_elo_diff": -10.43,
+      "avg_score_diff": 0.06,
+      "avg_score_diff_ci95": [
+        -1.0425,
+        1.1625
+      ]
+    },
+    "champion_over_candidate": {
+      "matches": 300,
+      "wins": 154,
+      "losses": 145,
+      "ties": 1,
+      "win_rate": 0.5133,
+      "non_loss_rate": 0.5167,
+      "score_rate": 0.515,
+      "score_rate_ci95": [
+        0.4584,
+        0.5716
+      ],
+      "head_to_head_elo_diff": 10.43,
+      "avg_score_diff": -0.06,
+      "avg_score_diff_ci95": [
+        -1.1625,
+        1.0425
+      ]
+    },
+    "online_ratings": {
+      "candidate_1": 1064.91,
+      "champion": 1010.31,
+      "heuristic": 924.78
+    },
+    "pairwise_elo_ratings": {
+      "candidate_1": 1047.9,
+      "champion": 1041.88,
+      "heuristic": 910.21
+    },
+    "candidate_paradoxes_per_match": 0.7233,
+    "champion_paradoxes_per_match": 0.7167
+  }
+}
+{
+  "event": "start_champion_gate",
+  "rank": 2,
+  "candidate": {
+    "recipe": "champ_mlp_mcts_teacher_balanced",
+    "iteration": "train_snapshot",
+    "train_steps_completed": 120,
+    "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0120.pt",
+    "az_policy": 1120.86,
+    "az_avg_return": 8.4667,
+    "az_paradoxes": 0.4889,
+    "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+    "recipe_name": "champ_mlp_mcts_teacher_balanced",
+    "repeat": 1,
+    "seed": 20261240
+  },
+  "cmd": [
+    "/Users/canal/quantum_-cat_openspiel/.venv/bin/python",
+    "quantum_cat_full_match_elo.py",
+    "--players=3",
+    "--matches=300",
+    "--device=cpu",
+    "--schedule=permutations",
+    "--bots",
+    "champion",
+    "candidate_2",
+    "heuristic",
+    "--neural-bot",
+    "champion=az_runs/best_3p_policy_checkpoint.pt",
+    "--neural-bot",
+    "candidate_2=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0120.pt",
+    "--workers=0",
+    "--worker-torch-threads=1",
+    "--auto-worker-min-games=32",
+    "--seed=20266241",
+    "--out=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champion_gates/02_champ_mlp_mcts_teacher_balanced_120.json"
+  ]
+}
+{
+  "players": 3,
+  "matches": 300,
+  "rounds_per_match": 3,
+  "match_context": true,
+  "schedule": "permutations",
+  "workers": 16,
+  "simulation_elapsed_sec": 28.393,
+  "checkpoint": null,
+  "neural_bots": {
+    "champion": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "policy"
+    },
+    "candidate_2": {
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0120.pt",
+      "mode": "policy"
+    }
+  },
+  "candidate": null,
+  "ratings": {
+    "champion": 1042.01,
+    "candidate_2": 1030.14,
+    "heuristic": 927.84
+  },
+  "online_ratings": {
+    "champion": 1042.01,
+    "candidate_2": 1030.14,
+    "heuristic": 927.84
+  },
+  "pairwise_elo_ratings": {
+    "candidate_2": 1057.17,
+    "champion": 1031.04,
+    "heuristic": 911.78
+  },
+  "stats": {
+    "champion": {
+      "matches": 300,
+      "avg_match_total": 4.5333,
+      "paradoxes_per_match": 0.7467
+    },
+    "candidate_2": {
+      "matches": 300,
+      "avg_match_total": 4.7733,
+      "paradoxes_per_match": 0.7533
+    },
+    "heuristic": {
+      "matches": 300,
+      "avg_match_total": 1.2767,
+      "paradoxes_per_match": 1.4767
+    }
+  },
+  "pairwise": {
+    "champion": {
+      "candidate_2": {
+        "matches": 300,
+        "wins": 136,
+        "losses": 164,
+        "ties": 0,
+        "win_rate": 0.4533,
+        "non_loss_rate": 0.4533,
+        "score_rate": 0.4533,
+        "score_rate_ci95": [
+          0.397,
+          0.5097
+        ],
+        "head_to_head_elo_diff": -32.52,
+        "avg_score_diff": -0.24,
+        "avg_score_diff_ci95": [
+          -1.2757,
+          0.7957
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 201,
+        "losses": 97,
+        "ties": 2,
+        "win_rate": 0.67,
+        "non_loss_rate": 0.6767,
+        "score_rate": 0.6733,
+        "score_rate_ci95": [
+          0.6203,
+          0.7264
+        ],
+        "head_to_head_elo_diff": 125.65,
+        "avg_score_diff": 3.2567,
+        "avg_score_diff_ci95": [
+          2.3962,
+          4.1172
+        ]
+      }
+    },
+    "candidate_2": {
+      "champion": {
+        "matches": 300,
+        "wins": 164,
+        "losses": 136,
+        "ties": 0,
+        "win_rate": 0.5467,
+        "non_loss_rate": 0.5467,
+        "score_rate": 0.5467,
+        "score_rate_ci95": [
+          0.4903,
+          0.603
+        ],
+        "head_to_head_elo_diff": 32.52,
+        "avg_score_diff": 0.24,
+        "avg_score_diff_ci95": [
+          -0.7957,
+          1.2757
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 206,
+        "losses": 92,
+        "ties": 2,
+        "win_rate": 0.6867,
+        "non_loss_rate": 0.6933,
+        "score_rate": 0.69,
+        "score_rate_ci95": [
+          0.6377,
+          0.7423
+        ],
+        "head_to_head_elo_diff": 138.99,
+        "avg_score_diff": 3.4967,
+        "avg_score_diff_ci95": [
+          2.5746,
+          4.4188
+        ]
+      }
+    },
+    "heuristic": {
+      "champion": {
+        "matches": 300,
+        "wins": 97,
+        "losses": 201,
+        "ties": 2,
+        "win_rate": 0.3233,
+        "non_loss_rate": 0.33,
+        "score_rate": 0.3267,
+        "score_rate_ci95": [
+          0.2736,
+          0.3797
+        ],
+        "head_to_head_elo_diff": -125.65,
+        "avg_score_diff": -3.2567,
+        "avg_score_diff_ci95": [
+          -4.1172,
+          -2.3962
+        ]
+      },
+      "candidate_2": {
+        "matches": 300,
+        "wins": 92,
+        "losses": 206,
+        "ties": 2,
+        "win_rate": 0.3067,
+        "non_loss_rate": 0.3133,
+        "score_rate": 0.31,
+        "score_rate_ci95": [
+          0.2577,
+          0.3623
+        ],
+        "head_to_head_elo_diff": -138.99,
+        "avg_score_diff": -3.4967,
+        "avg_score_diff_ci95": [
+          -4.4188,
+          -2.5746
+        ]
+      }
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "champion",
+        "candidate_2",
+        "heuristic"
+      ],
+      "totals": [
+        1.0,
+        4.0,
+        -4.0
+      ],
+      "final_round_returns": [
+        -5.0,
+        2.0,
+        0.0
+      ],
+      "paradoxes": [
+        1,
+        0,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            2.0,
+            1.0,
+            -3.0
+          ],
+          "totals_after_round": [
+            2.0,
+            1.0,
+            -3.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            4.0,
+            1.0,
+            -1.0
+          ],
+          "totals_after_round": [
+            6.0,
+            2.0,
+            -4.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            -5.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            1.0,
+            4.0,
+            -4.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "champion",
+        "heuristic",
+        "candidate_2"
+      ],
+      "totals": [
+        10.0,
+        15.0,
+        9.0
+      ],
+      "final_round_returns": [
+        4.0,
+        7.0,
+        5.0
+      ],
+      "paradoxes": [
+        1,
+        1,
+        0
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            0.0,
+            8.0,
+            4.0
+          ],
+          "totals_after_round": [
+            0.0,
+            8.0,
+            4.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            6.0,
+            0.0,
+            0.0
+          ],
+          "totals_after_round": [
+            6.0,
+            8.0,
+            4.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            4.0,
+            7.0,
+            5.0
+          ],
+          "totals_after_round": [
+            10.0,
+            15.0,
+            9.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "candidate_2",
+        "champion",
+        "heuristic"
+      ],
+      "totals": [
+        2.0,
+        -3.0,
+        0.0
+      ],
+      "final_round_returns": [
+        -4.0,
+        2.0,
+        0.0
+      ],
+      "paradoxes": [
+        1,
+        2,
+        0
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            4.0,
+            0.0,
+            0.0
+          ],
+          "totals_after_round": [
+            4.0,
+            0.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            2.0,
+            -5.0,
+            0.0
+          ],
+          "totals_after_round": [
+            6.0,
+            -5.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            -4.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            2.0,
+            -3.0,
+            0.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+{
+  "event": "champion_gate_done",
+  "rank": 2,
+  "summary": {
+    "candidate_over_champion": {
+      "matches": 300,
+      "wins": 164,
+      "losses": 136,
+      "ties": 0,
+      "win_rate": 0.5467,
+      "non_loss_rate": 0.5467,
+      "score_rate": 0.5467,
+      "score_rate_ci95": [
+        0.4903,
+        0.603
+      ],
+      "head_to_head_elo_diff": 32.52,
+      "avg_score_diff": 0.24,
+      "avg_score_diff_ci95": [
+        -0.7957,
+        1.2757
+      ]
+    },
+    "champion_over_candidate": {
+      "matches": 300,
+      "wins": 136,
+      "losses": 164,
+      "ties": 0,
+      "win_rate": 0.4533,
+      "non_loss_rate": 0.4533,
+      "score_rate": 0.4533,
+      "score_rate_ci95": [
+        0.397,
+        0.5097
+      ],
+      "head_to_head_elo_diff": -32.52,
+      "avg_score_diff": -0.24,
+      "avg_score_diff_ci95": [
+        -1.2757,
+        0.7957
+      ]
+    },
+    "online_ratings": {
+      "champion": 1042.01,
+      "candidate_2": 1030.14,
+      "heuristic": 927.84
+    },
+    "pairwise_elo_ratings": {
+      "candidate_2": 1057.17,
+      "champion": 1031.04,
+      "heuristic": 911.78
+    },
+    "candidate_paradoxes_per_match": 0.7533,
+    "champion_paradoxes_per_match": 0.7467
+  }
+}
+{
+  "event": "start_champion_gate",
+  "rank": 3,
+  "candidate": {
+    "recipe": "champ_mlp_mcts_teacher_balanced",
+    "iteration": 1,
+    "train_steps_completed": null,
+    "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001.pt",
+    "az_policy": 1120.86,
+    "az_avg_return": 8.4667,
+    "az_paradoxes": 0.4889,
+    "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+    "recipe_name": "champ_mlp_mcts_teacher_balanced",
+    "repeat": 1,
+    "seed": 20261240
+  },
+  "cmd": [
+    "/Users/canal/quantum_-cat_openspiel/.venv/bin/python",
+    "quantum_cat_full_match_elo.py",
+    "--players=3",
+    "--matches=300",
+    "--device=cpu",
+    "--schedule=permutations",
+    "--bots",
+    "champion",
+    "candidate_3",
+    "heuristic",
+    "--neural-bot",
+    "champion=az_runs/best_3p_policy_checkpoint.pt",
+    "--neural-bot",
+    "candidate_3=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001.pt",
+    "--workers=0",
+    "--worker-torch-threads=1",
+    "--auto-worker-min-games=32",
+    "--seed=20266242",
+    "--out=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champion_gates/03_champ_mlp_mcts_teacher_balanced_None.json"
+  ]
+}
+{
+  "players": 3,
+  "matches": 300,
+  "rounds_per_match": 3,
+  "match_context": true,
+  "schedule": "permutations",
+  "workers": 16,
+  "simulation_elapsed_sec": 25.361,
+  "checkpoint": null,
+  "neural_bots": {
+    "champion": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "policy"
+    },
+    "candidate_3": {
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001.pt",
+      "mode": "policy"
+    }
+  },
+  "candidate": null,
+  "ratings": {
+    "candidate_3": 1111.27,
+    "champion": 995.95,
+    "heuristic": 892.78
+  },
+  "online_ratings": {
+    "candidate_3": 1111.27,
+    "champion": 995.95,
+    "heuristic": 892.78
+  },
+  "pairwise_elo_ratings": {
+    "candidate_3": 1071.37,
+    "champion": 1046.85,
+    "heuristic": 881.78
+  },
+  "stats": {
+    "champion": {
+      "matches": 300,
+      "avg_match_total": 5.0133,
+      "paradoxes_per_match": 0.74
+    },
+    "candidate_3": {
+      "matches": 300,
+      "avg_match_total": 5.5533,
+      "paradoxes_per_match": 0.61
+    },
+    "heuristic": {
+      "matches": 300,
+      "avg_match_total": 1.1433,
+      "paradoxes_per_match": 1.6167
+    }
+  },
+  "pairwise": {
+    "champion": {
+      "candidate_3": {
+        "matches": 300,
+        "wins": 138,
+        "losses": 162,
+        "ties": 0,
+        "win_rate": 0.46,
+        "non_loss_rate": 0.46,
+        "score_rate": 0.46,
+        "score_rate_ci95": [
+          0.4036,
+          0.5164
+        ],
+        "head_to_head_elo_diff": -27.85,
+        "avg_score_diff": -0.54,
+        "avg_score_diff_ci95": [
+          -1.4907,
+          0.4107
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 217,
+        "losses": 82,
+        "ties": 1,
+        "win_rate": 0.7233,
+        "non_loss_rate": 0.7267,
+        "score_rate": 0.725,
+        "score_rate_ci95": [
+          0.6745,
+          0.7755
+        ],
+        "head_to_head_elo_diff": 168.4,
+        "avg_score_diff": 3.87,
+        "avg_score_diff_ci95": [
+          3.0733,
+          4.6667
+        ]
+      }
+    },
+    "candidate_3": {
+      "champion": {
+        "matches": 300,
+        "wins": 162,
+        "losses": 138,
+        "ties": 0,
+        "win_rate": 0.54,
+        "non_loss_rate": 0.54,
+        "score_rate": 0.54,
+        "score_rate_ci95": [
+          0.4836,
+          0.5964
+        ],
+        "head_to_head_elo_diff": 27.85,
+        "avg_score_diff": 0.54,
+        "avg_score_diff_ci95": [
+          -0.4107,
+          1.4907
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 223,
+        "losses": 76,
+        "ties": 1,
+        "win_rate": 0.7433,
+        "non_loss_rate": 0.7467,
+        "score_rate": 0.745,
+        "score_rate_ci95": [
+          0.6957,
+          0.7943
+        ],
+        "head_to_head_elo_diff": 186.25,
+        "avg_score_diff": 4.41,
+        "avg_score_diff_ci95": [
+          3.6058,
+          5.2142
+        ]
+      }
+    },
+    "heuristic": {
+      "champion": {
+        "matches": 300,
+        "wins": 82,
+        "losses": 217,
+        "ties": 1,
+        "win_rate": 0.2733,
+        "non_loss_rate": 0.2767,
+        "score_rate": 0.275,
+        "score_rate_ci95": [
+          0.2245,
+          0.3255
+        ],
+        "head_to_head_elo_diff": -168.4,
+        "avg_score_diff": -3.87,
+        "avg_score_diff_ci95": [
+          -4.6667,
+          -3.0733
+        ]
+      },
+      "candidate_3": {
+        "matches": 300,
+        "wins": 76,
+        "losses": 223,
+        "ties": 1,
+        "win_rate": 0.2533,
+        "non_loss_rate": 0.2567,
+        "score_rate": 0.255,
+        "score_rate_ci95": [
+          0.2057,
+          0.3043
+        ],
+        "head_to_head_elo_diff": -186.25,
+        "avg_score_diff": -4.41,
+        "avg_score_diff_ci95": [
+          -5.2142,
+          -3.6058
+        ]
+      }
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "champion",
+        "candidate_3",
+        "heuristic"
+      ],
+      "totals": [
+        7.0,
+        5.0,
+        1.0
+      ],
+      "final_round_returns": [
+        7.0,
+        2.0,
+        0.0
+      ],
+      "paradoxes": [
+        1,
+        0,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            3.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            3.0,
+            2.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            -3.0,
+            1.0,
+            1.0
+          ],
+          "totals_after_round": [
+            0.0,
+            3.0,
+            1.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            7.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            7.0,
+            5.0,
+            1.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "champion",
+        "heuristic",
+        "candidate_3"
+      ],
+      "totals": [
+        16.0,
+        1.0,
+        -1.0
+      ],
+      "final_round_returns": [
+        5.0,
+        2.0,
+        0.0
+      ],
+      "paradoxes": [
+        0,
+        1,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            5.0,
+            0.0,
+            -1.0
+          ],
+          "totals_after_round": [
+            5.0,
+            0.0,
+            -1.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            6.0,
+            -1.0,
+            0.0
+          ],
+          "totals_after_round": [
+            11.0,
+            -1.0,
+            -1.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            5.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            16.0,
+            1.0,
+            -1.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "candidate_3",
+        "champion",
+        "heuristic"
+      ],
+      "totals": [
+        5.0,
+        6.0,
+        2.0
+      ],
+      "final_round_returns": [
+        2.0,
+        2.0,
+        -1.0
+      ],
+      "paradoxes": [
+        0,
+        1,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            2.0,
+            -1.0,
+            3.0
+          ],
+          "totals_after_round": [
+            2.0,
+            -1.0,
+            3.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            1.0,
+            5.0,
+            0.0
+          ],
+          "totals_after_round": [
+            3.0,
+            4.0,
+            3.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            2.0,
+            2.0,
+            -1.0
+          ],
+          "totals_after_round": [
+            5.0,
+            6.0,
+            2.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+{
+  "event": "champion_gate_done",
+  "rank": 3,
+  "summary": {
+    "candidate_over_champion": {
+      "matches": 300,
+      "wins": 162,
+      "losses": 138,
+      "ties": 0,
+      "win_rate": 0.54,
+      "non_loss_rate": 0.54,
+      "score_rate": 0.54,
+      "score_rate_ci95": [
+        0.4836,
+        0.5964
+      ],
+      "head_to_head_elo_diff": 27.85,
+      "avg_score_diff": 0.54,
+      "avg_score_diff_ci95": [
+        -0.4107,
+        1.4907
+      ]
+    },
+    "champion_over_candidate": {
+      "matches": 300,
+      "wins": 138,
+      "losses": 162,
+      "ties": 0,
+      "win_rate": 0.46,
+      "non_loss_rate": 0.46,
+      "score_rate": 0.46,
+      "score_rate_ci95": [
+        0.4036,
+        0.5164
+      ],
+      "head_to_head_elo_diff": -27.85,
+      "avg_score_diff": -0.54,
+      "avg_score_diff_ci95": [
+        -1.4907,
+        0.4107
+      ]
+    },
+    "online_ratings": {
+      "candidate_3": 1111.27,
+      "champion": 995.95,
+      "heuristic": 892.78
+    },
+    "pairwise_elo_ratings": {
+      "candidate_3": 1071.37,
+      "champion": 1046.85,
+      "heuristic": 881.78
+    },
+    "candidate_paradoxes_per_match": 0.61,
+    "champion_paradoxes_per_match": 0.74
+  }
+}
+{
+  "event": "start_champion_gate",
+  "rank": 4,
+  "candidate": {
+    "recipe": "champ_mlp_mcts_teacher_balanced",
+    "iteration": "league",
+    "train_steps_completed": null,
+    "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0000_league.pt",
+    "az_policy": 1117.67,
+    "az_avg_return": 8.3778,
+    "az_paradoxes": 0.5111,
+    "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+    "recipe_name": "champ_mlp_mcts_teacher_balanced",
+    "repeat": 1,
+    "seed": 20261240
+  },
+  "cmd": [
+    "/Users/canal/quantum_-cat_openspiel/.venv/bin/python",
+    "quantum_cat_full_match_elo.py",
+    "--players=3",
+    "--matches=300",
+    "--device=cpu",
+    "--schedule=permutations",
+    "--bots",
+    "champion",
+    "candidate_4",
+    "heuristic",
+    "--neural-bot",
+    "champion=az_runs/best_3p_policy_checkpoint.pt",
+    "--neural-bot",
+    "candidate_4=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0000_league.pt",
+    "--workers=0",
+    "--worker-torch-threads=1",
+    "--auto-worker-min-games=32",
+    "--seed=20266243",
+    "--out=az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champion_gates/04_champ_mlp_mcts_teacher_balanced_None.json"
+  ]
+}
+{
+  "players": 3,
+  "matches": 300,
+  "rounds_per_match": 3,
+  "match_context": true,
+  "schedule": "permutations",
+  "workers": 16,
+  "simulation_elapsed_sec": 29.878,
+  "checkpoint": null,
+  "neural_bots": {
+    "champion": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "policy"
+    },
+    "candidate_4": {
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0000_league.pt",
+      "mode": "policy"
+    }
+  },
+  "candidate": null,
+  "ratings": {
+    "champion": 1089.5,
+    "candidate_4": 1056.31,
+    "heuristic": 854.19
+  },
+  "online_ratings": {
+    "champion": 1089.5,
+    "candidate_4": 1056.31,
+    "heuristic": 854.19
+  },
+  "pairwise_elo_ratings": {
+    "candidate_4": 1059.88,
+    "champion": 1058.94,
+    "heuristic": 881.18
+  },
+  "stats": {
+    "champion": {
+      "matches": 300,
+      "avg_match_total": 5.18,
+      "paradoxes_per_match": 0.73
+    },
+    "candidate_4": {
+      "matches": 300,
+      "avg_match_total": 5.4133,
+      "paradoxes_per_match": 0.67
+    },
+    "heuristic": {
+      "matches": 300,
+      "avg_match_total": 1.1133,
+      "paradoxes_per_match": 1.5667
+    }
+  },
+  "pairwise": {
+    "champion": {
+      "candidate_4": {
+        "matches": 300,
+        "wins": 155,
+        "losses": 144,
+        "ties": 1,
+        "win_rate": 0.5167,
+        "non_loss_rate": 0.52,
+        "score_rate": 0.5183,
+        "score_rate_ci95": [
+          0.4618,
+          0.5749
+        ],
+        "head_to_head_elo_diff": 12.75,
+        "avg_score_diff": -0.2333,
+        "avg_score_diff_ci95": [
+          -1.2264,
+          0.7597
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 214,
+        "losses": 82,
+        "ties": 4,
+        "win_rate": 0.7133,
+        "non_loss_rate": 0.7267,
+        "score_rate": 0.72,
+        "score_rate_ci95": [
+          0.6692,
+          0.7708
+        ],
+        "head_to_head_elo_diff": 164.07,
+        "avg_score_diff": 4.0667,
+        "avg_score_diff_ci95": [
+          3.2174,
+          4.9159
+        ]
+      }
+    },
+    "candidate_4": {
+      "champion": {
+        "matches": 300,
+        "wins": 144,
+        "losses": 155,
+        "ties": 1,
+        "win_rate": 0.48,
+        "non_loss_rate": 0.4833,
+        "score_rate": 0.4817,
+        "score_rate_ci95": [
+          0.4251,
+          0.5382
+        ],
+        "head_to_head_elo_diff": -12.75,
+        "avg_score_diff": 0.2333,
+        "avg_score_diff_ci95": [
+          -0.7597,
+          1.2264
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 225,
+        "losses": 74,
+        "ties": 1,
+        "win_rate": 0.75,
+        "non_loss_rate": 0.7533,
+        "score_rate": 0.7517,
+        "score_rate_ci95": [
+          0.7028,
+          0.8006
+        ],
+        "head_to_head_elo_diff": 192.4,
+        "avg_score_diff": 4.3,
+        "avg_score_diff_ci95": [
+          3.5011,
+          5.0989
+        ]
+      }
+    },
+    "heuristic": {
+      "champion": {
+        "matches": 300,
+        "wins": 82,
+        "losses": 214,
+        "ties": 4,
+        "win_rate": 0.2733,
+        "non_loss_rate": 0.2867,
+        "score_rate": 0.28,
+        "score_rate_ci95": [
+          0.2292,
+          0.3308
+        ],
+        "head_to_head_elo_diff": -164.07,
+        "avg_score_diff": -4.0667,
+        "avg_score_diff_ci95": [
+          -4.9159,
+          -3.2174
+        ]
+      },
+      "candidate_4": {
+        "matches": 300,
+        "wins": 74,
+        "losses": 225,
+        "ties": 1,
+        "win_rate": 0.2467,
+        "non_loss_rate": 0.25,
+        "score_rate": 0.2483,
+        "score_rate_ci95": [
+          0.1994,
+          0.2972
+        ],
+        "head_to_head_elo_diff": -192.4,
+        "avg_score_diff": -4.3,
+        "avg_score_diff_ci95": [
+          -5.0989,
+          -3.5011
+        ]
+      }
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "champion",
+        "candidate_4",
+        "heuristic"
+      ],
+      "totals": [
+        12.0,
+        -1.0,
+        0.0
+      ],
+      "final_round_returns": [
+        2.0,
+        -5.0,
+        0.0
+      ],
+      "paradoxes": [
+        0,
+        1,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            7.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            7.0,
+            2.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            3.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            10.0,
+            4.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            2.0,
+            -5.0,
+            0.0
+          ],
+          "totals_after_round": [
+            12.0,
+            -1.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "champion",
+        "heuristic",
+        "candidate_4"
+      ],
+      "totals": [
+        10.0,
+        -1.0,
+        7.0
+      ],
+      "final_round_returns": [
+        1.0,
+        0.0,
+        4.0
+      ],
+      "paradoxes": [
+        0,
+        3,
+        0
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            3.0,
+            -1.0,
+            3.0
+          ],
+          "totals_after_round": [
+            3.0,
+            -1.0,
+            3.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            6.0,
+            0.0,
+            0.0
+          ],
+          "totals_after_round": [
+            9.0,
+            -1.0,
+            3.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            1.0,
+            0.0,
+            4.0
+          ],
+          "totals_after_round": [
+            10.0,
+            -1.0,
+            7.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "candidate_4",
+        "champion",
+        "heuristic"
+      ],
+      "totals": [
+        12.0,
+        -3.0,
+        3.0
+      ],
+      "final_round_returns": [
+        6.0,
+        1.0,
+        0.0
+      ],
+      "paradoxes": [
+        0,
+        2,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            4.0,
+            0.0,
+            2.0
+          ],
+          "totals_after_round": [
+            4.0,
+            0.0,
+            2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            2.0,
+            -4.0,
+            1.0
+          ],
+          "totals_after_round": [
+            6.0,
+            -4.0,
+            3.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            6.0,
+            1.0,
+            0.0
+          ],
+          "totals_after_round": [
+            12.0,
+            -3.0,
+            3.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+{
+  "event": "champion_gate_done",
+  "rank": 4,
+  "summary": {
+    "candidate_over_champion": {
+      "matches": 300,
+      "wins": 144,
+      "losses": 155,
+      "ties": 1,
+      "win_rate": 0.48,
+      "non_loss_rate": 0.4833,
+      "score_rate": 0.4817,
+      "score_rate_ci95": [
+        0.4251,
+        0.5382
+      ],
+      "head_to_head_elo_diff": -12.75,
+      "avg_score_diff": 0.2333,
+      "avg_score_diff_ci95": [
+        -0.7597,
+        1.2264
+      ]
+    },
+    "champion_over_candidate": {
+      "matches": 300,
+      "wins": 155,
+      "losses": 144,
+      "ties": 1,
+      "win_rate": 0.5167,
+      "non_loss_rate": 0.52,
+      "score_rate": 0.5183,
+      "score_rate_ci95": [
+        0.4618,
+        0.5749
+      ],
+      "head_to_head_elo_diff": 12.75,
+      "avg_score_diff": -0.2333,
+      "avg_score_diff_ci95": [
+        -1.2264,
+        0.7597
+      ]
+    },
+    "online_ratings": {
+      "champion": 1089.5,
+      "candidate_4": 1056.31,
+      "heuristic": 854.19
+    },
+    "pairwise_elo_ratings": {
+      "candidate_4": 1059.88,
+      "champion": 1058.94,
+      "heuristic": 881.18
+    },
+    "candidate_paradoxes_per_match": 0.67,
+    "champion_paradoxes_per_match": 0.73
+  }
+}
+{
+  "event": "sweep_done",
+  "summary_path": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/sweep_summary.json",
+  "best": [
+    {
+      "recipe": "champ_mlp_mcts_teacher_balanced",
+      "iteration": "train_snapshot",
+      "train_steps_completed": 90,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0090.pt",
+      "az_policy": 1120.86,
+      "az_avg_return": 8.4667,
+      "az_paradoxes": 0.4889,
+      "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+      "recipe_name": "champ_mlp_mcts_teacher_balanced",
+      "repeat": 1,
+      "seed": 20261240,
+      "champion_gate": {
+        "candidate_over_champion": {
+          "matches": 300,
+          "wins": 145,
+          "losses": 154,
+          "ties": 1,
+          "win_rate": 0.4833,
+          "non_loss_rate": 0.4867,
+          "score_rate": 0.485,
+          "score_rate_ci95": [
+            0.4284,
+            0.5416
+          ],
+          "head_to_head_elo_diff": -10.43,
+          "avg_score_diff": 0.06,
+          "avg_score_diff_ci95": [
+            -1.0425,
+            1.1625
+          ]
+        },
+        "champion_over_candidate": {
+          "matches": 300,
+          "wins": 154,
+          "losses": 145,
+          "ties": 1,
+          "win_rate": 0.5133,
+          "non_loss_rate": 0.5167,
+          "score_rate": 0.515,
+          "score_rate_ci95": [
+            0.4584,
+            0.5716
+          ],
+          "head_to_head_elo_diff": 10.43,
+          "avg_score_diff": -0.06,
+          "avg_score_diff_ci95": [
+            -1.1625,
+            1.0425
+          ]
+        },
+        "online_ratings": {
+          "candidate_1": 1064.91,
+          "champion": 1010.31,
+          "heuristic": 924.78
+        },
+        "pairwise_elo_ratings": {
+          "candidate_1": 1047.9,
+          "champion": 1041.88,
+          "heuristic": 910.21
+        },
+        "candidate_paradoxes_per_match": 0.7233,
+        "champion_paradoxes_per_match": 0.7167
+      }
+    },
+    {
+      "recipe": "champ_mlp_mcts_teacher_balanced",
+      "iteration": "train_snapshot",
+      "train_steps_completed": 120,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0120.pt",
+      "az_policy": 1120.86,
+      "az_avg_return": 8.4667,
+      "az_paradoxes": 0.4889,
+      "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+      "recipe_name": "champ_mlp_mcts_teacher_balanced",
+      "repeat": 1,
+      "seed": 20261240,
+      "champion_gate": {
+        "candidate_over_champion": {
+          "matches": 300,
+          "wins": 164,
+          "losses": 136,
+          "ties": 0,
+          "win_rate": 0.5467,
+          "non_loss_rate": 0.5467,
+          "score_rate": 0.5467,
+          "score_rate_ci95": [
+            0.4903,
+            0.603
+          ],
+          "head_to_head_elo_diff": 32.52,
+          "avg_score_diff": 0.24,
+          "avg_score_diff_ci95": [
+            -0.7957,
+            1.2757
+          ]
+        },
+        "champion_over_candidate": {
+          "matches": 300,
+          "wins": 136,
+          "losses": 164,
+          "ties": 0,
+          "win_rate": 0.4533,
+          "non_loss_rate": 0.4533,
+          "score_rate": 0.4533,
+          "score_rate_ci95": [
+            0.397,
+            0.5097
+          ],
+          "head_to_head_elo_diff": -32.52,
+          "avg_score_diff": -0.24,
+          "avg_score_diff_ci95": [
+            -1.2757,
+            0.7957
+          ]
+        },
+        "online_ratings": {
+          "champion": 1042.01,
+          "candidate_2": 1030.14,
+          "heuristic": 927.84
+        },
+        "pairwise_elo_ratings": {
+          "candidate_2": 1057.17,
+          "champion": 1031.04,
+          "heuristic": 911.78
+        },
+        "candidate_paradoxes_per_match": 0.7533,
+        "champion_paradoxes_per_match": 0.7467
+      }
+    },
+    {
+      "recipe": "champ_mlp_mcts_teacher_balanced",
+      "iteration": 1,
+      "train_steps_completed": null,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001.pt",
+      "az_policy": 1120.86,
+      "az_avg_return": 8.4667,
+      "az_paradoxes": 0.4889,
+      "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+      "recipe_name": "champ_mlp_mcts_teacher_balanced",
+      "repeat": 1,
+      "seed": 20261240,
+      "champion_gate": {
+        "candidate_over_champion": {
+          "matches": 300,
+          "wins": 162,
+          "losses": 138,
+          "ties": 0,
+          "win_rate": 0.54,
+          "non_loss_rate": 0.54,
+          "score_rate": 0.54,
+          "score_rate_ci95": [
+            0.4836,
+            0.5964
+          ],
+          "head_to_head_elo_diff": 27.85,
+          "avg_score_diff": 0.54,
+          "avg_score_diff_ci95": [
+            -0.4107,
+            1.4907
+          ]
+        },
+        "champion_over_candidate": {
+          "matches": 300,
+          "wins": 138,
+          "losses": 162,
+          "ties": 0,
+          "win_rate": 0.46,
+          "non_loss_rate": 0.46,
+          "score_rate": 0.46,
+          "score_rate_ci95": [
+            0.4036,
+            0.5164
+          ],
+          "head_to_head_elo_diff": -27.85,
+          "avg_score_diff": -0.54,
+          "avg_score_diff_ci95": [
+            -1.4907,
+            0.4107
+          ]
+        },
+        "online_ratings": {
+          "candidate_3": 1111.27,
+          "champion": 995.95,
+          "heuristic": 892.78
+        },
+        "pairwise_elo_ratings": {
+          "candidate_3": 1071.37,
+          "champion": 1046.85,
+          "heuristic": 881.78
+        },
+        "candidate_paradoxes_per_match": 0.61,
+        "champion_paradoxes_per_match": 0.74
+      }
+    },
+    {
+      "recipe": "champ_mlp_mcts_teacher_balanced",
+      "iteration": "league",
+      "train_steps_completed": null,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0000_league.pt",
+      "az_policy": 1117.67,
+      "az_avg_return": 8.3778,
+      "az_paradoxes": 0.5111,
+      "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+      "recipe_name": "champ_mlp_mcts_teacher_balanced",
+      "repeat": 1,
+      "seed": 20261240,
+      "champion_gate": {
+        "candidate_over_champion": {
+          "matches": 300,
+          "wins": 144,
+          "losses": 155,
+          "ties": 1,
+          "win_rate": 0.48,
+          "non_loss_rate": 0.4833,
+          "score_rate": 0.4817,
+          "score_rate_ci95": [
+            0.4251,
+            0.5382
+          ],
+          "head_to_head_elo_diff": -12.75,
+          "avg_score_diff": 0.2333,
+          "avg_score_diff_ci95": [
+            -0.7597,
+            1.2264
+          ]
+        },
+        "champion_over_candidate": {
+          "matches": 300,
+          "wins": 155,
+          "losses": 144,
+          "ties": 1,
+          "win_rate": 0.5167,
+          "non_loss_rate": 0.52,
+          "score_rate": 0.5183,
+          "score_rate_ci95": [
+            0.4618,
+            0.5749
+          ],
+          "head_to_head_elo_diff": 12.75,
+          "avg_score_diff": -0.2333,
+          "avg_score_diff_ci95": [
+            -1.2264,
+            0.7597
+          ]
+        },
+        "online_ratings": {
+          "champion": 1089.5,
+          "candidate_4": 1056.31,
+          "heuristic": 854.19
+        },
+        "pairwise_elo_ratings": {
+          "candidate_4": 1059.88,
+          "champion": 1058.94,
+          "heuristic": 881.18
+        },
+        "candidate_paradoxes_per_match": 0.67,
+        "champion_paradoxes_per_match": 0.73
+      }
+    },
+    {
+      "recipe": "champ_mlp_mcts_teacher_balanced",
+      "iteration": "train_snapshot",
+      "train_steps_completed": 60,
+      "checkpoint": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced/checkpoint_0001_step_0060.pt",
+      "az_policy": 1117.67,
+      "az_avg_return": 8.3778,
+      "az_paradoxes": 0.5111,
+      "out_dir": "az_runs/candidate_sweep_run92_mlp_mcts_teacher_balanced_parallel_20260602/champ_mlp_mcts_teacher_balanced",
+      "recipe_name": "champ_mlp_mcts_teacher_balanced",
+      "repeat": 1,
+      "seed": 20261240
+    }
+  ]
+}

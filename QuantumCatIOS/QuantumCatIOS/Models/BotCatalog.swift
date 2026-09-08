@@ -26,7 +26,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
     var subtitle: String {
         switch self {
         case .championBeliefPolicy:
-            "Run604 step50 shield-distilled champion with the promoted native liveness shield wrapped around raw Core ML policy."
+            "Full-size AlphaZero champion with verified native 76/214 three-player inference plus directly trained five-player neural bidding, risk-aware play, and public tactics."
         case .setPoolDistill:
             "Set-pooling distilled policy/value student, bundled as Core ML."
         case .rawPolicyLeague:
@@ -45,20 +45,33 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
     var mobileStatus: String {
         switch self {
         case .championBeliefPolicy:
-            ModelArtifactStatus.isBundled(resource: "champion_belief_policy", extension: "mlmodelc")
-                ? "Core ML active; native liveness shield active."
-                : "Core ML missing; liveness-shielded heuristic fallback active."
+            if !ModelArtifactStatus.isBundled(
+                resource: "champion_belief_policy", extension: "mlmodelc"
+            ) {
+                "Core ML missing; liveness-shielded heuristic fallback active."
+            } else if QuantumCatMLPolicy.shared.liveInferenceIsVerified(for: self, players: 3),
+                      ModelArtifactStatus.isBundled(resource: "champion_5p", extension: "mlmodelc") {
+                if QuantumCatMLPolicy.shared.usesLearnedPrediction(for: self, players: 5) {
+                    "Core ML active: full-size five-player champion learns its bids and plays directly; the three-player champion is preserved and four-player games safely fall back."
+                } else {
+                    "Core ML active: verified three-player champion and parity-gated five-player specialist; four-player games safely use the native fallback."
+                }
+            } else if QuantumCatMLPolicy.shared.liveInferenceIsVerified(for: self, players: 3) {
+                "Core ML active; native three-player 76/214 live-input parity verified."
+            } else {
+                "Core ML bundled but disabled because live-input parity failed; fallback active."
+            }
         case .setPoolDistill:
             ModelArtifactStatus.isBundled(resource: "setpool_distill", extension: "mlmodelc")
-                ? "Core ML active; heuristic fallback ready."
+                ? "Core ML bundled but disabled pending live input parity; heuristic fallback active."
                 : "Core ML missing; heuristic fallback active."
         case .rawPolicyLeague:
             ModelArtifactStatus.isBundled(resource: "raw_policy_league", extension: "mlmodelc")
-                ? "Core ML active; heuristic fallback ready."
+                ? "Core ML bundled but disabled pending live input parity; heuristic fallback active."
                 : "Core ML missing; heuristic fallback active."
         case .strictQHead:
             ModelArtifactStatus.isBundled(resource: "strict_q_head", extension: "mlmodelc")
-                ? "Core ML active; heuristic fallback ready."
+                ? "Core ML bundled but disabled pending live input parity; heuristic fallback active."
                 : "Core ML missing; heuristic fallback active."
         case .heuristicTarget:
             "Native, fast, target-aware."

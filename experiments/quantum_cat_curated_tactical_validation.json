@@ -1,0 +1,452 @@
+{
+  "schemaVersion": 1,
+  "suiteID": "quantum-cat-curated-tactical-validation-v1",
+  "purpose": "Locked, human-reviewed strategic positions that promoted table-specific models must answer correctly.",
+  "trainingPolicy": {
+    "allowInTraining": false,
+    "source": "human_reviewed_validation_only",
+    "note": "These labels are acceptance evidence, not self-play training targets."
+  },
+  "metamorphicValidation": {
+    "seatRotations": "all",
+    "independenceUnit": "reviewed_or_exact_proof_scenario_family",
+    "note": "Cyclic seat relabelings preserve exact game semantics and expose seat-dependent tactical failures; they are not additional independent reviewed examples."
+  },
+  "scenarios": [
+    {
+      "id": "iphone-4p-r2-t1-p0-y8-over-y6-20260722",
+      "title": "Bid-three opening follow: play Y8 or unbeatable R8, not Y6",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "human_reviewed_iphone_capture",
+        "capturedAtLocal": "2026-07-22T22:20:00-04:00",
+        "evidence": "Two iPhone screenshots plus the matching locally persisted app state",
+        "review": "Yellow was already led with Y7 currently winning. Y8 wins provisionally while preserving yellow; R8 is also reasonable because it cannot be overtrumped, though it spends the yellow token. B8 and G8 burn yellow without winning the trick."
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 23,
+            "move": {
+              "phase": "play",
+              "suit": "Y",
+              "rank": 8
+            }
+          },
+          {
+            "action": 7,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 8
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "winning_follow_or_unbeatable_trump_for_needed_bid",
+          "note": "Accept every winning led-suit follow and an unbeatable trump that safely guarantees the needed trick against remaining players."
+        },
+        "knownBadActions": [
+          {
+            "action": 21,
+            "move": {
+              "phase": "play",
+              "suit": "Y",
+              "rank": 6
+            },
+            "note": "Recommendation shown in the captured iPhone position"
+          },
+          {
+            "action": 15,
+            "move": {
+              "phase": "play",
+              "suit": "B",
+              "rank": 8
+            },
+            "note": "Off-led blue cannot beat Y7 and permanently burns the actor's yellow token."
+          },
+          {
+            "action": 31,
+            "move": {
+              "phase": "play",
+              "suit": "G",
+              "rank": 8
+            },
+            "note": "Off-led green cannot beat Y7 and permanently burns the actor's yellow token."
+          }
+        ]
+      },
+      "state": {
+        "numPlayers": 4,
+        "numRanks": 8,
+        "numColors": 4,
+        "numTricks": 8,
+        "cardsPerPlayerInitial": 10,
+        "phase": "play",
+        "actingPlayer": 0,
+        "currentPlayer": 0,
+        "roundStartPlayer": 2,
+        "startPlayer": 2,
+        "trickNumber": 0,
+        "ledSuit": "Y",
+        "currentTrick": [
+          null,
+          null,
+          {
+            "player": 2,
+            "suit": "Y",
+            "rank": 7
+          },
+          {
+            "player": 3,
+            "suit": "Y",
+            "rank": 4
+          }
+        ],
+        "completedTricks": [],
+        "playedCountByPlayer": [0, 0, 1, 1],
+        "predictions": [3, 2, 1, 1],
+        "tricksWon": [0, 0, 0, 0],
+        "boardOwnership": [
+          [-1, -1, -1, -1, -1, -1, -1, -1],
+          [-1, -1, -1, -1, -1, -1, -1, -1],
+          [-1, -1, -1, 3, -1, -1, 2, -1],
+          [-1, -1, -1, -1, -1, -1, -1, -1]
+        ],
+        "colorTokens": [
+          [true, true, true, true],
+          [true, true, true, true],
+          [true, true, true, true],
+          [true, true, true, true]
+        ],
+        "hasParadoxed": [false, false, false, false],
+        "actingHandRankCounts": [0, 1, 1, 0, 1, 2, 2, 2],
+        "actingDiscardedRank": 2,
+        "trumpBroken": false,
+        "matchTotals": [3, 4, 5, 1],
+        "matchRound": 1,
+        "expectedLegalActionCount": 23
+      }
+    },
+    {
+      "id": "iphone-4p-r2-t2-p0-b8-or-g8-over-y6-20260722",
+      "title": "Bid-three second lead: play B8 or G8, not Y6",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "human_reviewed_iphone_capture",
+        "capturedAtLocal": "2026-07-22T22:33:00-04:00",
+        "evidence": "Two iPhone photos plus the matching locally persisted app state",
+        "review": "P0 needs two more tricks and may choose either legal highest-rank nontrump lead, B8 or G8. Y8 was already claimed in the preceding trick and is not legal here."
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 15,
+            "move": {
+              "phase": "play",
+              "suit": "B",
+              "rank": 8
+            }
+          },
+          {
+            "action": 31,
+            "move": {
+              "phase": "play",
+              "suit": "G",
+              "rank": 8
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "highest_nontrump_lead_for_needed_bid",
+          "note": "Accept every legal color of the highest nontrump lead while the actor still needs tricks."
+        },
+        "knownUnavailableMoves": [
+          {
+            "action": 23,
+            "move": {
+              "phase": "play",
+              "suit": "Y",
+              "rank": 8
+            },
+            "note": "Yellow eight was already played and its board cell is occupied."
+          }
+        ],
+        "knownBadActions": [
+          {
+            "action": 21,
+            "move": {
+              "phase": "play",
+              "suit": "Y",
+              "rank": 6
+            },
+            "note": "Recommendation shown in the captured iPhone position"
+          }
+        ]
+      },
+      "state": {
+        "numPlayers": 4,
+        "numRanks": 8,
+        "numColors": 4,
+        "numTricks": 8,
+        "cardsPerPlayerInitial": 10,
+        "phase": "play",
+        "actingPlayer": 0,
+        "currentPlayer": 0,
+        "roundStartPlayer": 2,
+        "startPlayer": 0,
+        "trickNumber": 1,
+        "ledSuit": null,
+        "currentTrick": [null, null, null, null],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "Y",
+              "rank": 8
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 5
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 7
+            },
+            {
+              "player": 3,
+              "suit": "Y",
+              "rank": 4
+            }
+          ]
+        ],
+        "playedCountByPlayer": [1, 1, 1, 1],
+        "predictions": [3, 2, 1, 1],
+        "tricksWon": [1, 0, 0, 0],
+        "boardOwnership": [
+          [-1, -1, -1, -1, -1, -1, -1, -1],
+          [-1, -1, -1, -1, -1, -1, -1, -1],
+          [-1, -1, -1, 3, 1, -1, 2, 0],
+          [-1, -1, -1, -1, -1, -1, -1, -1]
+        ],
+        "colorTokens": [
+          [true, true, true, true],
+          [true, true, true, true],
+          [true, true, true, true],
+          [true, true, true, true]
+        ],
+        "hasParadoxed": [false, false, false, false],
+        "actingHandRankCounts": [0, 1, 1, 0, 1, 2, 2, 1],
+        "actingDiscardedRank": 2,
+        "trumpBroken": false,
+        "matchTotals": [3, 4, 5, 1],
+        "matchRound": 1,
+        "expectedLegalActionCount": 15
+      }
+    },
+    {
+      "id": "exact-5p-final-decline_extra_trick_to_preserve_exact_bid-seed2026081936-match34-p4",
+      "title": "Final decision: decline an extra trick to preserve the exact bid and connected bonus",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "exhaustive_final_match_official_scoring",
+        "seed": 2026081936,
+        "matchIndex": 34,
+        "incumbentAction": 34,
+        "incumbentWasOptimal": false
+      },
+      "proof": {
+        "kind": "exact_terminal_official_placement",
+        "objective": ["maximize_official_match_rank_points", "accept_all_actions_tied_on_official_placement"],
+        "allLegalActions": [
+          {"action": 25, "move": {"phase": "play", "suit": "Y", "rank": 8}, "rankPoints": 2.5, "ownTotalScore": 11.0, "ownRoundScore": 3.0, "ownTricksWon": 1, "ownPrediction": 1, "ownConnectedBonus": 2.0},
+          {"action": 34, "move": {"phase": "play", "suit": "G", "rank": 8}, "rankPoints": 2.0, "ownTotalScore": 10.0, "ownRoundScore": 2.0, "ownTricksWon": 2, "ownPrediction": 1, "ownConnectedBonus": 0.0}
+        ]
+      },
+      "acceptance": {
+        "kind": "exact_top1",
+        "expectedAction": 25,
+        "expectedMove": {"phase": "play", "suit": "Y", "rank": 8},
+        "reasonableActionRule": {
+          "kind": "best_official_match_placement",
+          "note": "Accept every legal move tied for the best exact official final placement; secondary score never breaks an acceptance tie."
+        },
+        "knownBadActions": [{"action": 34, "move": {"phase": "play", "suit": "G", "rank": 8}, "note": "Taking an unnecessary trick misses the completed bid and loses the connected bonus."}]
+      },
+      "state": {
+        "numPlayers": 5,
+        "numRanks": 9,
+        "numColors": 4,
+        "numTricks": 7,
+        "cardsPerPlayerInitial": 9,
+        "phase": "play",
+        "actingPlayer": 4,
+        "currentPlayer": 4,
+        "roundStartPlayer": 3,
+        "startPlayer": 0,
+        "trickNumber": 6,
+        "ledSuit": "G",
+        "currentTrick": [{"player": 0, "suit": "G", "rank": 1}, {"player": 1, "suit": "G", "rank": 5}, {"player": 2, "suit": "Y", "rank": 5}, {"player": 3, "suit": "G", "rank": 7}, null],
+        "completedTricks": [
+          [{"player": 0, "suit": "B", "rank": 5}, {"player": 1, "suit": "B", "rank": 6}, {"player": 2, "suit": "B", "rank": 3}, {"player": 3, "suit": "B", "rank": 1}, {"player": 4, "suit": "B", "rank": 7}],
+          [{"player": 0, "suit": "B", "rank": 4}, {"player": 1, "suit": "B", "rank": 9}, {"player": 2, "suit": "R", "rank": 3}, {"player": 3, "suit": "B", "rank": 8}, {"player": 4, "suit": "B", "rank": 2}],
+          [{"player": 0, "suit": "R", "rank": 5}, {"player": 1, "suit": "R", "rank": 6}, {"player": 2, "suit": "R", "rank": 2}, {"player": 3, "suit": "R", "rank": 9}, {"player": 4, "suit": "R", "rank": 8}],
+          [{"player": 0, "suit": "Y", "rank": 9}, {"player": 1, "suit": "Y", "rank": 3}, {"player": 2, "suit": "Y", "rank": 1}, {"player": 3, "suit": "Y", "rank": 6}, {"player": 4, "suit": "Y", "rank": 2}],
+          [{"player": 0, "suit": "G", "rank": 2}, {"player": 1, "suit": "G", "rank": 3}, {"player": 2, "suit": "G", "rank": 9}, {"player": 3, "suit": "G", "rank": 4}, {"player": 4, "suit": "G", "rank": 6}],
+          [{"player": 0, "suit": "R", "rank": 7}, {"player": 1, "suit": "Y", "rank": 7}, {"player": 2, "suit": "R", "rank": 1}, {"player": 3, "suit": "R", "rank": 4}, {"player": 4, "suit": "Y", "rank": 4}]
+        ],
+        "playedCountByPlayer": [7, 7, 7, 7, 6],
+        "predictions": [1, 1, 1, 2, 1],
+        "tricksWon": [2, 0, 2, 1, 1],
+        "boardOwnership": [[2, 2, 2, 3, 0, 1, 0, 4, 3], [3, 4, 2, 0, 0, 1, 4, 3, 1], [2, 4, 1, 4, 2, 3, 1, -1, 0], [0, 0, 1, 3, 1, 4, 3, -1, 2]],
+        "colorTokens": [[true, true, true, true], [false, true, true, true], [true, false, true, false], [true, true, true, true], [false, true, true, true]],
+        "hasParadoxed": [false, false, false, false, false],
+        "actingHandRankCounts": [0, 0, 0, 0, 1, 0, 0, 1, 0],
+        "actingDiscardedRank": 8,
+        "trumpBroken": true,
+        "matchTotals": [2.0, 11.0, 11.0, 8.0, 8.0],
+        "matchRound": 4,
+        "expectedLegalActionCount": 2
+      }
+    },
+    {
+      "id": "exact-5p-final-win_final_trick_to_complete_exact_bid-seed2026081942-match37-p1",
+      "title": "Final decision: trump to complete the exact bid and claim the connected bonus",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "exhaustive_final_match_official_scoring",
+        "seed": 2026081942,
+        "matchIndex": 37,
+        "incumbentAction": 35,
+        "incumbentWasOptimal": false
+      },
+      "proof": {
+        "kind": "exact_terminal_official_placement",
+        "objective": ["maximize_official_match_rank_points", "accept_all_actions_tied_on_official_placement"],
+        "allLegalActions": [
+          {"action": 8, "move": {"phase": "play", "suit": "R", "rank": 9}, "rankPoints": 3.5, "ownTotalScore": 13.0, "ownRoundScore": 4.0, "ownTricksWon": 2, "ownPrediction": 2, "ownConnectedBonus": 2.0},
+          {"action": 35, "move": {"phase": "play", "suit": "G", "rank": 9}, "rankPoints": 2.0, "ownTotalScore": 10.0, "ownRoundScore": 1.0, "ownTricksWon": 1, "ownPrediction": 2, "ownConnectedBonus": 0.0}
+        ]
+      },
+      "acceptance": {
+        "kind": "exact_top1",
+        "expectedAction": 8,
+        "expectedMove": {"phase": "play", "suit": "R", "rank": 9},
+        "reasonableActionRule": {
+          "kind": "best_official_match_placement",
+          "note": "Accept every legal move tied for the best exact official final placement; secondary score never breaks an acceptance tie."
+        },
+        "knownBadActions": [{"action": 35, "move": {"phase": "play", "suit": "G", "rank": 9}, "note": "Failing to trump misses the exact bid, connection bonus, and a better official match placement."}]
+      },
+      "state": {
+        "numPlayers": 5,
+        "numRanks": 9,
+        "numColors": 4,
+        "numTricks": 7,
+        "cardsPerPlayerInitial": 9,
+        "phase": "play",
+        "actingPlayer": 1,
+        "currentPlayer": 1,
+        "roundStartPlayer": 1,
+        "startPlayer": 2,
+        "trickNumber": 6,
+        "ledSuit": "G",
+        "currentTrick": [{"player": 0, "suit": "R", "rank": 6}, null, {"player": 2, "suit": "G", "rank": 4}, {"player": 3, "suit": "G", "rank": 5}, {"player": 4, "suit": "G", "rank": 6}],
+        "completedTricks": [
+          [{"player": 0, "suit": "B", "rank": 6}, {"player": 1, "suit": "B", "rank": 1}, {"player": 2, "suit": "B", "rank": 8}, {"player": 3, "suit": "B", "rank": 5}, {"player": 4, "suit": "B", "rank": 3}],
+          [{"player": 0, "suit": "B", "rank": 2}, {"player": 1, "suit": "R", "rank": 3}, {"player": 2, "suit": "B", "rank": 9}, {"player": 3, "suit": "B", "rank": 7}, {"player": 4, "suit": "B", "rank": 4}],
+          [{"player": 0, "suit": "Y", "rank": 7}, {"player": 1, "suit": "Y", "rank": 3}, {"player": 2, "suit": "Y", "rank": 1}, {"player": 3, "suit": "Y", "rank": 8}, {"player": 4, "suit": "Y", "rank": 6}],
+          [{"player": 0, "suit": "R", "rank": 8}, {"player": 1, "suit": "R", "rank": 2}, {"player": 2, "suit": "R", "rank": 4}, {"player": 3, "suit": "R", "rank": 1}, {"player": 4, "suit": "R", "rank": 7}],
+          [{"player": 0, "suit": "G", "rank": 1}, {"player": 1, "suit": "G", "rank": 2}, {"player": 2, "suit": "G", "rank": 7}, {"player": 3, "suit": "G", "rank": 8}, {"player": 4, "suit": "G", "rank": 3}],
+          [{"player": 0, "suit": "Y", "rank": 5}, {"player": 1, "suit": "Y", "rank": 9}, {"player": 2, "suit": "R", "rank": 5}, {"player": 3, "suit": "Y", "rank": 2}, {"player": 4, "suit": "Y", "rank": 4}]
+        ],
+        "playedCountByPlayer": [7, 6, 7, 7, 7],
+        "predictions": [1, 2, 2, 1, 1],
+        "tricksWon": [1, 1, 2, 2, 0],
+        "boardOwnership": [[3, 1, 1, 2, 2, 0, 4, 0, -1], [1, 0, 4, 4, 3, 0, 3, 2, 2], [2, 3, 1, 4, 0, 4, 0, 3, 1], [0, 1, 4, 2, 3, 4, 2, 3, -1]],
+        "colorTokens": [[true, true, true, false], [true, false, true, true], [true, true, false, true], [true, true, true, true], [true, true, true, true]],
+        "hasParadoxed": [false, false, false, false, false],
+        "actingHandRankCounts": [0, 0, 0, 0, 0, 1, 0, 0, 1],
+        "actingDiscardedRank": 9,
+        "trumpBroken": true,
+        "matchTotals": [9.0, 9.0, 9.0, 7.0, 5.0],
+        "matchRound": 4,
+        "expectedLegalActionCount": 2
+      }
+    },
+    {
+      "id": "exact-5p-final-maximize_connected_region_bonus-seed2026081975-match72-p2",
+      "title": "Final decision: choose the connected-board cell that improves match placement",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "exhaustive_final_match_official_scoring",
+        "seed": 2026081975,
+        "matchIndex": 72,
+        "incumbentAction": 25,
+        "incumbentWasOptimal": false
+      },
+      "proof": {
+        "kind": "exact_terminal_official_placement",
+        "objective": ["maximize_official_match_rank_points", "accept_all_actions_tied_on_official_placement"],
+        "allLegalActions": [
+          {"action": 34, "move": {"phase": "play", "suit": "G", "rank": 8}, "rankPoints": 2.5, "ownTotalScore": 13.0, "ownRoundScore": 3.0, "ownTricksWon": 1, "ownPrediction": 1, "ownConnectedBonus": 2.0},
+          {"action": 25, "move": {"phase": "play", "suit": "Y", "rank": 8}, "rankPoints": 2.0, "ownTotalScore": 12.0, "ownRoundScore": 2.0, "ownTricksWon": 1, "ownPrediction": 1, "ownConnectedBonus": 1.0}
+        ]
+      },
+      "acceptance": {
+        "kind": "exact_top1",
+        "expectedAction": 34,
+        "expectedMove": {"phase": "play", "suit": "G", "rank": 8},
+        "reasonableActionRule": {
+          "kind": "best_official_match_placement",
+          "note": "Accept every legal move tied for the best exact official final placement; secondary score never breaks an acceptance tie."
+        },
+        "knownBadActions": [{"action": 25, "move": {"phase": "play", "suit": "Y", "rank": 8}, "note": "Both moves preserve the exact bid, but the disconnected yellow cell loses a connected bonus point and lowers official placement."}]
+      },
+      "state": {
+        "numPlayers": 5,
+        "numRanks": 9,
+        "numColors": 4,
+        "numTricks": 7,
+        "cardsPerPlayerInitial": 9,
+        "phase": "play",
+        "actingPlayer": 2,
+        "currentPlayer": 2,
+        "roundStartPlayer": 1,
+        "startPlayer": 3,
+        "trickNumber": 6,
+        "ledSuit": "Y",
+        "currentTrick": [{"player": 0, "suit": "G", "rank": 3}, {"player": 1, "suit": "G", "rank": 6}, null, {"player": 3, "suit": "Y", "rank": 6}, {"player": 4, "suit": "Y", "rank": 9}],
+        "completedTricks": [
+          [{"player": 0, "suit": "B", "rank": 2}, {"player": 1, "suit": "B", "rank": 1}, {"player": 2, "suit": "B", "rank": 4}, {"player": 3, "suit": "B", "rank": 6}, {"player": 4, "suit": "B", "rank": 3}],
+          [{"player": 0, "suit": "B", "rank": 8}, {"player": 1, "suit": "B", "rank": 9}, {"player": 2, "suit": "R", "rank": 9}, {"player": 3, "suit": "B", "rank": 7}, {"player": 4, "suit": "B", "rank": 5}],
+          [{"player": 0, "suit": "R", "rank": 7}, {"player": 1, "suit": "R", "rank": 5}, {"player": 2, "suit": "R", "rank": 1}, {"player": 3, "suit": "R", "rank": 3}, {"player": 4, "suit": "R", "rank": 2}],
+          [{"player": 0, "suit": "Y", "rank": 2}, {"player": 1, "suit": "Y", "rank": 7}, {"player": 2, "suit": "Y", "rank": 5}, {"player": 3, "suit": "Y", "rank": 1}, {"player": 4, "suit": "Y", "rank": 3}],
+          [{"player": 0, "suit": "G", "rank": 5}, {"player": 1, "suit": "G", "rank": 2}, {"player": 2, "suit": "G", "rank": 7}, {"player": 3, "suit": "G", "rank": 9}, {"player": 4, "suit": "G", "rank": 1}],
+          [{"player": 0, "suit": "R", "rank": 4}, {"player": 1, "suit": "Y", "rank": 4}, {"player": 2, "suit": "G", "rank": 4}, {"player": 3, "suit": "R", "rank": 8}, {"player": 4, "suit": "R", "rank": 6}]
+        ],
+        "playedCountByPlayer": [7, 7, 6, 7, 7],
+        "predictions": [1, 1, 1, 1, 1],
+        "tricksWon": [1, 1, 1, 3, 0],
+        "boardOwnership": [[2, 4, 3, 0, 1, 4, 0, 3, 2], [1, 0, 4, 2, 4, 3, 3, 0, 1], [3, 0, 4, 1, 2, 3, 1, -1, 4], [4, 1, 0, 2, 0, 1, 2, -1, 3]],
+        "colorTokens": [[true, true, false, true], [false, true, false, true], [false, false, true, true], [true, true, true, true], [true, true, true, true]],
+        "hasParadoxed": [false, false, false, false, false],
+        "actingHandRankCounts": [0, 0, 0, 0, 0, 1, 0, 1, 0],
+        "actingDiscardedRank": 1,
+        "trumpBroken": true,
+        "matchTotals": [7.0, 12.0, 10.0, 10.0, 5.0],
+        "matchRound": 4,
+        "expectedLegalActionCount": 2
+      }
+    }
+  ]
+}

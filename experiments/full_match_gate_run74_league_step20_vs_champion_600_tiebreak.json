@@ -1,0 +1,409 @@
+{
+  "players": 3,
+  "matches": 600,
+  "rounds_per_match": 3,
+  "match_context": true,
+  "schedule": "permutations",
+  "checkpoint": null,
+  "neural_bots": {
+    "champion": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "policy"
+    },
+    "run74_league20": {
+      "checkpoint": "az_runs/az_3p_league_champion_run74_20260602/checkpoint_0001_step_0020.pt",
+      "mode": "policy"
+    }
+  },
+  "candidate": null,
+  "ratings": {
+    "champion": 1119.26,
+    "run74_league20": 1001.26,
+    "heuristic": 879.48
+  },
+  "online_ratings": {
+    "champion": 1119.26,
+    "run74_league20": 1001.26,
+    "heuristic": 879.48
+  },
+  "pairwise_elo_ratings": {
+    "run74_league20": 1058.31,
+    "champion": 1051.09,
+    "heuristic": 890.6
+  },
+  "stats": {
+    "champion": {
+      "matches": 600,
+      "avg_match_total": 4.975,
+      "paradoxes_per_match": 0.7017
+    },
+    "run74_league20": {
+      "matches": 600,
+      "avg_match_total": 5.3483,
+      "paradoxes_per_match": 0.6767
+    },
+    "heuristic": {
+      "matches": 600,
+      "avg_match_total": 1.1717,
+      "paradoxes_per_match": 1.5867
+    }
+  },
+  "pairwise": {
+    "champion": {
+      "run74_league20": {
+        "matches": 600,
+        "wins": 295,
+        "losses": 305,
+        "ties": 0,
+        "win_rate": 0.4917,
+        "non_loss_rate": 0.4917,
+        "score_rate": 0.4917,
+        "score_rate_ci95": [
+          0.4517,
+          0.5317
+        ],
+        "head_to_head_elo_diff": -5.79,
+        "avg_score_diff": -0.3733,
+        "avg_score_diff_ci95": [
+          -1.126,
+          0.3793
+        ]
+      },
+      "heuristic": {
+        "matches": 600,
+        "wins": 426,
+        "losses": 169,
+        "ties": 5,
+        "win_rate": 0.71,
+        "non_loss_rate": 0.7183,
+        "score_rate": 0.7142,
+        "score_rate_ci95": [
+          0.678,
+          0.7503
+        ],
+        "head_to_head_elo_diff": 159.07,
+        "avg_score_diff": 3.8033,
+        "avg_score_diff_ci95": [
+          3.21,
+          4.3966
+        ]
+      }
+    },
+    "run74_league20": {
+      "champion": {
+        "matches": 600,
+        "wins": 305,
+        "losses": 295,
+        "ties": 0,
+        "win_rate": 0.5083,
+        "non_loss_rate": 0.5083,
+        "score_rate": 0.5083,
+        "score_rate_ci95": [
+          0.4683,
+          0.5483
+        ],
+        "head_to_head_elo_diff": 5.79,
+        "avg_score_diff": 0.3733,
+        "avg_score_diff_ci95": [
+          -0.3793,
+          1.126
+        ]
+      },
+      "heuristic": {
+        "matches": 600,
+        "wins": 434,
+        "losses": 163,
+        "ties": 3,
+        "win_rate": 0.7233,
+        "non_loss_rate": 0.7283,
+        "score_rate": 0.7258,
+        "score_rate_ci95": [
+          0.6901,
+          0.7615
+        ],
+        "head_to_head_elo_diff": 169.13,
+        "avg_score_diff": 4.1767,
+        "avg_score_diff_ci95": [
+          3.591,
+          4.7623
+        ]
+      }
+    },
+    "heuristic": {
+      "champion": {
+        "matches": 600,
+        "wins": 169,
+        "losses": 426,
+        "ties": 5,
+        "win_rate": 0.2817,
+        "non_loss_rate": 0.29,
+        "score_rate": 0.2858,
+        "score_rate_ci95": [
+          0.2497,
+          0.322
+        ],
+        "head_to_head_elo_diff": -159.07,
+        "avg_score_diff": -3.8033,
+        "avg_score_diff_ci95": [
+          -4.3966,
+          -3.21
+        ]
+      },
+      "run74_league20": {
+        "matches": 600,
+        "wins": 163,
+        "losses": 434,
+        "ties": 3,
+        "win_rate": 0.2717,
+        "non_loss_rate": 0.2767,
+        "score_rate": 0.2742,
+        "score_rate_ci95": [
+          0.2385,
+          0.3099
+        ],
+        "head_to_head_elo_diff": -169.13,
+        "avg_score_diff": -4.1767,
+        "avg_score_diff_ci95": [
+          -4.7623,
+          -3.591
+        ]
+      }
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "champion",
+        "run74_league20",
+        "heuristic"
+      ],
+      "totals": [
+        8.0,
+        0.0,
+        4.0
+      ],
+      "final_round_returns": [
+        -2.0,
+        1.0,
+        4.0
+      ],
+      "paradoxes": [
+        1,
+        1,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            4.0,
+            -2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            4.0,
+            -2.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            6.0,
+            1.0,
+            0.0
+          ],
+          "totals_after_round": [
+            10.0,
+            -1.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            -2.0,
+            1.0,
+            4.0
+          ],
+          "totals_after_round": [
+            8.0,
+            0.0,
+            4.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "champion",
+        "heuristic",
+        "run74_league20"
+      ],
+      "totals": [
+        7.0,
+        6.0,
+        -4.0
+      ],
+      "final_round_returns": [
+        0.0,
+        2.0,
+        -4.0
+      ],
+      "paradoxes": [
+        0,
+        1,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            2.0,
+            4.0,
+            0.0
+          ],
+          "totals_after_round": [
+            2.0,
+            4.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            5.0,
+            0.0,
+            0.0
+          ],
+          "totals_after_round": [
+            7.0,
+            4.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            0.0,
+            2.0,
+            -4.0
+          ],
+          "totals_after_round": [
+            7.0,
+            6.0,
+            -4.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "run74_league20",
+        "champion",
+        "heuristic"
+      ],
+      "totals": [
+        4.0,
+        6.0,
+        2.0
+      ],
+      "final_round_returns": [
+        -3.0,
+        1.0,
+        2.0
+      ],
+      "paradoxes": [
+        1,
+        1,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            6.0,
+            -1.0,
+            0.0
+          ],
+          "totals_after_round": [
+            6.0,
+            -1.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            1.0,
+            6.0,
+            0.0
+          ],
+          "totals_after_round": [
+            7.0,
+            5.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            -3.0,
+            1.0,
+            2.0
+          ],
+          "totals_after_round": [
+            4.0,
+            6.0,
+            2.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    }
+  ]
+}

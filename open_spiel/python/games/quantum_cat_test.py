@@ -6,6 +6,8 @@ from absl.testing import absltest
 import numpy as np
 
 import pyspiel
+from quantum_cat_ai import make_bot
+from quantum_cat_full_match_elo import match_outcome_scores, play_match
 # If your Quantum Cat code is in an external file, you'd do something like:
 #   from open_spiel.python.games import quantum_cat
 #
@@ -40,6 +42,48 @@ class QuantumCatTest(absltest.TestCase):
     self.assertEqual(state.current_player(), 0)
     self.assertIn("Phase=1", str(state))
 
+  def test_supported_player_count_contracts(self):
+    contracts = {
+        2: {"ranks": 5, "cards": 10, "tricks": 9, "bids": None},
+        3: {"ranks": 6, "cards": 10, "tricks": 8, "bids": [101, 102, 103, 104]},
+        4: {"ranks": 8, "cards": 10, "tricks": 8, "bids": [101, 102, 103, 104]},
+        5: {"ranks": 9, "cards": 9, "tricks": 7, "bids": [101, 102, 103, 104]},
+    }
+    for players, expected in contracts.items():
+      game = pyspiel.load_game("python_quantum_cat", {"players": players})
+      state = game.new_initial_state()
+      self.assertEqual(state._num_card_types, expected["ranks"])
+      self.assertEqual(game.cards_per_player_initial, expected["cards"])
+      self.assertEqual(state._num_tricks, expected["tricks"])
+
+      for _ in range(players * expected["cards"]):
+        action, _ = state.chance_outcomes()[0]
+        state.apply_action(action)
+      if players == 2:
+        self.assertEqual(state._phase, 3)
+        continue
+      for player in range(players):
+        self.assertEqual(state.current_player(), player)
+        state.apply_action(state.legal_actions(player)[0])
+      self.assertEqual(state._phase, 2)
+      for player in range(players):
+        self.assertEqual(state.current_player(), player)
+        self.assertEqual(state.legal_actions(player), expected["bids"])
+        state.apply_action(expected["bids"][0])
+      self.assertEqual(state._phase, 3)
+
+  def test_chance_history_replays_deterministically(self):
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    first = game.new_initial_state()
+    second = game.new_initial_state()
+    for _ in range(30):
+      self.assertTrue(first.is_chance_node())
+      action = first.chance_outcomes()[0][0]
+      first.apply_action(action)
+      second.apply_action(action)
+    for first_hand, second_hand in zip(first._hands, second._hands):
+      np.testing.assert_array_equal(first_hand, second_hand)
+
   def test_discard_phase(self):
     """Populates the state through dealing, then tests that each player discards exactly 1."""
     game = pyspiel.load_game("python_quantum_cat", {"players": 5})
@@ -69,7 +113,7 @@ class QuantumCatTest(absltest.TestCase):
     self.assertFalse(state.is_terminal())
 
   def test_prediction_phase(self):
-    """Tests that each player can only predict 1..4, and then moves to trick phase."""
+    """Tests prediction actions and then moves to trick phase."""
     game = pyspiel.load_game("python_quantum_cat", {"players": 5})
     state = game.new_initial_state()
 
@@ -80,7 +124,6 @@ class QuantumCatTest(absltest.TestCase):
     for player in range(5):
       self.assertEqual(state.current_player(), player)
       actions = state.legal_actions()
-      # Should be exactly [101,102,103,104], i.e. 1..4
       self.assertEqual(actions, [101, 102, 103, 104])
       # Let's pick "Predict=2" => action=102
       state.apply_action(102)
@@ -89,105 +132,338 @@ class QuantumCatTest(absltest.TestCase):
     self.assertIn("Phase=3", str(state))
     self.assertFalse(state.is_terminal())
 
-  def test_trick_paradox(self):
-    """Construct a scenario where a paradox might arise if a player can't play any card."""
-    game = pyspiel.load_game("python_quantum_cat", {"players": 5})
+  def test_three_player_prediction_can_bid_two(self):
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    state = game.new_initial_state()
+    self._deal_and_discard(game, state)
+
+    for player in range(3):
+      self.assertEqual(state.current_player(), player)
+      self.assertEqual(state.legal_actions(), [101, 102, 103, 104])
+      state.apply_action(102)
+
+    self.assertIn("Phase=3", str(state))
+
+  def test_configured_round_start_player_controls_prediction_and_first_trick(self):
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3, "start_player": 2})
+    state = game.new_initial_state()
+    self._deal_and_discard(game, state)
+
+    for player in [2, 0, 1]:
+      self.assertEqual(state.current_player(), player)
+      state.apply_action(101)
+
+    self.assertEqual(state._phase, 3)
+    self.assertEqual(state._start_player, 2)
+    self.assertEqual(state.current_player(), 2)
+
+  def test_two_player_configured_round_start_player_starts_tricks(self):
+    game = pyspiel.load_game("python_quantum_cat", {"players": 2, "start_player": 1})
     state = game.new_initial_state()
 
+    for _ in range(2 * 10):
+      action, _ = state.chance_outcomes()[0]
+      state.apply_action(action)
+
+    self.assertEqual(state._phase, 3)
+    self.assertEqual(state._start_player, 1)
+    self.assertEqual(state.current_player(), 1)
+
+  def test_full_match_rotates_start_player_once_per_player(self):
+    bots = [
+        make_bot("random", seed=11),
+        make_bot("random", seed=12),
+        make_bot("random", seed=13),
+    ]
+    match = play_match(
+        3,
+        ["a", "b", "c"],
+        bots,
+        seed=20260602,
+        initial_start=1,
+    )
+
+    self.assertEqual([r["start_player"] for r in match["rounds"]], [1, 2, 0])
+    self.assertEqual(len(match["totals"]), 3)
+    self.assertEqual(len(match["rounds"]), 3)
+
+  def test_full_match_outcome_uses_final_round_tiebreak(self):
+    outcome = match_outcome_scores(
+        totals=[12.0, 12.0, 10.0],
+        final_round_returns=[2.0, 5.0, 9.0],
+    )
+
+    self.assertGreater(outcome[1], outcome[0])
+    self.assertGreater(outcome[0], outcome[2])
+    self.assertEqual(
+        match_outcome_scores([7.0, 7.0], [3.0, 3.0])[0],
+        match_outcome_scores([7.0, 7.0], [3.0, 3.0])[1],
+    )
+
+  def test_match_context_extends_observation_and_returns_cumulative_score(self):
+    plain = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    contextual = pyspiel.load_game(
+        "python_quantum_cat",
+        {"players": 3, "match_context": 1},
+    )
+    self.assertEqual(
+        contextual.observation_tensor_shape()[0],
+        plain.observation_tensor_shape()[0] + 4,
+    )
+
+    state = contextual.new_initial_state()
+    state.set_match_context([10.0, -2.0, 3.0], 1)
+    obs = state.observation_tensor(0)
+    np.testing.assert_allclose(obs[-4:-1], [0.5, -0.1, 0.15])
+    self.assertEqual(obs[-1], 1.0)
+
+    state._game_over = True
+    state._phase = 4
+    state._tricks_won = np.array([1, 1, 1])
+    state._predictions = [1, 1, 1]
+    state._board_ownership[:, :] = -1
+    state._board_ownership[0, 0] = 0
+    state._board_ownership[1, 0] = 1
+    state._board_ownership[2, 0] = 2
+    state._compute_final_scores()
+    self.assertEqual(state.returns(), [12.0, 0.0, 5.0])
+    self.assertEqual(state.raw_round_scores(), [2.0, 2.0, 2.0])
+
+  def test_raw_round_scores_clone_with_match_context(self):
+    contextual = pyspiel.load_game(
+        "python_quantum_cat",
+        {"players": 3, "match_context": 1},
+    )
+    state = contextual.new_initial_state()
+    state.set_match_context([4.0, 5.0, 6.0], 2)
+    state._game_over = True
+    state._phase = 4
+    state._tricks_won = np.array([2, 1, 0])
+    state._predictions = [4, 1, 3]
+    state._board_ownership[:, :] = -1
+    state._board_ownership[0, 0] = 1
+    state._compute_final_scores()
+
+    self.assertEqual(state.raw_round_scores(), [2.0, 2.0, 0.0])
+    self.assertEqual(state.returns(), [6.0, 7.0, 6.0])
+    self.assertEqual(state.clone().raw_round_scores(), [2.0, 2.0, 0.0])
+
+  def test_resample_hides_opponent_discards(self):
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    state = game.new_initial_state()
     self._deal_and_discard(game, state)
-    # Everyone predicts. Just pick 2 for each.
-    for _ in range(5):
-      state.apply_action(102)  # "Predict=2"
 
-    # Now in trick phase
-    # If we artificially manipulate the state so that player 0 has no possible move,
-    # we can force a paradox. For a real test, we might do it by repeatedly claiming
-    # all possible color-rank combos that player 0 has. But let's see if we can do it more simply
-    # by playing random moves until we catch a paradox or the game ends.
+    original_legal = state.legal_actions(0)
+    sampled_other_discards = set()
+    for _ in range(80):
+      sampled = state.resample_from_infostate(0, np.random)
+      self.assertEqual(sampled._hands[0].tolist(), state._hands[0].tolist())
+      self.assertEqual(sampled._discarded_cards[0], state._discarded_cards[0])
+      self.assertEqual(sampled.legal_actions(0), original_legal)
+      sampled_other_discards.add(tuple(sampled._discarded_cards[1:]))
 
-    # We'll just do a few random moves and see if we can cause no legal actions for someone:
-    while not state.is_terminal():
-      cur_player = state.current_player()
-      actions = state.legal_actions(cur_player)
-      if len(actions) == 1 and actions[0] == 999:
-        # PARADOX is forced
-        state.apply_action(999)
-        self.assertTrue(state.is_terminal())
-        self.assertIn("GameOver=True", str(state))
-        return
-      else:
-        # pick a random valid action
-        chosen = np.random.choice(actions)
-        state.apply_action(chosen)
-        if state.is_terminal():
-          break
+    self.assertGreater(len(sampled_other_discards), 1)
 
-    # If we exit the while loop naturally, no paradox happened this time. That's fine,
-    # but we tested it can handle random moves. One can craft a direct scenario for forced paradox
-    # by controlling the deck or color usage.
+  def test_resample_uses_supplied_sampler(self):
+    class RecordingSampler:
+
+      def __init__(self):
+        self.shuffle_calls = 0
+
+      def shuffle(self, values):
+        self.shuffle_calls += 1
+        values.reverse()
+
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    state = game.new_initial_state()
+    self._deal_and_discard(game, state)
+
+    sampler = RecordingSampler()
+    sampled = state.resample_from_infostate(0, sampler)
+
+    self.assertEqual(sampler.shuffle_calls, 1)
+    self.assertEqual(sampled._hands[0].tolist(), state._hands[0].tolist())
+    self.assertEqual(sampled._discarded_cards[0], state._discarded_cards[0])
+
+  def test_action_feature_appended_columns_are_at_end(self):
+    from quantum_cat_alphazero_torch import (
+        ACTION_FEATURE_SIZE,
+        APPENDED_ACTION_FEATURE_NAMES,
+        APPENDED_ACTION_FEATURE_START,
+        BASE_ACTION_FEATURE_SIZE,
+        action_feature_matrix,
+    )
+
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    state = game.new_initial_state()
+    player = state.current_player()
+    features = action_feature_matrix(state, player, game.num_distinct_actions())
+
+    self.assertEqual(APPENDED_ACTION_FEATURE_START, BASE_ACTION_FEATURE_SIZE)
+    self.assertEqual(
+        ACTION_FEATURE_SIZE,
+        BASE_ACTION_FEATURE_SIZE + len(APPENDED_ACTION_FEATURE_NAMES),
+    )
+    self.assertEqual(features.shape[1], ACTION_FEATURE_SIZE)
+    self.assertEqual(
+        features.shape[1] - APPENDED_ACTION_FEATURE_START,
+        len(APPENDED_ACTION_FEATURE_NAMES),
+    )
+
+  def test_action_features_and_logits_are_infostate_safe(self):
+    from quantum_cat_alphazero_torch import AZNet, action_feature_matrix
+    import torch
+
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    state = game.new_initial_state()
+    self._deal_and_discard(game, state)
+    for _ in range(3):
+      state.apply_action(101)
+    player = state.current_player()
+    base_obs = np.array(state.observation_tensor(player), dtype=np.float32)
+    base_legal = state.legal_actions(player)
+    base_features = action_feature_matrix(
+        state, player, game.num_distinct_actions()
+    )
+
+    hidden_variation_seen = False
+    for _ in range(80):
+      sampled = state.resample_from_infostate(player, np.random)
+      if any(
+          sampled._hands[p].tolist() != state._hands[p].tolist()
+          for p in range(game.num_players())
+          if p != player
+      ):
+        hidden_variation_seen = True
+      self.assertEqual(sampled.legal_actions(player), base_legal)
+      np.testing.assert_allclose(
+          sampled.observation_tensor(player), base_obs, atol=0.0
+      )
+      np.testing.assert_allclose(
+          action_feature_matrix(sampled, player, game.num_distinct_actions()),
+          base_features,
+          atol=0.0,
+      )
+    self.assertTrue(hidden_variation_seen)
+
+    torch.manual_seed(20260603)
+    model = AZNet(
+        game.observation_tensor_shape()[0],
+        game.num_distinct_actions(),
+        game.num_players(),
+        width=64,
+        depth=2,
+        arch="action_mlp",
+    )
+    model.eval()
+    sampled = state.resample_from_infostate(player, np.random)
+    obs_t = torch.tensor(base_obs, dtype=torch.float32).unsqueeze(0)
+    features_t = torch.tensor(base_features, dtype=torch.float32).unsqueeze(0)
+    sampled_obs_t = torch.tensor(
+        sampled.observation_tensor(player), dtype=torch.float32
+    ).unsqueeze(0)
+    sampled_features_t = torch.tensor(
+        action_feature_matrix(sampled, player, game.num_distinct_actions()),
+        dtype=torch.float32,
+    ).unsqueeze(0)
+    with torch.no_grad():
+      logits, values = model(obs_t, features_t)
+      sampled_logits, sampled_values = model(sampled_obs_t, sampled_features_t)
+    torch.testing.assert_close(sampled_logits, logits, atol=0.0, rtol=0.0)
+    torch.testing.assert_close(sampled_values, values, atol=0.0, rtol=0.0)
+
+  def test_two_player_duplicate_leftover_blocks_stacked_rows(self):
+    game = pyspiel.load_game("python_quantum_cat", {"players": 2})
+    state = game.new_initial_state()
+    state._deck = np.array([1] * 23 + [2, 3], dtype=int)
+
+    for _ in range(2 * 10):
+      state.apply_action(0)
+
+    self.assertEqual(state._board_ownership[3, 0], -2)
+    self.assertEqual(state._board_ownership[2, 0], -2)
+    self.assertEqual(state._board_ownership[1, 0], -2)
+    self.assertEqual(state._phase, 3)
+
+  def test_red_can_be_led_after_any_red_space_is_occupied(self):
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    state = game.new_initial_state()
+    self._deal_and_discard(game, state)
+    for _ in range(3):
+      state.apply_action(101)
+
+    state._current_player = 0
+    state._start_player = 0
+    state._led_color = None
+    state._trump_broken = False
+    state._cards_played_this_trick = [None] * 3
+    state._hands[0] = np.zeros(state._num_card_types, dtype=int)
+    state._hands[0][1] = 1
+    state._board_ownership[0, 0] = 1
+
+    legal = state.legal_actions(0)
+    self.assertIn(1, legal)  # Play rank 2 as red.
+    self.assertIn(state._num_card_types + 1, legal)  # Non-red remains legal too.
+
+  def test_trick_paradox(self):
+    """Forced paradox is legal and terminal when a player has no playable card."""
+    game = pyspiel.load_game("python_quantum_cat", {"players": 3})
+    state = game.new_initial_state()
+
+    state._phase = 3
+    state._current_player = 0
+    state._start_player = 0
+    state._led_color = None
+    state._cards_played_this_trick = [None] * 3
+    state._predictions = [1, 1, 1]
+    state._tricks_won = np.array([2, 0, 0], dtype=int)
+    state._hands = [
+        np.zeros(state._num_card_types, dtype=int) for _ in range(3)
+    ]
+    state._hands[0][0] = 1
+    state._board_ownership[:, :] = -1
+    state._board_ownership[:, 0] = [1, 1, 2, -2]
+
+    self.assertEqual(state.legal_actions(0), [999])
+    state.apply_action(999)
+
+    self.assertTrue(state.is_terminal())
+    self.assertEqual(state.current_player(), pyspiel.PlayerId.TERMINAL)
+    self.assertEqual(state._phase, 4)
+    self.assertEqual(state._has_paradoxed, [True, False, False])
+    self.assertEqual(state.raw_round_scores(), [-2.0, 0.0, 0.0])
+    self.assertEqual(state.returns(), [-2.0, 0.0, 0.0])
+    self.assertIn("GameOver=True", str(state))
 
   def test_adjacency_scoring(self):
     """
     Construct a simple deterministic test that ensures adjacency scoring works:
-    - We'll try to give a single player a cluster of 3 adjacent squares.
+    - Player 0 owns a cluster of 3 adjacent squares.
     - If they bid exactly the # of tricks they took, they get base_score + 3.
     """
     game = pyspiel.load_game("python_quantum_cat", {"players": 3})
     state = game.new_initial_state()
 
-    # We'll do a minimal dealing approach:
-    # for 3 players with 11 each => 33 deals. We'll just choose rank=1 for the first 11,
-    # rank=2 for next 11, rank=3 for last 11, etc., so we can control adjacency.
+    state._phase = 4
+    state._game_over = True
+    state._returns = [0.0, 0.0, 0.0]
+    state._rewards = [0.0, 0.0, 0.0]
+    state._has_paradoxed = [False, False, False]
+    state._tricks_won = np.array([1, 2, 0], dtype=int)
+    state._predictions = [1, 1, 1]
+    state._board_ownership[:, :] = -1
+    state._board_ownership[0, 0] = 0
+    state._board_ownership[0, 1] = 0
+    state._board_ownership[0, 2] = 0
+    state._board_ownership[1, 0] = 1
+    state._board_ownership[3, 5] = 1
 
-    deal_actions = state.chance_outcomes()
-    # But let's just do a direct approach: call apply_action(0) repeatedly
-    # so we always pick the "front" card. This won't be truly deterministic
-    # unless the deck was sorted, but let's assume. Or we can forcibly set the deck
-    # if we have direct access, but let's keep it simple here:
-    for _ in range(3 * 11):
-      outcomes = state.chance_outcomes()
-      # Just pick the first outcome
-      chosen, _ = outcomes[0]
-      state.apply_action(chosen)
+    state._compute_final_scores()
 
-    # Discard phase: each discards 1
-    for p in range(3):
-      discard_actions = state.legal_actions(p)
-      # Just pick the first
-      state.apply_action(discard_actions[0])
-
-    # Predict phase: each picks 1
-    for p in range(3):
-      # legal actions => [101..104]
-      state.apply_action(101)  # predict=1
-
-    # Now in trick phase. We'll artificially try to create adjacency for player 0
-    # by letting them play the same color in consecutive ranks, e.g., (R,1), (R,2), (R,3).
-    # We'll skip full suit-following logic for brevity, just pick feasible actions if possible.
-
-    # We want player 0 to take exactly 1 trick so they match their prediction (1),
-    # and also place 3 tokens on adjacency squares. We can do so by letting them only
-    # succeed in 1 trick but claim 3 color-rank combos in separate leads. That might conflict
-    # with real trick logic, but we'll do minimal logic just for adjacency demonstration.
-    #
-    # We'll do a few forced moves. If they can't lead R for all three, no big deal—we're just
-    # showing a skeleton. A real adjacency test might manipulate the deck more carefully.
-
-    while (not state.is_terminal()) and (state._phase == 3):
-      cur_player = state.current_player()
-      actions = state.legal_actions(cur_player)
-      if not actions:
-        break  # or paradox
-      chosen = actions[0]  # pick first feasible
-      state.apply_action(chosen)
-
-    # Once complete, check final scores. We can't guarantee a big adjacency cluster
-    # in this random approach, but at least we test the adjacency code runs.
-    if state.is_terminal():
-      returns = state.returns()
-      # They might or might not have adjacency points. We just check it doesn't crash.
-      # In a real test, you'd craft exact card deals to ensure a known adjacency outcome.
-      self.assertEqual(len(returns), 3)
+    self.assertEqual(state._largest_cluster_for_player(0), 3)
+    self.assertEqual(state.raw_round_scores(), [4.0, 2.0, 0.0])
+    self.assertEqual(state.returns(), [4.0, 2.0, 0.0])
+    self.assertEqual(state._player_adjacency_bonus, [3, 0.0, 0.0])
 
   def test_game_from_cc(self):
     """Runs standard game tests using pyspiel.random_sim_test for coverage."""

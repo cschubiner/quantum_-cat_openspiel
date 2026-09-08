@@ -1,0 +1,340 @@
+{
+  "players": 3,
+  "matches": 1200,
+  "rounds_per_match": 3,
+  "match_context": true,
+  "schedule": "permutations",
+  "checkpoint": null,
+  "neural_bots": {
+    "champion": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "policy"
+    },
+    "run48s20": {
+      "checkpoint": "az_runs/az_3p_snapshot_safety_run48_20260602/checkpoint_0001_step_0020.pt",
+      "mode": "policy"
+    }
+  },
+  "candidate": null,
+  "ratings": {
+    "run48s20": 1065.52,
+    "champion": 1013.47,
+    "heuristic": 921.01
+  },
+  "online_ratings": {
+    "run48s20": 1065.52,
+    "champion": 1013.47,
+    "heuristic": 921.01
+  },
+  "pairwise_elo_ratings": {
+    "run48s20": 1057.01,
+    "champion": 1050.47,
+    "heuristic": 892.52
+  },
+  "stats": {
+    "champion": {
+      "matches": 1200,
+      "avg_match_total": 5.265,
+      "paradoxes_per_match": 0.7108
+    },
+    "run48s20": {
+      "matches": 1200,
+      "avg_match_total": 5.2083,
+      "paradoxes_per_match": 0.7092
+    },
+    "heuristic": {
+      "matches": 1200,
+      "avg_match_total": 1.1075,
+      "paradoxes_per_match": 1.5558
+    }
+  },
+  "pairwise": {
+    "champion": {
+      "run48s20": {
+        "matches": 1200,
+        "wins": 566,
+        "losses": 590,
+        "ties": 44,
+        "win_rate": 0.4717,
+        "non_loss_rate": 0.5083,
+        "head_to_head_elo_diff": -6.95,
+        "avg_score_diff": 0.0567
+      },
+      "heuristic": {
+        "matches": 1200,
+        "wins": 822,
+        "losses": 310,
+        "ties": 68,
+        "win_rate": 0.685,
+        "non_loss_rate": 0.7417,
+        "head_to_head_elo_diff": 158.37,
+        "avg_score_diff": 4.1575
+      }
+    },
+    "run48s20": {
+      "champion": {
+        "matches": 1200,
+        "wins": 590,
+        "losses": 566,
+        "ties": 44,
+        "win_rate": 0.4917,
+        "non_loss_rate": 0.5283,
+        "head_to_head_elo_diff": 6.95,
+        "avg_score_diff": -0.0567
+      },
+      "heuristic": {
+        "matches": 1200,
+        "wins": 838,
+        "losses": 310,
+        "ties": 52,
+        "win_rate": 0.6983,
+        "non_loss_rate": 0.7417,
+        "head_to_head_elo_diff": 164.07,
+        "avg_score_diff": 4.1008
+      }
+    },
+    "heuristic": {
+      "champion": {
+        "matches": 1200,
+        "wins": 310,
+        "losses": 822,
+        "ties": 68,
+        "win_rate": 0.2583,
+        "non_loss_rate": 0.315,
+        "head_to_head_elo_diff": -158.37,
+        "avg_score_diff": -4.1575
+      },
+      "run48s20": {
+        "matches": 1200,
+        "wins": 310,
+        "losses": 838,
+        "ties": 52,
+        "win_rate": 0.2583,
+        "non_loss_rate": 0.3017,
+        "head_to_head_elo_diff": -164.07,
+        "avg_score_diff": -4.1008
+      }
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "champion",
+        "run48s20",
+        "heuristic"
+      ],
+      "totals": [
+        14.0,
+        -3.0,
+        1.0
+      ],
+      "paradoxes": [
+        0,
+        2,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            4.0,
+            -3.0,
+            0.0
+          ],
+          "totals_after_round": [
+            4.0,
+            -3.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            4.0,
+            1.0,
+            -1.0
+          ],
+          "totals_after_round": [
+            8.0,
+            -2.0,
+            -1.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            6.0,
+            -1.0,
+            2.0
+          ],
+          "totals_after_round": [
+            14.0,
+            -3.0,
+            1.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "champion",
+        "heuristic",
+        "run48s20"
+      ],
+      "totals": [
+        -1.0,
+        0.0,
+        6.0
+      ],
+      "paradoxes": [
+        1,
+        2,
+        0
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            5.0,
+            0.0,
+            2.0
+          ],
+          "totals_after_round": [
+            5.0,
+            0.0,
+            2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            -7.0,
+            0.0,
+            0.0
+          ],
+          "totals_after_round": [
+            -2.0,
+            0.0,
+            2.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            1.0,
+            0.0,
+            4.0
+          ],
+          "totals_after_round": [
+            -1.0,
+            0.0,
+            6.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "run48s20",
+        "champion",
+        "heuristic"
+      ],
+      "totals": [
+        10.0,
+        0.0,
+        0.0
+      ],
+      "paradoxes": [
+        0,
+        1,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            5.0,
+            3.0,
+            0.0
+          ],
+          "totals_after_round": [
+            5.0,
+            3.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            2.0,
+            -5.0,
+            0.0
+          ],
+          "totals_after_round": [
+            7.0,
+            -2.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            3.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            10.0,
+            0.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+*.mlmodel binary
+*.pt binary
+*.bin binary
+*.tar.gz binary

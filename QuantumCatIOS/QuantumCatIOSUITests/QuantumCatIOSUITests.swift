@@ -47,6 +47,51 @@ final class QuantumCatIOSUITests: XCTestCase {
         bidMove.tap()
     }
 
+    func testBotRecommendationCanExpandAndApplyMove() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestReset"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["setup-button"].waitForExistence(timeout: 6))
+        let recommendationToggle = app.buttons["bot-recommendation-toggle"]
+        XCTAssertTrue(recommendationToggle.waitForExistence(timeout: 6))
+        recommendationToggle.tap()
+
+        XCTAssertTrue(app.staticTexts["Best move"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["Second best"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["bot-recommendation-score-0"].exists
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)["bot-recommendation-score-1"].exists
+        )
+
+        let useRecommendation = app.descendants(matching: .any)["bot-recommendation-use"]
+        XCTAssertTrue(useRecommendation.waitForExistence(timeout: 4))
+        useRecommendation.tap()
+
+        XCTAssertTrue(app.staticTexts["P0, choose your bid"].waitForExistence(timeout: 8))
+    }
+
+    func testChampionCoachCanRevealScoresForEveryLegalMove() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestReset"]
+        app.launch()
+
+        let recommendationToggle = app.buttons["bot-recommendation-toggle"]
+        XCTAssertTrue(recommendationToggle.waitForExistence(timeout: 6))
+        recommendationToggle.tap()
+
+        XCTAssertTrue(app.staticTexts["Champion preference · scores total 100"].exists)
+        let remaining = app.descendants(matching: .any)["bot-recommendation-other-moves"]
+        XCTAssertTrue(remaining.waitForExistence(timeout: 4))
+        remaining.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["bot-recommendation-score-2"]
+                .waitForExistence(timeout: 3)
+        )
+    }
+
     func testPlayedBoardCellIsMarkedAsCurrentTrick() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uiTestReset"]
@@ -100,12 +145,18 @@ final class QuantumCatIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Quantum Cat"].waitForExistence(timeout: 6))
         app.buttons["Table setup"].tap()
         XCTAssertTrue(app.navigationBars["Table setup"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts["Selected: Champion ML"].exists)
-        XCTAssertTrue(app.staticTexts["Selected: SetPool Distill"].exists)
-        if !app.staticTexts["Selected: Strict Q Head"].exists {
-            app.swipeUp()
+
+        func revealSelectedBot(_ name: String) {
+            let label = app.staticTexts["Selected: \(name)"]
+            for _ in 0..<3 where !label.exists {
+                app.swipeUp()
+            }
+            XCTAssertTrue(label.exists)
         }
-        XCTAssertTrue(app.staticTexts["Selected: Strict Q Head"].exists)
+
+        revealSelectedBot("Champion ML")
+        revealSelectedBot("SetPool Distill")
+        revealSelectedBot("Strict Q Head")
         app.buttons["Done"].tap()
     }
 

@@ -24,6 +24,10 @@
 		10000000000000000000010F /* raw_policy_league.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000216 /* raw_policy_league.mlpackage */; };
 		100000000000000000000110 /* strict_q_head.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000217 /* strict_q_head.mlpackage */; };
 		100000000000000000000111 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000218 /* Assets.xcassets */; };
+		100000000000000000000112 /* champion_move_parity.json in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000219 /* champion_move_parity.json */; };
+		100000000000000000000113 /* QuantumCatMLFeatureEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000220 /* QuantumCatMLFeatureEncoder.swift */; };
+		100000000000000000000114 /* champion_5p.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000221 /* champion_5p.mlpackage */; };
+		100000000000000000000115 /* champion_5p_move_parity.json in Resources */ = {isa = PBXBuildFile; fileRef = 100000000000000000000222 /* champion_5p_move_parity.json */; };
 		23E7231F5041230C1C3305DE /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E85E850D8001A4F5BF6AE3E1 /* Foundation.framework */; };
 		64A0EC343F7B0D35DCAEAFDF /* QuantumCatIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D04B6366318B94F7C81D473 /* QuantumCatIOSUITests.swift */; };
 		6B034B0CC166CC52549D55CF /* QuantumCatGameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D29E2F0EECE8BD2DA853A01 /* QuantumCatGameTests.swift */; };
@@ -67,6 +71,10 @@
 		100000000000000000000216 /* raw_policy_league.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = raw_policy_league.mlpackage; sourceTree = "<group>"; };
 		100000000000000000000217 /* strict_q_head.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = strict_q_head.mlpackage; sourceTree = "<group>"; };
 		100000000000000000000218 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		100000000000000000000219 /* champion_move_parity.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = champion_move_parity.json; sourceTree = "<group>"; };
+		100000000000000000000220 /* QuantumCatMLFeatureEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuantumCatMLFeatureEncoder.swift; sourceTree = "<group>"; };
+		100000000000000000000221 /* champion_5p.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = champion_5p.mlpackage; sourceTree = "<group>"; };
+		100000000000000000000222 /* champion_5p_move_parity.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = champion_5p_move_parity.json; sourceTree = "<group>"; };
 		3D04B6366318B94F7C81D473 /* QuantumCatIOSUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuantumCatIOSUITests.swift; sourceTree = "<group>"; };
 		7D29E2F0EECE8BD2DA853A01 /* QuantumCatGameTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QuantumCatGameTests.swift; sourceTree = "<group>"; };
 		8D1A45BE049F094DE1A377C8 /* QuantumCatIOSTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QuantumCatIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -149,6 +157,7 @@
 				100000000000000000000203 /* QuantumCatGame.swift */,
 				100000000000000000000204 /* BotCatalog.swift */,
 				100000000000000000000214 /* QuantumCatMLPolicy.swift */,
+				100000000000000000000220 /* QuantumCatMLFeatureEncoder.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -175,8 +184,11 @@
 			isa = PBXGroup;
 			children = (
 				100000000000000000000207 /* BotModels.json */,
+				100000000000000000000219 /* champion_move_parity.json */,
+				100000000000000000000222 /* champion_5p_move_parity.json */,
 				100000000000000000000209 /* champion_belief_policy.pt */,
 				100000000000000000000213 /* champion_belief_policy.mlpackage */,
+				100000000000000000000221 /* champion_5p.mlpackage */,
 				100000000000000000000210 /* setpool_distill.pt */,
 				100000000000000000000215 /* setpool_distill.mlpackage */,
 				100000000000000000000211 /* raw_policy_league.pt */,
@@ -310,8 +322,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				100000000000000000000107 /* BotModels.json in Resources */,
+				100000000000000000000112 /* champion_move_parity.json in Resources */,
+				100000000000000000000115 /* champion_5p_move_parity.json in Resources */,
 				100000000000000000000108 /* champion_belief_policy.pt in Resources */,
 				10000000000000000000010C /* champion_belief_policy.mlpackage in Resources */,
+				100000000000000000000114 /* champion_5p.mlpackage in Resources */,
 				100000000000000000000109 /* setpool_distill.pt in Resources */,
 				10000000000000000000010E /* setpool_distill.mlpackage in Resources */,
 				10000000000000000000010A /* raw_policy_league.pt in Resources */,
@@ -348,6 +363,7 @@
 				100000000000000000000103 /* QuantumCatGame.swift in Sources */,
 				100000000000000000000104 /* BotCatalog.swift in Sources */,
 				10000000000000000000010D /* QuantumCatMLPolicy.swift in Sources */,
+				100000000000000000000113 /* QuantumCatMLFeatureEncoder.swift in Sources */,
 				100000000000000000000105 /* GameSetupView.swift in Sources */,
 				100000000000000000000106 /* GameTableView.swift in Sources */,
 			);

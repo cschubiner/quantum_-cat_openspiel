@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+from functools import lru_cache
+import hashlib
 import itertools
 import json
 import math
@@ -23,14 +25,17 @@ from urllib.parse import unquote
 
 import numpy as np
 import pyspiel
+from scipy import stats as scipy_stats
 import torch
 
 from open_spiel.python.games import quantum_cat  # pylint: disable=unused-import
+import quantum_cat_liveness_oracle as liveness_oracle
 from quantum_cat_ai import (
     base_bot_name,
     make_bot,
     multiplayer_elo_update,
     play_game,
+    shared_discard_action,
     shared_prediction_action,
 )
 from quantum_cat_alphazero_torch import (
@@ -39,6 +44,10 @@ from quantum_cat_alphazero_torch import (
     AZNet,
     AZPolicyBot,
     AZSearchBot,
+    ACTION_FEATURE_FOLLOWS_LED_INDEX,
+    ACTION_FEATURE_IS_RED_INDEX,
+    ACTION_FEATURE_OFF_LED_LOSES_TOKEN_INDEX,
+    ACTION_FEATURE_PREFIX_SIZE,
     APPENDED_ACTION_FEATURE_INDEX,
     action_feasibility_scores,
     action_feature_matrix,
@@ -46,13 +55,40 @@ from quantum_cat_alphazero_torch import (
     model_action_risks,
     model_action_values,
     model_policy_value,
+    model_policy_value_action_aux,
     q_policy_select_action,
     sampled_belief_states_for_policy,
     sampled_counterfactual_legal_actions,
+    terminal_search_value,
+    value_targets_from_scores,
 )
 from quantum_cat_calibration_transfer_audit import (
     ImproveMLP,
     pair_feature_vector_from_matrix,
+)
+from quantum_cat_action_set_transformer_trainer import ActionSetTransformer
+from quantum_cat_legal_set_selector_trainer import (
+    _selector_pair_feature as selector_pair_feature,
+)
+from quantum_cat_proposal_veto_trainer import (
+    ProposalVetoDeepSet,
+    ProposalVetoMLP,
+    _proposal_feature,
+    _slate_relative_fields,
+)
+from quantum_cat_pairwise_boundary_trainer import PairwiseBoundary
+from quantum_cat_intralane_rank_filter_trainer import (
+    IntraLaneRankFilter,
+    _candidate_allowed as intralane_candidate_allowed,
+    _intralane_context_vector,
+)
+from quantum_cat_table_liveness_improve_trainer import (
+    _led_lane_burn_label_shape,
+)
+from quantum_cat_public_history import (
+    PUBLIC_HISTORY_ACTION_SCHEMA,
+    public_history_action_features,
+    public_history_features,
 )
 
 
@@ -77,6 +113,20 @@ def _action_kind(state, action):
   if phase == "play":
     return "play"
   return phase
+
+
+def _action_color(state, action):
+  action = int(action)
+  if action == 999:
+    return None
+  num_card_types = int(getattr(state, "_num_card_types", 0) or 0)
+  if num_card_types <= 0:
+    return None
+  color_idx = action // num_card_types
+  colors = ("R", "B", "Y", "G")
+  if 0 <= color_idx < len(colors):
+    return colors[color_idx]
+  return None
 
 
 def _empty_decision_stats():
@@ -104,6 +154,14 @@ def _record_decision(stats, state, action, legal_count):
     stats["meaningful_decisions"] += 1
 
 
+def _shared_discard_decision(stats, state, player, legal):
+  action = shared_discard_action(state, player, legal)
+  if action is None:
+    return None
+  _record_decision(stats, state, int(action), len(legal))
+  return int(action)
+
+
 def _compact_decision_row(state, player, action, legal_count, after_paradox=None):
   row = {
       "phase": _phase_name(state),
@@ -125,6 +183,22 @@ def _compact_decision_row(state, player, action, legal_count, after_paradox=None
   return row
 
 
+def _trim_root_rollout_replay_samples(samples, base_keep_cap=100):
+  """Bounds negative replay rows without ever discarding an accepted row."""
+  retained = []
+  base_keeps = 0
+  for sample in samples:
+    accepted = bool(
+        isinstance(sample, dict) and sample.get("audit_accepted") is True
+    )
+    if accepted:
+      retained.append(sample)
+    elif base_keeps < max(0, int(base_keep_cap)):
+      retained.append(sample)
+      base_keeps += 1
+  return retained
+
+
 def _merge_decision_stats(target, source):
   for key, value in source.items():
     if isinstance(value, dict):
@@ -133,7 +207,10 @@ def _merge_decision_stats(target, source):
     elif isinstance(value, list):
       target_list = target.setdefault(key, [])
       target_list.extend(value)
-      del target_list[100:]
+      if key == "root_rollout_replay_samples":
+        target_list[:] = _trim_root_rollout_replay_samples(target_list)
+      else:
+        del target_list[100:]
     elif isinstance(value, (int, np.integer)):
       target[key] = int(target.get(key, 0)) + int(value)
     elif isinstance(value, (float, np.floating)):
@@ -268,6 +345,112 @@ def _decision_stats_rates(stats):
   if root_scored:
     stats["root_rollout_avg_scored_candidates"] = round(
         root_scored / max(root_considered, 1.0), 4
+    )
+  action_set_considered = float(
+      stats.get("action_set_transformer_considered", 0) or 0
+  )
+  action_set_overrides = float(
+      stats.get("action_set_transformer_overrides", 0) or 0
+  )
+  action_set_shadow_overrides = float(
+      stats.get("action_set_transformer_shadow_overrides", 0) or 0
+  )
+  action_set_scored = float(
+      stats.get("action_set_transformer_scored_candidates", 0) or 0
+  )
+  if action_set_considered:
+    stats["action_set_transformer_override_rate_when_considered"] = round(
+        action_set_overrides / action_set_considered, 4
+    )
+    stats["action_set_transformer_shadow_override_rate_when_considered"] = round(
+        action_set_shadow_overrides / action_set_considered, 4
+    )
+    stats["action_set_transformer_abstain_rate_when_considered"] = round(
+        float(stats.get("action_set_transformer_abstained", 0))
+        / action_set_considered,
+        4,
+    )
+    stats["action_set_transformer_scored_candidates_avg"] = round(
+        action_set_scored / action_set_considered,
+        4,
+    )
+    stats["action_set_transformer_best_margin_avg"] = round(
+        float(stats.get("action_set_transformer_best_margin_sum", 0.0))
+        / action_set_considered,
+        6,
+    )
+    stats["action_set_transformer_base_score_avg"] = round(
+        float(stats.get("action_set_transformer_base_score_sum", 0.0))
+        / action_set_considered,
+        6,
+    )
+    stats["action_set_transformer_selected_score_avg"] = round(
+        float(stats.get("action_set_transformer_selected_score_sum", 0.0))
+        / action_set_considered,
+        6,
+    )
+    stats["action_set_transformer_selected_value_delta_avg"] = round(
+        float(stats.get("action_set_transformer_selected_value_delta_sum", 0.0))
+        / action_set_considered,
+        6,
+    )
+    stats["action_set_transformer_selected_positive_prob_avg"] = round(
+        float(
+            stats.get("action_set_transformer_selected_positive_prob_sum", 0.0)
+        )
+        / action_set_considered,
+        6,
+      )
+  proposal_considered = float(stats.get("proposal_veto_considered", 0) or 0)
+  proposal_overrides = float(stats.get("proposal_veto_overrides", 0) or 0)
+  proposal_shadow_overrides = float(
+      stats.get("proposal_veto_shadow_overrides", 0) or 0
+  )
+  proposal_scored = float(stats.get("proposal_veto_scored_candidates", 0) or 0)
+  if proposal_considered:
+    stats["proposal_veto_override_rate_when_considered"] = round(
+        proposal_overrides / proposal_considered, 4
+    )
+    stats["proposal_veto_shadow_override_rate_when_considered"] = round(
+        proposal_shadow_overrides / proposal_considered, 4
+    )
+    stats["proposal_veto_abstain_rate_when_considered"] = round(
+        float(stats.get("proposal_veto_abstained", 0)) / proposal_considered,
+        4,
+    )
+    stats["proposal_veto_scored_candidates_avg"] = round(
+        proposal_scored / proposal_considered,
+        4,
+    )
+    stats["proposal_veto_selected_logit_avg"] = round(
+        float(stats.get("proposal_veto_selected_logit_sum", 0.0))
+        / proposal_considered,
+        6,
+    )
+    stats["proposal_veto_selected_source_margin_avg"] = round(
+        float(stats.get("proposal_veto_selected_source_margin_sum", 0.0))
+        / proposal_considered,
+        6,
+    )
+    stats["proposal_veto_selected_value_delta_avg"] = round(
+        float(stats.get("proposal_veto_selected_value_delta_sum", 0.0))
+        / proposal_considered,
+        6,
+    )
+    stats["proposal_veto_source_margin_blocked_rate_when_considered"] = round(
+        float(stats.get("proposal_veto_blocked_source_margin_threshold", 0))
+        / proposal_considered,
+        4,
+    )
+    stats["proposal_veto_source_value_blocked_rate_when_considered"] = round(
+        float(stats.get("proposal_veto_blocked_source_value_threshold", 0))
+        / proposal_considered,
+        4,
+    )
+    stats["proposal_veto_source_positive_blocked_rate_when_considered"] = round(
+        float(stats.get("proposal_veto_blocked_source_positive_threshold", 0))
+        / proposal_considered,
+        4,
     )
   value_considered = float(stats.get("value_shield_considered", 0) or 0)
   value_scored = float(stats.get("value_shield_scored_candidates", 0) or 0)
@@ -520,8 +703,18 @@ def parse_args():
       help=(
           "When >0 in ladder mode, run this many common-deal blocks across "
           "the seating schedule. With --schedule=permutations each block "
-          "uses the same chance seed for every ordered seating, giving a "
-          "paired seat-swapped direct gate."
+          "uses every ordered seating; --schedule=cyclic uses each distinct "
+          "seat rotation once and avoids pseudoreplicating identical opponents."
+      ),
+  )
+  parser.add_argument(
+      "--deal-offset",
+      type=int,
+      default=0,
+      help=(
+          "First global common-deal index. Use successive non-overlapping "
+          "offsets to extend a frozen paired-deal evaluation without replaying "
+          "previous chance seeds or starting-seat rotations."
       ),
   )
   parser.add_argument(
@@ -546,10 +739,13 @@ def parse_args():
           "name=checkpoint:belief_policy, name=checkpoint:q_policy, "
           "name=checkpoint:root_rollout, name=checkpoint:value_shield, "
           "name=checkpoint:liveness_shield, "
+          "name=checkpoint:competitive_tactics, "
           "name=checkpoint:residual_policy, "
           "name=checkpoint:residual_q_policy, "
           "name=checkpoint:residual_q_risk_policy, name=checkpoint:play_graft, "
-          "name=checkpoint:improve_graft, or name=checkpoint:belief. "
+          "name=checkpoint:improve_graft, "
+          "name=checkpoint:pairwise_boundary, "
+          "name=checkpoint:action_set_transformer, or name=checkpoint:belief. "
           "Append ?key=value,... after the mode to "
           "override per-bot evaluator knobs, for example "
           "name=checkpoint:belief_policy?belief_source=policy_weighted."
@@ -585,6 +781,15 @@ def parse_args():
       help="Always include this many top raw-policy legal actions.",
   )
   parser.add_argument(
+      "--root-rollout-teacher-candidates",
+      action=argparse.BooleanOptionalAction,
+      default=False,
+      help=(
+          "Fill candidate slots with the same follow-led, red-switch, and "
+          "off-led contrast buckets used by best-of-rollouts replay."
+      ),
+  )
+  parser.add_argument(
       "--root-rollout-include-bots",
       default="heuristic,heuristic_target2,heuristic_adj2",
       help=(
@@ -609,6 +814,38 @@ def parse_args():
           "common-particle action evaluation. Supported names: chance,discard,"
           "prediction,play,terminal. Empty applies it in every phase."
       ),
+  )
+  parser.add_argument(
+      "--root-rollout-led-colors",
+      default="",
+      help=(
+          "Optional comma-separated led-color filter for :root_rollout. "
+          "Use R/G/B/Y or None for leading states; empty disables this filter."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-min-trick-number",
+      type=int,
+      default=-1,
+      help="Optional first trick where :root_rollout may override policy.",
+  )
+  parser.add_argument(
+      "--root-rollout-max-trick-number",
+      type=int,
+      default=-1,
+      help="Optional last trick where :root_rollout may override policy.",
+  )
+  parser.add_argument(
+      "--root-rollout-min-match-round",
+      type=int,
+      default=-1,
+      help="Optional first public match round eligible for root search.",
+  )
+  parser.add_argument(
+      "--root-rollout-max-match-round",
+      type=int,
+      default=-1,
+      help="Optional last public match round eligible for root search.",
   )
   parser.add_argument(
       "--root-rollout-full-match",
@@ -639,6 +876,134 @@ def parse_args():
       ),
   )
   parser.add_argument(
+      "--root-rollout-min-paradox-improvement",
+      type=float,
+      default=0.0,
+      help=(
+          "For paradox_then_score, keep the raw-policy action unless the "
+          "selected rollout action lowers paired paradox rate by at least "
+          "this amount."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-audit-samples",
+      type=int,
+      default=0,
+      help=(
+          "Fresh actor-information-state particles used to independently "
+          "audit a proposed :root_rollout override. 0 preserves the legacy "
+          "single-pass selector."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-audit-rollouts",
+      type=int,
+      default=1,
+      help="Common rollout seeds per fresh audit particle.",
+  )
+  parser.add_argument(
+      "--root-rollout-audit-passes",
+      type=int,
+      default=1,
+      help=(
+          "Independent fresh audit passes required before a :root_rollout "
+          "override is applied."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-min-audit-paradox-improvement",
+      type=float,
+      default=0.0,
+      help=(
+          "Keep the raw-policy action unless the proposed override also "
+          "lowers paired paradox rate by this amount on fresh audit worlds."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-min-audit-score-improvement",
+      type=float,
+      default=-1e9,
+      help=(
+          "Optional minimum actor score gain required on every independently "
+          "resampled audit before a root-search override is accepted."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-max-audit-paired-binomial-p",
+      type=float,
+      default=1.0,
+      help=(
+          "Maximum one-sided exact-binomial p-value for saved versus harmed "
+          "paired information-state worlds in every fresh audit pass. "
+          "Multiple continuations from one world are nested replicates and "
+          "count as one inference unit."
+      ),
+  )
+  parser.add_argument(
+      "--first-paradox-trace-window",
+      type=int,
+      default=5,
+      help=(
+          "Number of recent decisions stored before the first paradox trigger. "
+          "This is diagnostics-only and does not affect game play."
+      ),
+  )
+  parser.add_argument(
+      "--first-paradox-summary-sample-limit",
+      type=int,
+      default=12,
+      help="Maximum first-paradox trace samples retained in the summary.",
+  )
+  parser.add_argument(
+      "--sample-match-limit",
+      type=int,
+      default=3,
+      help="Maximum full match records retained in the output artifact.",
+  )
+  parser.add_argument(
+      "--root-rollout-base-mode",
+      choices=("policy", "liveness_shield", "competitive_tactics"),
+      default="policy",
+      help=(
+          "Root action protected by :root_rollout. policy preserves the raw "
+          "neural baseline; liveness_shield starts from the deterministic "
+          "public-information shield; competitive_tactics additionally "
+          "preserves locked actor-relative bidding and tactical decisions. "
+          "Only independently audited rollout overrides are applied on top."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-preserve-tactical-overrides",
+      action=argparse.BooleanOptionalAction,
+      default=False,
+      help=(
+          "When root search protects a competitive_tactics baseline, preserve "
+          "any exact-terminal or bid-regime correction that already changed "
+          "the underlying neural action. Search remains enabled on all other "
+          "information-state decisions."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-preserve-own-liveness",
+      action=argparse.BooleanOptionalAction,
+      default=False,
+      help=(
+          "Before actor-information-state search, reject candidate moves "
+          "that worsen the incumbent's own-hand exit margin, feasibility, "
+          "color-token safety, or exact-bid protection."
+      ),
+  )
+  parser.add_argument(
+      "--root-rollout-max-baseline-risk-increase",
+      type=float,
+      default=-1.0,
+      help=(
+          "Maximum calibrated acting-player paradox-probability increase "
+          "allowed versus the protected incumbent action. A negative value "
+          "disables this information-safe prefilter."
+      ),
+  )
+  parser.add_argument(
       "--root-rollout-continuation-bot",
       default="",
       help=(
@@ -648,7 +1013,7 @@ def parse_args():
   )
   parser.add_argument(
       "--root-rollout-continuation-mode",
-      choices=("", "policy", "q_policy", "liveness_shield"),
+      choices=("", "policy", "q_policy", "liveness_shield", "competitive_tactics"),
       default="",
       help=(
           "Optional neural bot mode used for non-root continuation actions "
@@ -980,6 +1345,27 @@ def parse_args():
       ),
   )
   parser.add_argument(
+      "--liveness-teacher-exact-key-order",
+      choices=(
+          "lane_first",
+          "pressure_first",
+          "late_red_pressure_first",
+          "table_liveness_first",
+          "late_table_liveness_first",
+      ),
+      default="lane_first",
+      help=(
+          "Tie-break order used by liveness_key_teacher when exact legal "
+          "pressure is enabled. lane_first preserves historical behavior; "
+          "pressure_first ranks exact legal-exit capacity before generic "
+          "led-token preservation; late_red_pressure_first applies that "
+          "pressure-first order only from trick 5 onward when led color is "
+          "red or no color has been led yet. table_liveness_first and "
+          "late_table_liveness_first additionally rank by exact hidden-hand "
+          "table liveness margins for training-teacher diagnostics."
+      ),
+  )
+  parser.add_argument(
       "--liveness-teacher-sample-limit",
       type=int,
       default=20,
@@ -1035,6 +1421,37 @@ def parse_args():
       help=(
           "Minimum public-slot-damage improvement needed for a pure "
           "public-liveness override when exact own feasibility is tied."
+      ),
+  )
+  parser.add_argument(
+      "--liveness-shield-exact-legal-pressure",
+      type=_parse_bool,
+      default=False,
+      help=(
+          "When true, :liveness_shield prepends exact post-action legal-exit "
+          "pressure to its action key and dominance test. This is a full-state "
+          "diagnostic/oracle-style shield."
+      ),
+  )
+  parser.add_argument(
+      "--liveness-shield-exact-forced-only",
+      type=_parse_bool,
+      default=False,
+      help=(
+          "When true with --liveness-shield-exact-legal-pressure, allow "
+          ":liveness_shield overrides only when the candidate immediately "
+          "reduces the exact number of post-action forced-paradox players."
+      ),
+  )
+  parser.add_argument(
+      "--liveness-shield-keep-responsible-red-win",
+      type=_parse_bool,
+      default=False,
+      help=(
+          "When true, :liveness_shield keeps a base action that spends the "
+          "led-color token to win a still-needed trick instead of overriding "
+          "it only for public led-token preservation. Exact forced-paradox "
+          "improvements may still override first."
       ),
   )
   parser.add_argument(
@@ -1104,12 +1521,154 @@ def parse_args():
       "--survival-checkpoint",
       default="",
       help=(
-          "Optional state-value checkpoint used by :value_shield neural bots. "
-          "Empty uses the policy checkpoint itself."
+          "Optional state-value checkpoint used by :value_shield or :belief "
+          "neural bots. Empty uses the policy checkpoint itself."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-base-mode",
+      choices=("policy", "liveness_shield", "belief", "belief_liveness"),
+      default="policy",
+      help=(
+          "Policy whose decisions the one-step survival value shield protects. "
+          "belief_liveness uses information-state belief search for the "
+          "opening trick window and the public-liveness policy afterward."
       ),
   )
   parser.add_argument("--survival-value-threshold", type=float, default=0.55)
   parser.add_argument("--survival-value-max-actions", type=int, default=0)
+  parser.add_argument(
+      "--survival-value-selection-mode",
+      choices=("threshold", "relative_dominance"),
+      default="threshold",
+      help=(
+          "threshold preserves historical value-shield selection. "
+          "relative_dominance keeps the protected base action unless a "
+          "common-world alternative clears every configured safety guard."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-min-improvement",
+      type=float,
+      default=0.0,
+      help="Minimum paired predicted survival improvement required to override.",
+  )
+  parser.add_argument(
+      "--survival-value-paired-lcb-z",
+      type=float,
+      default=0.0,
+      help=(
+          "Subtract this many paired-world standard errors from predicted "
+          "survival improvement before applying the dominance margin."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-min-world-win-share",
+      type=float,
+      default=0.0,
+      help=(
+          "Minimum fraction of common information-state worlds on which "
+          "a relative-dominance candidate improves on the protected action."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-min-trick-number",
+      type=int,
+      default=-1,
+      help="Earliest play trick on which learned-survival overrides are enabled.",
+  )
+  parser.add_argument(
+      "--survival-value-max-trick-number",
+      type=int,
+      default=-1,
+      help="Latest play trick on which learned-survival overrides are enabled.",
+  )
+  parser.add_argument(
+      "--survival-value-opening-max-trick-number",
+      type=int,
+      default=1,
+      help=(
+          "Last trick where the belief_liveness base uses belief search "
+          "before handing decisions back to the public-liveness policy."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-opening-min-trick-number",
+      type=int,
+      default=0,
+      help="Earliest trick where the belief_liveness base may use belief search.",
+  )
+  parser.add_argument(
+      "--survival-value-opening-lead-only",
+      type=_parse_bool,
+      default=False,
+      help=(
+          "Restrict expensive opening belief search to the information-safe "
+          "public states where the current player is leading the trick."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-require-public-safety",
+      type=_parse_bool,
+      default=False,
+      help=(
+          "Reject learned-survival alternatives that worsen information-safe "
+          "public open slots, public slot damage, or the actor's known exits."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-analytic-posterior",
+      type=_parse_bool,
+      default=False,
+      help=(
+          "Apply a guarded opponent-rank-capacity posterior using only the "
+          "acting hand/discard and public board, token, and trick information."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-analytic-min-trick-number",
+      type=int,
+      default=2,
+      help="Earliest trick where the analytic public-posterior guard may fire.",
+  )
+  parser.add_argument(
+      "--survival-value-analytic-objective",
+      choices=("table_survival", "competitive"),
+      default="table_survival",
+      help=(
+          "Use the historical table-survival posterior or the competitive "
+          "posterior that pressures opponents only after the actor's bid is "
+          "complete while preserving the actor's own exits."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-analytic-min-advantage",
+      type=float,
+      default=0.04,
+      help=(
+          "Minimum reduction in summed opponent rank-overflow probability "
+          "required by the guarded analytic public posterior."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-search-penalty",
+      type=float,
+      default=0.0,
+      help=(
+          "Subtract this many score units times the predicted table-paradox "
+          "probability at every nonterminal information-state search leaf."
+      ),
+  )
+  parser.add_argument(
+      "--survival-value-belief-samples",
+      type=int,
+      default=4,
+      help=(
+          "Information-state opponent-hand samples shared across one-step "
+          "survival-value candidate actions. Never inspect the actual next "
+          "player's private hand."
+      ),
+  )
   parser.add_argument(
       "--survival-value-phases",
       default="",
@@ -1206,7 +1765,7 @@ def parse_args():
   parser.add_argument("--action-paradox-root-only", action="store_true")
   parser.add_argument(
       "--action-paradox-rerank-mode",
-      choices=("additive", "threshold", "relative"),
+      choices=("additive", "threshold", "relative", "relative_dominance"),
       default="additive",
       help=(
           "How :q_policy uses the action paradox-risk head. additive preserves "
@@ -1215,11 +1774,23 @@ def parse_args():
           "a lower-risk action is within the configured policy log-gap. "
           "relative first builds a lowest-risk safe set using "
           "--action-paradox-min-risk-margin as slack, then picks the best "
-          "policy/value action inside that set."
+          "policy/value action inside that set. relative_dominance does the "
+          "same, but abstains unless the raw top policy action is at least "
+          "--action-paradox-min-risk-margin riskier than the minimum-risk "
+          "legal action."
       ),
   )
   parser.add_argument("--action-paradox-risk-threshold", type=float, default=0.0)
   parser.add_argument("--action-paradox-min-risk-margin", type=float, default=0.0)
+  parser.add_argument(
+      "--action-paradox-rerank-led-contrast-only",
+      action="store_true",
+      help=(
+          "For :q_policy risk reranking, only allow overrides in play states "
+          "with a non-red led color, a legal led-color follow, and a legal red "
+          "switch. Useful for led-contrast-trained risk heads."
+      ),
+  )
   parser.add_argument(
       "--action-feasibility-selection-weight",
       type=float,
@@ -1268,23 +1839,90 @@ def parse_args():
           "0 preserves the historical always-rerank behavior."
       ),
   )
+  parser.add_argument(
+      "--action-value-max-policy-log-gap",
+      type=float,
+      default=-1.0,
+      help=(
+          "For :q_policy action-value reranking, reject actions whose raw "
+          "policy log probability is more than this far below the raw top "
+          "policy action. Negative preserves the historical unguarded "
+          "behavior."
+      ),
+  )
+  parser.add_argument(
+      "--action-value-rerank-min-trick-number",
+      type=int,
+      default=-1,
+      help=(
+          "For play-phase :q_policy action-value reranking, disable reranking "
+          "before this trick number. Negative preserves historical behavior."
+      ),
+  )
+  parser.add_argument(
+      "--action-value-rerank-max-trick-number",
+      type=int,
+      default=-1,
+      help=(
+          "For play-phase :q_policy action-value reranking, disable reranking "
+          "after this trick number. Negative preserves historical behavior."
+      ),
+  )
   parser.add_argument("--match-context", action="store_true")
   parser.add_argument(
       "--schedule",
-      choices=("combinations", "permutations"),
+      choices=("combinations", "permutations", "cyclic"),
       default="combinations",
       help=(
-          "Ladder seating schedule. permutations balances every ordered seating "
-          "for the selected player count and is preferred for direct gates."
+          "Ladder seating schedule. permutations balances every ordered seating; "
+          "cyclic rotates each selected lineup once per seat and is preferred "
+          "when opponent aliases represent the same policy."
       ),
   )
   parser.add_argument("--k-factor", type=float, default=24.0)
+  parser.add_argument(
+      "--competitive-gate-candidate",
+      default="",
+      help=(
+          "Named candidate for an official-score, common-deal, seat-balanced "
+          "competitive promotion summary. Requires --paired-deals and a "
+          "seat-balanced permutations or cyclic schedule."
+      ),
+  )
+  parser.add_argument(
+      "--competitive-gate-opponents",
+      default="",
+      help=(
+          "Optional comma-separated opponent aliases used as the competitive "
+          "reference. Empty compares the candidate against every other seat."
+      ),
+  )
+  parser.add_argument(
+      "--competitive-min-independent-deals",
+      type=int,
+      default=30,
+      help=(
+          "Minimum independent common-deal blocks for a competitive "
+          "promotion pass. Seat permutations are not independent samples."
+      ),
+  )
+  parser.add_argument(
+      "--competitive-max-own-paradox-regression",
+      type=float,
+      default=0.0,
+      help=(
+          "Allowed candidate-minus-reference personal paradox-rate increase. "
+          "The guard fails only when the independent-deal 95%% lower bound "
+          "exceeds this value. Table-wide paradoxes never veto promotion."
+      ),
+  )
   parser.add_argument(
       "--homogeneous-paradox-threshold",
       type=float,
       default=0.0,
       help=(
-          "When >0, add a homogeneous self-play safety gate summary. The gate "
+          "When >0, add the legacy homogeneous self-play diagnostic summary. It "
+          "is not a competitive promotion criterion. The diagnostic "
           "is eligible when every participating bot name is the same built-in "
           "bot behind aliases or a neural alias with the same checkpoint/mode/"
           "options. The strict metric is rounds_with_any_player_paradox / "
@@ -1324,6 +1962,7 @@ def parse_args():
 def _model_args(players):
   return SimpleNamespace(
       players=players,
+      neural_prediction_mode="shared",
       arch="mlp",
       width=256,
       depth=3,
@@ -1331,6 +1970,11 @@ def _model_args(players):
       c_puct=1.8,
       sims=64,
       match_context=False,
+      paradox_value_penalty=0.0,
+      terminal_paradox_penalty=0.0,
+      terminal_any_paradox_penalty=0.0,
+      ordinal_value_weight=0.0,
+      official_outcome_value_weight=0.0,
       action_value_selection_weight=0.0,
       action_value_root_only=False,
       action_paradox_selection_penalty=0.0,
@@ -1338,11 +1982,15 @@ def _model_args(players):
       action_paradox_rerank_mode="additive",
       action_paradox_risk_threshold=0.0,
       action_paradox_min_risk_margin=0.0,
+      action_paradox_rerank_led_contrast_only=False,
       action_feasibility_selection_weight=0.0,
       action_paradox_max_policy_log_gap=2.0,
       action_value_rerank_clip=0.5,
       action_value_rerank_phases="",
       action_value_rerank_min_margin=0.0,
+      action_value_max_policy_log_gap=-1.0,
+      action_value_rerank_min_trick_number=-1,
+      action_value_rerank_max_trick_number=-1,
       belief_source="infostate",
       belief_candidates=8,
       belief_policy_temperature=1.0,
@@ -1353,19 +2001,34 @@ def _model_args(players):
       belief_ranker_candidates=64,
       belief_ranker_temperature=0.7,
       belief_ranker_uniform_mix=0.25,
+      belief_samples=0,
+      belief_sims=0,
       root_rollout_samples=2,
       root_rollouts=1,
+      root_rollout_seed_salt=0,
       root_rollout_max_actions=4,
       root_rollout_top_policy=2,
       root_rollout_include_bots="heuristic,heuristic_target2,heuristic_adj2",
       root_rollout_max_plies=0,
       root_rollout_phases="",
+      root_rollout_led_colors="",
+      root_rollout_min_match_round=-1,
+      root_rollout_max_match_round=-1,
       root_rollout_full_match=False,
       root_rollout_objective="score",
       root_rollout_paradox_scope="acting",
+      root_rollout_min_paradox_improvement=0.0,
+      root_rollout_audit_samples=0,
+      root_rollout_audit_rollouts=1,
+      root_rollout_audit_passes=1,
+      root_rollout_min_audit_paradox_improvement=0.0,
+      root_rollout_min_audit_score_improvement=-1e9,
+      root_rollout_max_audit_paired_binomial_p=1.0,
+      root_rollout_base_mode="policy",
       root_rollout_continuation_bot="",
       root_rollout_continuation_mode="",
       root_rollout_include_continuation_candidate=True,
+      root_rollout_record_replay_samples=False,
       survival_shield_base_bot="heuristic_safe14",
       survival_shield_continuation_bot="heuristic_safe14",
       survival_shield_threshold=0.45,
@@ -1398,6 +2061,7 @@ def _model_args(players):
       liveness_teacher_phases="play",
       liveness_teacher_min_trick_number=0,
       liveness_teacher_exact_legal_pressure=False,
+      liveness_teacher_exact_key_order="lane_first",
       liveness_teacher_sample_limit=20,
       liveness_shield_base_mode="q_policy",
       liveness_shield_phases="discard,prediction,play",
@@ -1405,6 +2069,9 @@ def _model_args(players):
       liveness_shield_led_colors="",
       liveness_shield_min_open_slot_delta=1,
       liveness_shield_min_public_damage_delta=2,
+      liveness_shield_exact_legal_pressure=False,
+      liveness_shield_exact_forced_only=False,
+      liveness_shield_keep_responsible_red_win=False,
       liveness_shield_max_policy_log_gap=-1.0,
       liveness_shield_shadow_only=False,
       liveness_shield_sample_limit=20,
@@ -1414,8 +2081,25 @@ def _model_args(players):
       residual_delta_scale=1.0,
       residual_q_policy_base_margin=0.0,
       survival_checkpoint="",
+      survival_value_base_mode="policy",
       survival_value_threshold=0.55,
       survival_value_max_actions=0,
+      survival_value_selection_mode="threshold",
+      survival_value_min_improvement=0.0,
+      survival_value_paired_lcb_z=0.0,
+      survival_value_min_world_win_share=0.0,
+      survival_value_min_trick_number=-1,
+      survival_value_max_trick_number=-1,
+      survival_value_opening_min_trick_number=0,
+      survival_value_opening_max_trick_number=1,
+      survival_value_opening_lead_only=False,
+      survival_value_require_public_safety=False,
+      survival_value_analytic_posterior=False,
+      survival_value_analytic_objective="table_survival",
+      survival_value_analytic_min_trick_number=2,
+      survival_value_analytic_min_advantage=0.04,
+      survival_value_search_penalty=0.0,
+      survival_value_belief_samples=4,
       survival_value_phases="",
       survival_value_scope="mean",
       survival_value_chance_depth=3,
@@ -1427,6 +2111,7 @@ def _model_args(players):
       graft_phases="play",
       graft_mode="policy",
       improve_model="",
+      improve_base_mode="policy",
       improve_threshold=0.95,
       improve_risk_threshold=0.0,
       improve_phases="play",
@@ -1437,11 +2122,103 @@ def _model_args(players):
       improve_min_legal_count=0,
       improve_max_legal_count=0,
       improve_min_trick_number=-1,
+      improve_trick_numbers="",
+      improve_led_colors="",
+      improve_candidate_colors="",
+      improve_require_base_off_led=False,
+      improve_require_responsible_red_win=False,
       improve_min_match_round=-1,
       improve_near_paradox_proxy=False,
       improve_near_paradox_min_pressure=0.1,
+      improve_guard_led_follow=False,
+      improve_guard_led_follow_red_win_must_be_urgent=False,
+      improve_max_policy_log_gap=-1.0,
       improve_shadow_only=False,
       improve_sample_limit=20,
+      intralane_filter_model="",
+      intralane_filter_base_mode="policy",
+      intralane_filter_phases="play",
+      intralane_filter_min_trick_number=2,
+      intralane_filter_max_trick_number=5,
+      intralane_filter_candidate_filter="follow_no_token_loss",
+      intralane_filter_require_base_allowed=True,
+      intralane_filter_require_forced_switch_red_contrast=False,
+      intralane_filter_positive_threshold=0.50,
+      intralane_filter_safe_threshold=0.85,
+      intralane_filter_value_threshold=0.08,
+      intralane_filter_risk_threshold=-0.01,
+      intralane_filter_selection_value_bonus=0.05,
+      intralane_filter_selection_risk_penalty=0.5,
+      intralane_filter_policy_tiebreak=0.01,
+      intralane_filter_max_policy_log_gap=-1.0,
+      intralane_filter_shadow_only=False,
+      intralane_filter_sample_limit=20,
+      pairwise_boundary_model="",
+      pairwise_boundary_base_mode="policy",
+      pairwise_boundary_threshold=0.0,
+      pairwise_boundary_phases="play",
+      pairwise_boundary_min_legal_count=0,
+      pairwise_boundary_max_legal_count=0,
+      pairwise_boundary_min_trick_number=-1,
+      pairwise_boundary_max_trick_number=-1,
+      pairwise_boundary_max_policy_log_gap=-1.0,
+      pairwise_boundary_max_actions=0,
+      pairwise_boundary_top_policy=0,
+      pairwise_boundary_include_bots=(
+          "heuristic,heuristic_target2,heuristic_adj2"
+      ),
+      pairwise_boundary_feature_candidates=True,
+      pairwise_boundary_exclude_forced_led_lane_negatives=True,
+      pairwise_boundary_led_lane_red_exception="win",
+      pairwise_boundary_shadow_only=False,
+      pairwise_boundary_sample_limit=20,
+      action_set_transformer_model="",
+      action_set_transformer_base_mode="policy",
+      action_set_transformer_phases="play",
+      action_set_transformer_min_legal_count=0,
+      action_set_transformer_max_legal_count=0,
+      action_set_transformer_min_trick_number=-1,
+      action_set_transformer_max_trick_number=-1,
+      action_set_transformer_score_margin_threshold=0.0,
+      action_set_transformer_value_threshold=0.0,
+      action_set_transformer_positive_threshold=0.5,
+      action_set_transformer_max_policy_log_gap=-1.0,
+      action_set_transformer_max_actions=4,
+      action_set_transformer_top_policy=2,
+      action_set_transformer_include_bots=(
+          "heuristic,heuristic_target2,heuristic_adj2"
+      ),
+      action_set_transformer_feature_candidates=True,
+      action_set_transformer_exclude_forced_led_lane_negatives=True,
+      action_set_transformer_shadow_only=False,
+      action_set_transformer_selection_value_bonus=0.05,
+      action_set_transformer_policy_tiebreak=0.01,
+      action_set_transformer_sample_limit=20,
+      proposal_veto_model="",
+      proposal_veto_base_mode="policy",
+      proposal_veto_phases="play",
+      proposal_veto_min_legal_count=0,
+      proposal_veto_max_legal_count=0,
+      proposal_veto_min_trick_number=-1,
+      proposal_veto_max_trick_number=-1,
+      proposal_veto_max_policy_log_gap=-1.0,
+      proposal_veto_max_actions=6,
+      proposal_veto_top_policy=4,
+      proposal_veto_include_bots=(
+          "heuristic,heuristic_target2,heuristic_adj2"
+      ),
+      proposal_veto_candidate_mode="source_plus_red_follow_policy",
+      proposal_veto_selection_mode="proposal_model",
+      proposal_veto_feature_candidates=True,
+      proposal_veto_exclude_forced_led_lane_negatives=True,
+      proposal_veto_score_threshold=-1e9,
+      proposal_veto_margin_threshold=-1e9,
+      proposal_veto_min_source_score=-1e9,
+      proposal_veto_min_source_margin=-1e9,
+      proposal_veto_min_source_value_delta=-1e9,
+      proposal_veto_min_source_positive_prob=-1e9,
+      proposal_veto_shadow_only=False,
+      proposal_veto_sample_limit=20,
   )
 
 
@@ -1457,6 +2234,9 @@ def load_neural(checkpoint, players, device, args=None):
   model_args.value_scale = saved_args.get("value_scale", model_args.value_scale)
   model_args.arch = saved_args.get("arch", model_args.arch)
   model_args.match_context = saved_args.get("match_context", False)
+  model_args.official_outcome_value_weight = float(
+      saved_args.get("official_outcome_value_weight", 0.0)
+  )
   if args is not None:
     model_args.action_value_selection_weight = float(
         getattr(args, "action_value_selection_weight", 0.0)
@@ -1479,6 +2259,9 @@ def load_neural(checkpoint, players, device, args=None):
     model_args.action_paradox_min_risk_margin = float(
         getattr(args, "action_paradox_min_risk_margin", 0.0)
     )
+    model_args.action_paradox_rerank_led_contrast_only = bool(
+        getattr(args, "action_paradox_rerank_led_contrast_only", False)
+    )
     model_args.action_feasibility_selection_weight = float(
         getattr(args, "action_feasibility_selection_weight", 0.0)
     )
@@ -1493,6 +2276,15 @@ def load_neural(checkpoint, players, device, args=None):
     )
     model_args.action_value_rerank_min_margin = float(
         getattr(args, "action_value_rerank_min_margin", 0.0)
+    )
+    model_args.action_value_max_policy_log_gap = float(
+        getattr(args, "action_value_max_policy_log_gap", -1.0)
+    )
+    model_args.action_value_rerank_min_trick_number = int(
+        getattr(args, "action_value_rerank_min_trick_number", -1)
+    )
+    model_args.action_value_rerank_max_trick_number = int(
+        getattr(args, "action_value_rerank_max_trick_number", -1)
     )
     model_args.belief_source = str(getattr(args, "belief_source", "infostate"))
     model_args.belief_candidates = int(getattr(args, "belief_candidates", 8))
@@ -1529,6 +2321,9 @@ def load_neural(checkpoint, players, device, args=None):
     model_args.root_rollout_top_policy = int(
         getattr(args, "root_rollout_top_policy", 2)
     )
+    model_args.root_rollout_teacher_candidates = bool(
+        getattr(args, "root_rollout_teacher_candidates", False)
+    )
     model_args.root_rollout_include_bots = str(
         getattr(args, "root_rollout_include_bots", "")
     )
@@ -1538,6 +2333,21 @@ def load_neural(checkpoint, players, device, args=None):
     model_args.root_rollout_phases = str(
         getattr(args, "root_rollout_phases", "")
     )
+    model_args.root_rollout_led_colors = str(
+        getattr(args, "root_rollout_led_colors", "")
+    )
+    model_args.root_rollout_min_trick_number = int(
+        getattr(args, "root_rollout_min_trick_number", -1)
+    )
+    model_args.root_rollout_max_trick_number = int(
+        getattr(args, "root_rollout_max_trick_number", -1)
+    )
+    model_args.root_rollout_min_match_round = int(
+        getattr(args, "root_rollout_min_match_round", -1)
+    )
+    model_args.root_rollout_max_match_round = int(
+        getattr(args, "root_rollout_max_match_round", -1)
+    )
     model_args.root_rollout_full_match = bool(
         getattr(args, "root_rollout_full_match", False)
     )
@@ -1546,6 +2356,39 @@ def load_neural(checkpoint, players, device, args=None):
     )
     model_args.root_rollout_paradox_scope = str(
         getattr(args, "root_rollout_paradox_scope", "acting")
+    )
+    model_args.root_rollout_min_paradox_improvement = float(
+        getattr(args, "root_rollout_min_paradox_improvement", 0.0)
+    )
+    model_args.root_rollout_audit_samples = int(
+        getattr(args, "root_rollout_audit_samples", 0)
+    )
+    model_args.root_rollout_audit_rollouts = int(
+        getattr(args, "root_rollout_audit_rollouts", 1)
+    )
+    model_args.root_rollout_audit_passes = int(
+        getattr(args, "root_rollout_audit_passes", 1)
+    )
+    model_args.root_rollout_min_audit_paradox_improvement = float(
+        getattr(args, "root_rollout_min_audit_paradox_improvement", 0.0)
+    )
+    model_args.root_rollout_min_audit_score_improvement = float(
+        getattr(args, "root_rollout_min_audit_score_improvement", -1e9)
+    )
+    model_args.root_rollout_max_audit_paired_binomial_p = float(
+        getattr(args, "root_rollout_max_audit_paired_binomial_p", 1.0)
+    )
+    model_args.root_rollout_base_mode = str(
+        getattr(args, "root_rollout_base_mode", "policy")
+    )
+    model_args.root_rollout_preserve_tactical_overrides = bool(
+        getattr(args, "root_rollout_preserve_tactical_overrides", False)
+    )
+    model_args.root_rollout_preserve_own_liveness = bool(
+        getattr(args, "root_rollout_preserve_own_liveness", False)
+    )
+    model_args.root_rollout_max_baseline_risk_increase = float(
+        getattr(args, "root_rollout_max_baseline_risk_increase", -1.0)
     )
     model_args.root_rollout_continuation_bot = str(
         getattr(args, "root_rollout_continuation_bot", "")
@@ -1638,6 +2481,15 @@ def load_neural(checkpoint, players, device, args=None):
     model_args.liveness_shield_min_public_damage_delta = int(
         getattr(args, "liveness_shield_min_public_damage_delta", 2)
     )
+    model_args.liveness_shield_exact_legal_pressure = bool(
+        getattr(args, "liveness_shield_exact_legal_pressure", False)
+    )
+    model_args.liveness_shield_exact_forced_only = bool(
+        getattr(args, "liveness_shield_exact_forced_only", False)
+    )
+    model_args.liveness_shield_keep_responsible_red_win = bool(
+        getattr(args, "liveness_shield_keep_responsible_red_win", False)
+    )
     model_args.liveness_shield_max_policy_log_gap = float(
         getattr(args, "liveness_shield_max_policy_log_gap", -1.0)
     )
@@ -1665,11 +2517,62 @@ def load_neural(checkpoint, players, device, args=None):
     model_args.survival_checkpoint = str(
         getattr(args, "survival_checkpoint", "")
     )
+    model_args.survival_value_base_mode = str(
+        getattr(args, "survival_value_base_mode", "policy")
+    )
     model_args.survival_value_threshold = float(
         getattr(args, "survival_value_threshold", 0.55)
     )
     model_args.survival_value_max_actions = int(
         getattr(args, "survival_value_max_actions", 0)
+    )
+    model_args.survival_value_selection_mode = str(
+        getattr(args, "survival_value_selection_mode", "threshold")
+    )
+    model_args.survival_value_min_improvement = float(
+        getattr(args, "survival_value_min_improvement", 0.0)
+    )
+    model_args.survival_value_paired_lcb_z = float(
+        getattr(args, "survival_value_paired_lcb_z", 0.0)
+    )
+    model_args.survival_value_min_world_win_share = float(
+        getattr(args, "survival_value_min_world_win_share", 0.0)
+    )
+    model_args.survival_value_min_trick_number = int(
+        getattr(args, "survival_value_min_trick_number", -1)
+    )
+    model_args.survival_value_max_trick_number = int(
+        getattr(args, "survival_value_max_trick_number", -1)
+    )
+    model_args.survival_value_opening_max_trick_number = int(
+        getattr(args, "survival_value_opening_max_trick_number", 1)
+    )
+    model_args.survival_value_opening_min_trick_number = int(
+        getattr(args, "survival_value_opening_min_trick_number", 0)
+    )
+    model_args.survival_value_opening_lead_only = bool(
+        getattr(args, "survival_value_opening_lead_only", False)
+    )
+    model_args.survival_value_require_public_safety = bool(
+        getattr(args, "survival_value_require_public_safety", False)
+    )
+    model_args.survival_value_analytic_posterior = bool(
+        getattr(args, "survival_value_analytic_posterior", False)
+    )
+    model_args.survival_value_analytic_objective = str(
+        getattr(args, "survival_value_analytic_objective", "table_survival")
+    )
+    model_args.survival_value_analytic_min_trick_number = int(
+        getattr(args, "survival_value_analytic_min_trick_number", 2)
+    )
+    model_args.survival_value_analytic_min_advantage = float(
+        getattr(args, "survival_value_analytic_min_advantage", 0.04)
+    )
+    model_args.survival_value_search_penalty = float(
+        getattr(args, "survival_value_search_penalty", 0.0)
+    )
+    model_args.survival_value_belief_samples = int(
+        getattr(args, "survival_value_belief_samples", 4)
     )
     model_args.survival_value_phases = str(
         getattr(args, "survival_value_phases", "")
@@ -1690,6 +2593,26 @@ def load_neural(checkpoint, players, device, args=None):
 
 
 _NEURAL_BOT_OVERRIDE_TYPES = {
+    "neural_prediction_mode": str,
+    "competitive_tactics_base_mode": str,
+    "competitive_tactics_exact_terminal": bool,
+    "competitive_tactics_round_terminal": bool,
+    "competitive_tactics_bid_play": bool,
+    "competitive_tactics_bid_regime": bool,
+    "competitive_tactics_lead_only": bool,
+    "competitive_tactics_min_trick_number": int,
+    "competitive_tactics_max_trick_number": int,
+    "competitive_tactics_min_prediction": int,
+    "competitive_tactics_min_needed_tricks": int,
+    "competitive_tactics_min_lead_rank_gain": int,
+    "competitive_tactics_adapt_negative_opponent": bool,
+    "competitive_tactics_prediction_style": str,
+    "competitive_tactics_min_own_margin": int,
+    "paradox_value_penalty": float,
+    "terminal_paradox_penalty": float,
+    "terminal_any_paradox_penalty": float,
+    "ordinal_value_weight": float,
+    "official_outcome_value_weight": float,
     "action_value_selection_weight": float,
     "action_value_root_only": bool,
     "action_paradox_selection_penalty": float,
@@ -1697,6 +2620,7 @@ _NEURAL_BOT_OVERRIDE_TYPES = {
     "action_paradox_rerank_mode": str,
     "action_paradox_risk_threshold": float,
     "action_paradox_min_risk_margin": float,
+    "action_paradox_rerank_led_contrast_only": bool,
     "action_paradox_phase_risk_checkpoint": str,
     "action_paradox_phase_risk_phases": str,
     "action_feasibility_selection_weight": float,
@@ -1704,6 +2628,9 @@ _NEURAL_BOT_OVERRIDE_TYPES = {
     "action_value_rerank_clip": float,
     "action_value_rerank_phases": str,
     "action_value_rerank_min_margin": float,
+    "action_value_max_policy_log_gap": float,
+    "action_value_rerank_min_trick_number": int,
+    "action_value_rerank_max_trick_number": int,
     "belief_source": str,
     "belief_candidates": int,
     "belief_policy_temperature": float,
@@ -1715,36 +2642,92 @@ _NEURAL_BOT_OVERRIDE_TYPES = {
     "belief_ranker_candidates": int,
     "belief_ranker_temperature": float,
     "belief_ranker_uniform_mix": float,
+    "belief_samples": int,
+    "belief_sims": int,
     "root_rollout_samples": int,
     "root_rollouts": int,
+    "root_rollout_seed_salt": int,
     "root_rollout_max_actions": int,
     "root_rollout_top_policy": int,
+    "root_rollout_teacher_candidates": bool,
     "root_rollout_include_bots": str,
     "root_rollout_max_plies": int,
     "root_rollout_phases": str,
+    "root_rollout_led_colors": str,
+    "root_rollout_min_trick_number": int,
+    "root_rollout_max_trick_number": int,
+    "root_rollout_min_match_round": int,
+    "root_rollout_max_match_round": int,
     "root_rollout_full_match": bool,
     "root_rollout_objective": str,
     "root_rollout_paradox_scope": str,
+    "root_rollout_min_paradox_improvement": float,
+    "root_rollout_audit_samples": int,
+    "root_rollout_audit_rollouts": int,
+    "root_rollout_audit_passes": int,
+    "root_rollout_min_audit_paradox_improvement": float,
+    "root_rollout_min_audit_score_improvement": float,
+    "root_rollout_max_audit_paired_binomial_p": float,
+    "root_rollout_base_mode": str,
+    "root_rollout_preserve_tactical_overrides": bool,
+    "root_rollout_preserve_own_liveness": bool,
+    "root_rollout_max_baseline_risk_increase": float,
     "root_rollout_continuation_bot": str,
     "root_rollout_continuation_mode": str,
     "root_rollout_include_continuation_candidate": bool,
+    "root_rollout_record_replay_samples": bool,
     "liveness_shield_base_mode": str,
     "liveness_shield_phases": str,
     "liveness_shield_min_trick_number": int,
     "liveness_shield_led_colors": str,
     "liveness_shield_min_open_slot_delta": int,
     "liveness_shield_min_public_damage_delta": int,
+    "liveness_shield_exact_legal_pressure": bool,
+    "liveness_shield_exact_forced_only": bool,
+    "liveness_shield_keep_responsible_red_win": bool,
     "liveness_shield_max_policy_log_gap": float,
     "liveness_shield_shadow_only": bool,
     "liveness_shield_sample_limit": int,
+    "belief_table_liveness_base_mode": str,
+    "belief_table_liveness_samples": int,
+    "belief_table_liveness_min_valid_samples": int,
+    "belief_table_liveness_seed_salt": int,
+    "belief_table_liveness_phases": str,
+    "belief_table_liveness_min_trick_number": int,
+    "belief_table_liveness_max_trick_number": int,
+    "belief_table_liveness_aggregation": str,
+    "belief_table_liveness_quantile": float,
+    "belief_table_liveness_min_paired_lcb": float,
+    "belief_table_liveness_paired_lcb_z": float,
+    "belief_table_liveness_min_best_share": float,
+    "belief_table_liveness_max_policy_log_gap": float,
+    "belief_table_liveness_shadow_only": bool,
+    "belief_table_liveness_sample_limit": int,
     "residual_anchor_checkpoint": str,
     "residual_policy_phases": str,
     "residual_delta_clip": float,
     "residual_delta_scale": float,
     "residual_q_policy_base_margin": float,
     "survival_checkpoint": str,
+    "survival_value_base_mode": str,
     "survival_value_threshold": float,
     "survival_value_max_actions": int,
+    "survival_value_selection_mode": str,
+    "survival_value_min_improvement": float,
+    "survival_value_paired_lcb_z": float,
+    "survival_value_min_world_win_share": float,
+    "survival_value_min_trick_number": int,
+    "survival_value_max_trick_number": int,
+    "survival_value_opening_min_trick_number": int,
+    "survival_value_opening_max_trick_number": int,
+    "survival_value_opening_lead_only": bool,
+    "survival_value_require_public_safety": bool,
+    "survival_value_analytic_posterior": bool,
+    "survival_value_analytic_objective": str,
+    "survival_value_analytic_min_trick_number": int,
+    "survival_value_analytic_min_advantage": float,
+    "survival_value_search_penalty": float,
+    "survival_value_belief_samples": int,
     "survival_value_phases": str,
     "survival_value_scope": str,
     "survival_value_chance_depth": int,
@@ -1756,6 +2739,7 @@ _NEURAL_BOT_OVERRIDE_TYPES = {
     "graft_phases": str,
     "graft_mode": str,
     "improve_model": str,
+    "improve_base_mode": str,
     "improve_threshold": float,
     "improve_risk_threshold": float,
     "improve_phases": str,
@@ -1766,11 +2750,100 @@ _NEURAL_BOT_OVERRIDE_TYPES = {
     "improve_min_legal_count": int,
     "improve_max_legal_count": int,
     "improve_min_trick_number": int,
+    "improve_trick_numbers": str,
+    "improve_led_colors": str,
+    "improve_candidate_colors": str,
+    "improve_require_base_off_led": bool,
+    "improve_require_responsible_red_win": bool,
     "improve_min_match_round": int,
     "improve_near_paradox_proxy": bool,
     "improve_near_paradox_min_pressure": float,
+    "improve_guard_led_follow": bool,
+    "improve_guard_led_follow_red_win_must_be_urgent": bool,
+    "improve_max_policy_log_gap": float,
     "improve_shadow_only": bool,
     "improve_sample_limit": int,
+    "intralane_filter_model": str,
+    "intralane_filter_base_mode": str,
+    "intralane_filter_phases": str,
+    "intralane_filter_min_trick_number": int,
+    "intralane_filter_max_trick_number": int,
+    "intralane_filter_candidate_filter": str,
+    "intralane_filter_require_base_allowed": bool,
+    "intralane_filter_require_forced_switch_red_contrast": bool,
+    "intralane_filter_positive_threshold": float,
+    "intralane_filter_safe_threshold": float,
+    "intralane_filter_value_threshold": float,
+    "intralane_filter_risk_threshold": float,
+    "intralane_filter_selection_value_bonus": float,
+    "intralane_filter_selection_risk_penalty": float,
+    "intralane_filter_policy_tiebreak": float,
+    "intralane_filter_max_policy_log_gap": float,
+    "intralane_filter_shadow_only": bool,
+    "intralane_filter_sample_limit": int,
+    "pairwise_boundary_model": str,
+    "pairwise_boundary_base_mode": str,
+    "pairwise_boundary_threshold": float,
+    "pairwise_boundary_phases": str,
+    "pairwise_boundary_min_legal_count": int,
+    "pairwise_boundary_max_legal_count": int,
+    "pairwise_boundary_min_trick_number": int,
+    "pairwise_boundary_max_trick_number": int,
+    "pairwise_boundary_max_policy_log_gap": float,
+    "pairwise_boundary_max_actions": int,
+    "pairwise_boundary_top_policy": int,
+    "pairwise_boundary_include_bots": str,
+    "pairwise_boundary_feature_candidates": bool,
+    "pairwise_boundary_exclude_forced_led_lane_negatives": bool,
+    "pairwise_boundary_led_lane_red_exception": str,
+    "pairwise_boundary_shadow_only": bool,
+    "pairwise_boundary_sample_limit": int,
+    "action_set_transformer_model": str,
+    "action_set_transformer_base_mode": str,
+    "action_set_transformer_phases": str,
+    "action_set_transformer_min_legal_count": int,
+    "action_set_transformer_max_legal_count": int,
+    "action_set_transformer_min_trick_number": int,
+    "action_set_transformer_max_trick_number": int,
+    "action_set_transformer_score_margin_threshold": float,
+    "action_set_transformer_value_threshold": float,
+    "action_set_transformer_positive_threshold": float,
+    "action_set_transformer_max_policy_log_gap": float,
+    "action_set_transformer_max_actions": int,
+    "action_set_transformer_top_policy": int,
+    "action_set_transformer_include_bots": str,
+    "action_set_transformer_feature_candidates": bool,
+    "action_set_transformer_exclude_forced_led_lane_negatives": bool,
+    "action_set_transformer_shadow_only": bool,
+    "action_set_transformer_selection_value_bonus": float,
+    "action_set_transformer_policy_tiebreak": float,
+    "action_set_transformer_sample_limit": int,
+    "proposal_veto_model": str,
+    "proposal_veto_base_mode": str,
+    "proposal_veto_phases": str,
+    "proposal_veto_min_legal_count": int,
+    "proposal_veto_max_legal_count": int,
+    "proposal_veto_min_trick_number": int,
+    "proposal_veto_max_trick_number": int,
+    "proposal_veto_max_policy_log_gap": float,
+    "proposal_veto_max_actions": int,
+    "proposal_veto_top_policy": int,
+    "proposal_veto_include_bots": str,
+    "proposal_veto_candidate_mode": str,
+    "proposal_veto_selection_mode": str,
+    "proposal_veto_feature_candidates": bool,
+    "proposal_veto_exclude_forced_led_lane_negatives": bool,
+    "proposal_veto_score_threshold": float,
+    "proposal_veto_margin_threshold": float,
+    "proposal_veto_min_source_score": float,
+    "proposal_veto_min_source_margin": float,
+    "proposal_veto_min_source_value_delta": float,
+    "proposal_veto_min_source_positive_prob": float,
+    "proposal_veto_shadow_only": bool,
+    "proposal_veto_sample_limit": int,
+    "oracle_min_margin": int,
+    "oracle_apply_discard": bool,
+    "liveness_shield_oracle_min_margin": int,
 }
 
 
@@ -1810,6 +2883,18 @@ def _apply_neural_bot_overrides(model_args, overrides):
     setattr(model_args, key, value)
 
 
+def _uses_neural_prediction(model_args):
+  mode = str(
+      getattr(model_args, "neural_prediction_mode", "shared") or "shared"
+  ).strip().lower().replace("-", "_")
+  if mode not in ("shared", "model"):
+    raise ValueError(
+        "neural_prediction_mode must be 'shared' or 'model', "
+        f"got {mode!r}"
+    )
+  return mode == "model"
+
+
 def _split_phase_names(spec):
   normalized = str(spec or "").replace("|", ",").replace("+", ",")
   return {part.strip().lower() for part in normalized.split(",") if part.strip()}
@@ -1824,7 +2909,13 @@ def load_neural_bots(specs, players, device, args=None):
     payload, overrides = _split_payload_options(payload)
     mode = "policy"
     checkpoint = payload
-    if payload.endswith(":belief_policy"):
+    if payload.endswith(":competitive_tactics"):
+      checkpoint = payload[:-len(":competitive_tactics")]
+      mode = "competitive_tactics"
+    elif payload.endswith(":competitive-tactics"):
+      checkpoint = payload[:-len(":competitive-tactics")]
+      mode = "competitive_tactics"
+    elif payload.endswith(":belief_policy"):
       checkpoint = payload[:-len(":belief_policy")]
       mode = "belief_policy"
     elif payload.endswith(":belief-policy"):
@@ -1866,6 +2957,18 @@ def load_neural_bots(specs, players, device, args=None):
     elif payload.endswith(":liveness-shield"):
       checkpoint = payload[:-len(":liveness-shield")]
       mode = "liveness_shield"
+    elif payload.endswith(":belief_table_liveness"):
+      checkpoint = payload[:-len(":belief_table_liveness")]
+      mode = "belief_table_liveness"
+    elif payload.endswith(":belief-table-liveness"):
+      checkpoint = payload[:-len(":belief-table-liveness")]
+      mode = "belief_table_liveness"
+    elif payload.endswith(":oracle_shield"):
+      checkpoint = payload[:-len(":oracle_shield")]
+      mode = "oracle_shield"
+    elif payload.endswith(":oracle-shield"):
+      checkpoint = payload[:-len(":oracle-shield")]
+      mode = "oracle_shield"
     elif payload.endswith(":residual_policy"):
       checkpoint = payload[:-len(":residual_policy")]
       mode = "residual_policy"
@@ -1884,6 +2987,42 @@ def load_neural_bots(specs, players, device, args=None):
     elif payload.endswith(":improve-graft"):
       checkpoint = payload[:-len(":improve-graft")]
       mode = "improve_graft"
+    elif payload.endswith(":intralane_filter"):
+      checkpoint = payload[:-len(":intralane_filter")]
+      mode = "intralane_filter"
+    elif payload.endswith(":intralane-filter"):
+      checkpoint = payload[:-len(":intralane-filter")]
+      mode = "intralane_filter"
+    elif payload.endswith(":pairwise_boundary"):
+      checkpoint = payload[:-len(":pairwise_boundary")]
+      mode = "pairwise_boundary"
+    elif payload.endswith(":pairwise-boundary"):
+      checkpoint = payload[:-len(":pairwise-boundary")]
+      mode = "pairwise_boundary"
+    elif payload.endswith(":action_set_transformer"):
+      checkpoint = payload[:-len(":action_set_transformer")]
+      mode = "action_set_transformer"
+    elif payload.endswith(":action-set-transformer"):
+      checkpoint = payload[:-len(":action-set-transformer")]
+      mode = "action_set_transformer"
+    elif payload.endswith(":action_set"):
+      checkpoint = payload[:-len(":action_set")]
+      mode = "action_set_transformer"
+    elif payload.endswith(":action-set"):
+      checkpoint = payload[:-len(":action-set")]
+      mode = "action_set_transformer"
+    elif payload.endswith(":proposal_veto_top1"):
+      checkpoint = payload[:-len(":proposal_veto_top1")]
+      mode = "proposal_veto_top1"
+    elif payload.endswith(":proposal-veto-top1"):
+      checkpoint = payload[:-len(":proposal-veto-top1")]
+      mode = "proposal_veto_top1"
+    elif payload.endswith(":proposal_veto"):
+      checkpoint = payload[:-len(":proposal_veto")]
+      mode = "proposal_veto_top1"
+    elif payload.endswith(":proposal-veto"):
+      checkpoint = payload[:-len(":proposal-veto")]
+      mode = "proposal_veto_top1"
     elif payload.endswith(":belief"):
       checkpoint = payload[:-len(":belief")]
       mode = "belief"
@@ -1953,7 +3092,66 @@ def load_neural_bots(specs, players, device, args=None):
         )
       entry["improve_scorer"] = load_improve_scorer(improve_model, device)
       entry["improve_model"] = improve_model
-    if mode == "value_shield":
+    if mode == "intralane_filter":
+      filter_model = str(getattr(model_args, "intralane_filter_model", "") or "")
+      if not filter_model:
+        raise ValueError(
+          f"--neural-bot {name}=...:intralane_filter requires "
+          "intralane_filter_model=PATH"
+        )
+      entry["intralane_filter"] = load_intralane_filter(filter_model, device)
+      entry["intralane_filter_model"] = filter_model
+    if mode == "pairwise_boundary":
+      boundary_model = str(
+          getattr(model_args, "pairwise_boundary_model", "") or ""
+      )
+      if not boundary_model:
+        raise ValueError(
+            f"--neural-bot {name}=...:pairwise_boundary requires "
+            "pairwise_boundary_model=PATH"
+        )
+      entry["pairwise_boundary"] = load_pairwise_boundary(boundary_model, device)
+      entry["pairwise_boundary_model"] = boundary_model
+    if mode == "action_set_transformer":
+      selector_model = str(
+          getattr(model_args, "action_set_transformer_model", "") or ""
+      )
+      if not selector_model:
+        raise ValueError(
+            f"--neural-bot {name}=...:action_set_transformer requires "
+            "action_set_transformer_model=PATH"
+        )
+      entry["action_set_transformer"] = load_action_set_transformer(
+          selector_model, device
+      )
+      entry["action_set_transformer_model"] = selector_model
+    if mode == "proposal_veto_top1":
+      selector_model = str(
+          getattr(model_args, "action_set_transformer_model", "") or ""
+      )
+      if not selector_model:
+        raise ValueError(
+            f"--neural-bot {name}=...:proposal_veto_top1 requires "
+            "action_set_transformer_model=PATH"
+        )
+      proposal_model = str(getattr(model_args, "proposal_veto_model", "") or "")
+      if not proposal_model:
+        raise ValueError(
+            f"--neural-bot {name}=...:proposal_veto_top1 requires "
+            "proposal_veto_model=PATH"
+        )
+      entry["action_set_transformer"] = load_action_set_transformer(
+          selector_model, device
+      )
+      entry["action_set_transformer_model"] = selector_model
+      entry["proposal_veto"] = load_proposal_veto_selector(
+          proposal_model, device
+      )
+      entry["proposal_veto_model"] = proposal_model
+    if mode == "value_shield" or (
+        mode == "belief"
+        and float(getattr(model_args, "survival_value_search_penalty", 0.0)) > 0
+    ):
       survival_checkpoint = str(
           getattr(model_args, "survival_checkpoint", "") or checkpoint
       )
@@ -1970,6 +3168,17 @@ def load_neural_bots(specs, players, device, args=None):
           "survival_model": survival_model,
           "survival_args": survival_args,
       })
+      uses_survival_search = mode == "belief" or (
+          mode == "value_shield"
+          and str(getattr(model_args, "survival_value_base_mode", "policy"))
+          in ("belief", "belief_liveness")
+          and float(getattr(model_args, "survival_value_search_penalty", 0.0)) > 0
+      )
+      if uses_survival_search:
+        model_args._search_survival_model = survival_model
+        model_args._survival_search_counters = {
+            "nonterminal_evaluations": 0,
+        }
     if mode in ("q_policy", "residual_q_policy", "residual_q_risk_policy"):
       phase_risk_checkpoint = str(
           getattr(model_args, "action_paradox_phase_risk_checkpoint", "") or ""
@@ -2015,11 +3224,13 @@ class AZQPolicyBot:
     self.model = model
     self.device = device
     self.args = model_args
+    self.uses_neural_prediction = _uses_neural_prediction(model_args)
     self.phase_risk_model = phase_risk_model
     self.phase_risk_phases = _split_phase_names(phase_risk_phases)
     self._decision_stats = _empty_decision_stats()
     self._decision_stats.update({
         "rerank_disabled": 0,
+        "rerank_disabled_led_contrast": 0,
         "rerank_considered": 0,
         "rerank_abstained_margin": 0,
         "rerank_applied": 0,
@@ -2047,6 +3258,7 @@ class AZQPolicyBot:
         "rerank_relative_applied": 0,
         "rerank_relative_missing_risk": 0,
         "rerank_relative_blocked_policy_gap": 0,
+        "rerank_relative_blocked_risk_margin": 0,
         "rerank_by_phase": {},
         "rerank_overrides_by_phase": {},
     })
@@ -2058,9 +3270,26 @@ class AZQPolicyBot:
   def _rerank_enabled_for_phase(self, state):
     spec = str(getattr(self.args, "action_value_rerank_phases", "") or "")
     if not spec.strip():
+      phase_allowed = True
+    else:
+      allowed = {part.strip().lower() for part in spec.split(",") if part.strip()}
+      phase_allowed = self._phase_name(state) in allowed
+    if not phase_allowed:
+      return False
+    if self._phase_name(state) != "play":
       return True
-    allowed = {part.strip().lower() for part in spec.split(",") if part.strip()}
-    return self._phase_name(state) in allowed
+    trick_number = int(getattr(state, "_trick_number", 0))
+    min_trick = int(getattr(
+        self.args, "action_value_rerank_min_trick_number", -1
+    ))
+    max_trick = int(getattr(
+        self.args, "action_value_rerank_max_trick_number", -1
+    ))
+    if min_trick >= 0 and trick_number < min_trick:
+      return False
+    if max_trick >= 0 and trick_number > max_trick:
+      return False
+    return True
 
   def _risk_model_for_phase(self, state):
     if self.phase_risk_model is None or not self.phase_risk_phases:
@@ -2069,21 +3298,46 @@ class AZQPolicyBot:
       return self.phase_risk_model
     return self.model
 
+  @staticmethod
+  def _action_color(state, action):
+    action = int(action)
+    if action == 999:
+      return None
+    num_card_types = int(getattr(state, "_num_card_types", 0) or 0)
+    if num_card_types <= 0:
+      return None
+    color_idx = action // num_card_types
+    colors = ("R", "B", "Y", "G")
+    if 0 <= color_idx < len(colors):
+      return colors[color_idx]
+    return None
+
+  def _led_contrast_rerank_enabled(self, state, legal):
+    if not bool(
+        getattr(self.args, "action_paradox_rerank_led_contrast_only", False)
+    ):
+      return True
+    if self._phase_name(state) != "play":
+      return False
+    led_color = getattr(state, "_led_color", None)
+    if led_color not in ("B", "Y", "G"):
+      return False
+    led_legal = any(self._action_color(state, action) == led_color
+                    for action in legal)
+    red_legal = any(self._action_color(state, action) == "R" for action in legal)
+    return bool(led_legal and red_legal)
+
   def step(self, state, player):
     legal = state.legal_actions(player)
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if len(legal) == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return legal[0]
-    policy, _ = model_policy_value(
-        self.model,
-        state,
-        player,
-        state.num_distinct_actions(),
-        self.args.value_scale,
-        self.device,
-    )
-    baseline_action = max(legal, key=lambda action: policy[action])
     weight = float(getattr(self.args, "action_value_selection_weight", 0.0))
     risk_penalty_weight = float(
         getattr(self.args, "action_paradox_selection_penalty", 0.0)
@@ -2095,12 +3349,42 @@ class AZQPolicyBot:
     feasibility_weight = float(
         getattr(self.args, "action_feasibility_selection_weight", 0.0)
     )
+    risk_needed = (
+        risk_penalty_weight > 0
+        or risk_mode in ("threshold", "relative", "relative_dominance")
+    )
+    risk_model = self._risk_model_for_phase(state)
+    can_share_risk_forward = risk_model is self.model
+    policy, _, action_values, action_risks, action_features = (
+        model_policy_value_action_aux(
+            self.model,
+            state,
+            player,
+            state.num_distinct_actions(),
+            self.args.value_scale,
+            self.device,
+            need_action_values=weight > 0,
+            need_action_risks=risk_needed and can_share_risk_forward,
+            return_action_features=feasibility_weight != 0.0,
+            use_shared_prediction=not self.uses_neural_prediction,
+        )
+    )
+    baseline_action = max(legal, key=lambda action: policy[action])
+    if (
+        self._phase_name(state) == "prediction"
+        and self.uses_neural_prediction
+        and getattr(self.model, "separate_prediction_policy_head", False)
+    ):
+      # Q/risk heads model card-play outcomes; the dedicated bidding head is
+      # trained directly on actor-safe full-match bid interventions instead.
+      _record_decision(self._decision_stats, state, baseline_action, legal_count)
+      return baseline_action
     if (
         (
             weight <= 0
             and risk_penalty_weight <= 0
             and feasibility_weight == 0.0
-            and risk_mode not in ("threshold", "relative")
+            and risk_mode not in ("threshold", "relative", "relative_dominance")
         )
         or not self._rerank_enabled_for_phase(state)
     ):
@@ -2109,16 +3393,18 @@ class AZQPolicyBot:
           self._decision_stats, state, baseline_action, legal_count
       )
       return baseline_action
+    if not self._led_contrast_rerank_enabled(state, legal):
+      self._decision_stats["rerank_disabled"] += 1
+      self._decision_stats["rerank_disabled_led_contrast"] += 1
+      _record_decision(
+          self._decision_stats, state, baseline_action, legal_count
+      )
+      return baseline_action
     phase = self._phase_name(state)
     self._decision_stats["rerank_considered"] += 1
     _inc_counter(self._decision_stats["rerank_by_phase"], phase)
-    action_values = (
-        model_action_values(
-            self.model, state, player, state.num_distinct_actions(), self.device
-        )
-        if weight > 0 else
-        np.zeros(state.num_distinct_actions(), dtype=np.float32)
-    )
+    if action_values is None:
+      action_values = np.zeros(state.num_distinct_actions(), dtype=np.float32)
     clip = max(0.0, float(getattr(self.args, "action_value_rerank_clip", 0.5)))
     if clip > 0:
       action_values = np.clip(action_values, -clip, clip)
@@ -2138,25 +3424,18 @@ class AZQPolicyBot:
         return baseline_action
     if risk_penalty_weight > 0:
       self._decision_stats["rerank_risk_used"] += 1
-    elif risk_mode in ("threshold", "relative"):
+    elif risk_mode in ("threshold", "relative", "relative_dominance"):
       self._decision_stats["rerank_risk_used"] += 1
-    action_risks = (
-        model_action_risks(
-            self._risk_model_for_phase(state),
-            state,
-            player,
-            state.num_distinct_actions(),
-            self.device,
-        )
-        if risk_penalty_weight > 0 or risk_mode in ("threshold", "relative") else
-        None
-    )
+    if risk_needed and action_risks is None:
+      action_risks = model_action_risks(
+          risk_model,
+          state,
+          player,
+          state.num_distinct_actions(),
+          self.device,
+      )
     feasibility_scores = (
-        action_feasibility_scores(
-            action_feature_matrix(
-                state, player, state.num_distinct_actions()
-            )
-        )
+        action_feasibility_scores(action_features)
         if feasibility_weight != 0.0 else
         None
     )
@@ -2269,6 +3548,11 @@ class AZResidualPolicyBot:
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -2410,6 +3694,11 @@ class AZResidualQPolicyBot(AZResidualPolicyBot):
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -2523,6 +3812,11 @@ class AZResidualQRiskPolicyBot(AZResidualQPolicyBot):
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -2550,7 +3844,7 @@ class AZResidualQRiskPolicyBot(AZResidualQPolicyBot):
         weight <= 0
         and risk_penalty_weight <= 0
         and feasibility_weight == 0.0
-        and risk_mode not in ("threshold", "relative")
+        and risk_mode not in ("threshold", "relative", "relative_dominance")
     ):
       self._decision_stats["residual_disabled"] += 1
       _record_decision(self._decision_stats, state, base_action, legal_count)
@@ -2590,7 +3884,8 @@ class AZResidualQRiskPolicyBot(AZResidualQPolicyBot):
         return base_action
     action_risks = (
         self._candidate_action_risks(state, player, num_actions)
-        if risk_penalty_weight > 0 or risk_mode in ("threshold", "relative") else
+        if risk_penalty_weight > 0
+        or risk_mode in ("threshold", "relative", "relative_dominance") else
         None
     )
     feasibility_scores = (
@@ -2626,6 +3921,96 @@ class AZResidualQRiskPolicyBot(AZResidualQPolicyBot):
     return selected_action
 
 
+class AZOracleShieldPolicyBot:
+  """Neural policy guarded by the exact own-hand liveness oracle.
+
+  Play phase: keeps the policy's preferred action unless its post-action
+  adversarial liveness margin (quantum_cat_liveness_oracle) drops below
+  `oracle_min_margin` while a safer legal alternative exists. Provably dead
+  moves are always vetoed when an alive move exists.
+
+  Discard phase (optional, default on): prefers the shared discard heuristic
+  when it is margin-safe, otherwise the margin-maximizing discard.
+
+  Prediction phase: shared prediction heuristic, like the other policy bots.
+  """
+
+  def __init__(self, model, name, device, model_args):
+    self.name = name
+    self.model = model
+    self.device = device
+    self.args = model_args
+    self.min_margin = int(getattr(model_args, "oracle_min_margin", 1))
+    self.apply_discard = bool(getattr(model_args, "oracle_apply_discard", True))
+    self._decision_stats = _empty_decision_stats()
+    self._decision_stats.update({
+        "oracle_shield_considered": 0,
+        "oracle_shield_base_kept": 0,
+        "oracle_shield_overrides": 0,
+        "oracle_shield_discard_overrides": 0,
+        "oracle_shield_min_margin": self.min_margin,
+    })
+
+  def _policy(self, state, player):
+    policy, _ = model_policy_value(
+        self.model,
+        state,
+        player,
+        state.num_distinct_actions(),
+        self.args.value_scale,
+        self.device,
+    )
+    return policy
+
+  def step(self, state, player):
+    legal = state.legal_actions(player)
+    if not legal:
+      return None
+    phase = int(getattr(state, "_phase", -1))
+    if phase == 2:
+      action = shared_prediction_action(state, player, legal)
+      if action is not None:
+        return int(action)
+      return int(legal[0])
+    if phase == 1:
+      shared = shared_discard_action(state, player, legal)
+      if not self.apply_discard:
+        return int(shared) if shared is not None else int(legal[0])
+      view = liveness_oracle.discard_view_from_state(state, player)
+      margins = {
+          int(a): liveness_oracle.post_discard_margin(view, int(a))
+          for a in legal
+      }
+      best = max(margins.values())
+      threshold = min(self.min_margin, best)
+      if shared is not None and margins[int(shared)] >= threshold:
+        return int(shared)
+      self._decision_stats["oracle_shield_discard_overrides"] += 1
+      return max(legal, key=lambda a: margins[int(a)])
+    if phase != 3:
+      return int(legal[0])
+    if legal == [999]:
+      return 999
+    policy = self._policy(state, player)
+    self._decision_stats["oracle_shield_considered"] += 1
+    base = max(
+        (a for a in legal if a != 999),
+        key=lambda a: float(policy[a]),
+    )
+    choice = liveness_oracle.select_action_with_oracle(
+        state, player, policy,
+        min_margin=self.min_margin,
+        apply_to_discard=False,
+    )
+    if choice is None:
+      choice = base
+    if int(choice) == int(base):
+      self._decision_stats["oracle_shield_base_kept"] += 1
+    else:
+      self._decision_stats["oracle_shield_overrides"] += 1
+    return int(choice)
+
+
 class AZLivenessShieldPolicyBot:
   """Baseline-protected neural policy with deterministic liveness guards."""
 
@@ -2634,12 +4019,17 @@ class AZLivenessShieldPolicyBot:
     self.model = model
     self.device = device
     self.args = model_args
+    self.uses_neural_prediction = _uses_neural_prediction(model_args)
     base_mode = str(getattr(model_args, "liveness_shield_base_mode", "q_policy"))
     if base_mode == "q_policy":
       self.base_bot = AZQPolicyBot(model, f"{name}_base", device, model_args)
     elif base_mode == "policy":
       self.base_bot = AZPolicyBot(
-          model, f"{name}_base", device, model_args.value_scale
+          model,
+          f"{name}_base",
+          device,
+          model_args.value_scale,
+          use_shared_prediction=not self.uses_neural_prediction,
       )
     else:
       raise ValueError(f"Unsupported liveness shield base mode: {base_mode}")
@@ -2651,6 +4041,11 @@ class AZLivenessShieldPolicyBot:
         "liveness_shield_overrides": 0,
         "liveness_shield_shadow_overrides": 0,
         "liveness_shield_blocked_policy_gap": 0,
+        "liveness_shield_blocked_oracle_margin": 0,
+        "liveness_shield_base_responsible_red_win": 0,
+        "liveness_shield_candidate_responsible_red_win": 0,
+        "liveness_shield_candidate_leaves_responsible_red_win": 0,
+        "liveness_shield_responsible_red_win_guard_candidates": 0,
         "liveness_shield_no_scores": 0,
         "liveness_shield_base_failure_sum": 0.0,
         "liveness_shield_selected_failure_sum": 0.0,
@@ -2658,9 +4053,28 @@ class AZLivenessShieldPolicyBot:
         "liveness_shield_selected_public_damage_sum": 0.0,
         "liveness_shield_base_min_open_slots_sum": 0.0,
         "liveness_shield_selected_min_open_slots_sum": 0.0,
+        "liveness_shield_base_exact_forced_sum": 0.0,
+        "liveness_shield_selected_exact_forced_sum": 0.0,
+        "liveness_shield_base_exact_min_legal_sum": 0.0,
+        "liveness_shield_selected_exact_min_legal_sum": 0.0,
+        "liveness_shield_base_exact_current_legal_sum": 0.0,
+        "liveness_shield_selected_exact_current_legal_sum": 0.0,
+        "liveness_shield_base_exact_total_legal_sum": 0.0,
+        "liveness_shield_selected_exact_total_legal_sum": 0.0,
         "liveness_shield_by_phase": {},
         "liveness_shield_overrides_by_phase": {},
         "liveness_shield_base_mode": base_mode,
+        "liveness_shield_exact_legal_pressure": bool(
+            getattr(model_args, "liveness_shield_exact_legal_pressure", False)
+        ),
+        "liveness_shield_exact_forced_only": bool(
+            getattr(model_args, "liveness_shield_exact_forced_only", False)
+        ),
+        "liveness_shield_keep_responsible_red_win": bool(
+            getattr(
+                model_args, "liveness_shield_keep_responsible_red_win", False
+            )
+        ),
         "liveness_shield_override_samples": [],
     })
 
@@ -2701,6 +4115,7 @@ class AZLivenessShieldPolicyBot:
         state.num_distinct_actions(),
         self.args.value_scale,
         self.device,
+        use_shared_prediction=not self.uses_neural_prediction,
     )
     return policy
 
@@ -2720,22 +4135,106 @@ class AZLivenessShieldPolicyBot:
     non_paradox = [action for action in legal if action != 999]
     if non_paradox:
       legal = non_paradox
-    return {
-        int(action): action_liveness_certificate(
-            state, player, action, base_action=base_action
-        )
-        for action in legal
-    }
+    use_exact = bool(
+        getattr(self.args, "liveness_shield_exact_legal_pressure", False)
+    )
+    scored = {}
+    for action in legal:
+      row = action_liveness_certificate(
+          state, player, action, base_action=base_action
+      )
+      if use_exact:
+        row.update(exact_legal_pressure_after_action(state, action))
+      scored[int(action)] = row
+    return scored
 
   def _candidate_key(self, item, base_action):
     action, row = item
-    return action_liveness_key(row, action, base_action=base_action)
+    liveness_key = action_liveness_key(row, action, base_action=base_action)
+    if not bool(getattr(self.args, "liveness_shield_exact_legal_pressure", False)):
+      return liveness_key
+    return (
+        1 if bool(row.get("exact_terminal_after", False)) else 0,
+        -int(row.get("exact_forced_paradox_players_after", 0)),
+        0 if bool(row.get("lost_led_token", False)) else 1,
+        int(row.get("exact_min_nonparadox_legal_after", 0)),
+        int(row.get("exact_current_nonparadox_legal_after", 0)),
+        int(row.get("exact_total_nonparadox_legal_after", 0)),
+    ) + liveness_key
+
+  @staticmethod
+  def _responsible_token_loss_win(row):
+    if "responsible_red_win_switch" in row:
+      return bool(row.get("responsible_red_win_switch", False))
+    return (
+        bool(row.get("lost_led_token", False))
+        and bool(row.get("would_win_now", False))
+        and not bool(row.get("over_target_would_win", False))
+    )
+
+  def _responsible_red_win_guard_blocks(self, base_row, candidate_row):
+    return (
+        bool(
+            getattr(
+                self.args, "liveness_shield_keep_responsible_red_win", False
+            )
+        )
+        and self._responsible_token_loss_win(base_row)
+        and not self._responsible_token_loss_win(candidate_row)
+    )
 
   def _dominates_base(self, base_row, candidate_row):
     if bool(candidate_row.get("is_paradox", False)):
       return False
     if bool(base_row.get("is_paradox", False)):
       return True
+    if bool(getattr(self.args, "liveness_shield_exact_legal_pressure", False)):
+      base_forced = int(base_row.get("exact_forced_paradox_players_after", 0))
+      candidate_forced = int(
+          candidate_row.get("exact_forced_paradox_players_after", 0)
+      )
+      if candidate_forced < base_forced:
+        return True
+      if bool(getattr(self.args, "liveness_shield_exact_forced_only", False)):
+        return False
+      if candidate_forced > base_forced:
+        return False
+      base_min_legal = int(base_row.get("exact_min_nonparadox_legal_after", 0))
+      candidate_min_legal = int(
+          candidate_row.get("exact_min_nonparadox_legal_after", 0)
+      )
+      base_current_legal = int(
+          base_row.get("exact_current_nonparadox_legal_after", 0)
+      )
+      candidate_current_legal = int(
+          candidate_row.get("exact_current_nonparadox_legal_after", 0)
+      )
+      base_total_legal = int(
+          base_row.get("exact_total_nonparadox_legal_after", 0)
+      )
+      candidate_total_legal = int(
+          candidate_row.get("exact_total_nonparadox_legal_after", 0)
+      )
+      min_open_delta = int(
+          getattr(self.args, "liveness_shield_min_open_slot_delta", 1)
+      )
+      exact_not_worse = (
+          candidate_min_legal >= base_min_legal
+          and candidate_current_legal >= base_current_legal
+          and candidate_total_legal >= base_total_legal
+      )
+      if (
+          candidate_min_legal >= base_min_legal + min_open_delta
+          and candidate_total_legal >= base_total_legal
+      ):
+        return True
+      if (
+          candidate_current_legal >= base_current_legal + min_open_delta
+          and exact_not_worse
+      ):
+        return True
+    if self._responsible_red_win_guard_blocks(base_row, candidate_row):
+      return False
     public_not_worse = (
         int(candidate_row.get("min_player_open_slots_after", 0)) >=
         int(base_row.get("min_player_open_slots_after", 0))
@@ -2754,6 +4253,16 @@ class AZLivenessShieldPolicyBot:
         and int(candidate_row.get("own_public_slot_damage", 0)) <=
         int(base_row.get("own_public_slot_damage", 0))
     )
+    if (
+        bool(base_row.get("lost_led_token", False))
+        and not bool(candidate_row.get("lost_led_token", False))
+    ):
+      if (
+          bool(base_row.get("own_feasible", False))
+          and not bool(candidate_row.get("own_feasible", False))
+      ):
+        return False
+      return True
     base_deficit = int(base_row.get("own_total_deficit", 0))
     candidate_deficit = int(candidate_row.get("own_total_deficit", 0))
     if candidate_deficit < base_deficit:
@@ -2846,6 +4355,11 @@ class AZLivenessShieldPolicyBot:
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -2871,10 +4385,27 @@ class AZLivenessShieldPolicyBot:
       base_row = action_liveness_certificate(
           state, player, base_action, base_action=base_action
       )
+      if bool(getattr(self.args, "liveness_shield_exact_legal_pressure", False)):
+        base_row.update(exact_legal_pressure_after_action(state, base_action))
     selected_action, selected_row = max(
         scored.items(), key=lambda item: self._candidate_key(item, base_action)
     )
     selected_action = int(selected_action)
+    base_responsible = self._responsible_token_loss_win(base_row)
+    candidate_responsible = self._responsible_token_loss_win(selected_row)
+    if base_responsible:
+      self._decision_stats["liveness_shield_base_responsible_red_win"] += 1
+    if candidate_responsible:
+      self._decision_stats["liveness_shield_candidate_responsible_red_win"] += 1
+    if selected_action != int(base_action) and base_responsible:
+      if not candidate_responsible:
+        self._decision_stats[
+            "liveness_shield_candidate_leaves_responsible_red_win"
+        ] += 1
+      if self._responsible_red_win_guard_blocks(base_row, selected_row):
+        self._decision_stats[
+            "liveness_shield_responsible_red_win_guard_candidates"
+        ] += 1
     should_override = (
         selected_action != int(base_action)
         and self._dominates_base(base_row, selected_row)
@@ -2884,6 +4415,20 @@ class AZLivenessShieldPolicyBot:
     ):
       self._decision_stats["liveness_shield_blocked_policy_gap"] += 1
       should_override = False
+    oracle_gate = int(
+        getattr(self.args, "liveness_shield_oracle_min_margin", -1)
+    )
+    if (
+        should_override
+        and oracle_gate >= 0
+        and int(getattr(state, "_phase", -1)) == 3
+        and int(base_action) != 999
+    ):
+      view = liveness_oracle.view_from_state(state, player)
+      base_margin = liveness_oracle.post_play_margin(view, int(base_action))
+      if base_margin >= oracle_gate:
+        self._decision_stats["liveness_shield_blocked_oracle_margin"] += 1
+        should_override = False
     shadow_only = bool(getattr(self.args, "liveness_shield_shadow_only", False))
     final_action = int(base_action)
     final_row = base_row
@@ -2925,6 +4470,30 @@ class AZLivenessShieldPolicyBot:
     self._decision_stats["liveness_shield_selected_min_open_slots_sum"] += float(
         final_row.get("min_player_open_slots_after", 0)
     )
+    self._decision_stats["liveness_shield_base_exact_forced_sum"] += float(
+        base_row.get("exact_forced_paradox_players_after", 0)
+    )
+    self._decision_stats["liveness_shield_selected_exact_forced_sum"] += float(
+        final_row.get("exact_forced_paradox_players_after", 0)
+    )
+    self._decision_stats["liveness_shield_base_exact_min_legal_sum"] += float(
+        base_row.get("exact_min_nonparadox_legal_after", 0)
+    )
+    self._decision_stats["liveness_shield_selected_exact_min_legal_sum"] += float(
+        final_row.get("exact_min_nonparadox_legal_after", 0)
+    )
+    self._decision_stats["liveness_shield_base_exact_current_legal_sum"] += float(
+        base_row.get("exact_current_nonparadox_legal_after", 0)
+    )
+    self._decision_stats[
+        "liveness_shield_selected_exact_current_legal_sum"
+    ] += float(final_row.get("exact_current_nonparadox_legal_after", 0))
+    self._decision_stats["liveness_shield_base_exact_total_legal_sum"] += float(
+        base_row.get("exact_total_nonparadox_legal_after", 0)
+    )
+    self._decision_stats["liveness_shield_selected_exact_total_legal_sum"] += float(
+        final_row.get("exact_total_nonparadox_legal_after", 0)
+    )
     _record_decision(self._decision_stats, state, final_action, legal_count)
     return int(final_action)
 
@@ -2963,6 +4532,22 @@ class AZLivenessShieldPolicyBot:
           considered,
           6,
       )
+      for key in (
+          "exact_forced",
+          "exact_min_legal",
+          "exact_current_legal",
+          "exact_total_legal",
+      ):
+        base_sum_key = f"liveness_shield_base_{key}_sum"
+        selected_sum_key = f"liveness_shield_selected_{key}_sum"
+        stats[f"liveness_shield_base_{key}_avg"] = round(
+            float(stats.get(base_sum_key, 0.0)) / considered,
+            6,
+        )
+        stats[f"liveness_shield_selected_{key}_avg"] = round(
+            float(stats.get(selected_sum_key, 0.0)) / considered,
+            6,
+        )
     return stats
 
   def raw_decision_stats(self):
@@ -2972,6 +4557,130 @@ class AZLivenessShieldPolicyBot:
     elif hasattr(self.base_bot, "decision_stats"):
       stats["nested"] = {"base_bot": self.base_bot.decision_stats()}
     return stats
+
+
+@lru_cache(maxsize=32768)
+def _public_rank_count_probabilities(population, rank_copies, hand_size):
+  """Exact one-rank hypergeometric marginal from visible card conservation."""
+  if not 0 <= rank_copies <= population or not 0 <= hand_size <= population:
+    raise ValueError((population, rank_copies, hand_size))
+  denominator = math.comb(population, hand_size)
+  return tuple(
+      (
+          count,
+          math.comb(rank_copies, count)
+          * math.comb(population - rank_copies, hand_size - count)
+          / denominator,
+      )
+      for count in range(
+          max(0, hand_size - population + rank_copies),
+          min(rank_copies, hand_size) + 1,
+      )
+  )
+
+
+def _public_unknown_rank_counts(state, observer):
+  """Count unseen ranks without touching opponent hands or hidden discards."""
+  counts = np.full(int(state._num_card_types), 5, dtype=np.int32)
+  counts -= np.asarray(state._hands[int(observer)], dtype=np.int32)
+  own_discard = int(state._discarded_cards[int(observer)])
+  if own_discard > 0:
+    counts[own_discard - 1] -= 1
+  board = np.asarray(state._board_ownership)
+  counts -= np.sum(board >= 0, axis=0, dtype=np.int32)
+  counts -= np.sum(board == -2, axis=0, dtype=np.int32)
+  if np.any(counts < 0):
+    raise ValueError(f"Contradictory public rank counts: {counts.tolist()}")
+  return counts
+
+
+def _public_hand_size(state, player):
+  played = int(state._count_cards_played_by(int(player)))
+  discarded = int(bool(state._has_discarded[int(player)]))
+  return int(state._cards_per_player_initial) - discarded - played
+
+
+def _public_opponent_capacity_posterior(state, player, unknown_counts):
+  """Approximate table capacity from exact public one-rank marginals."""
+  population = int(np.sum(unknown_counts))
+  hand_size = _public_hand_size(state, player)
+  remaining_plays = max(0, hand_size - 1)
+  tokens = np.asarray(state._color_tokens[int(player)], dtype=bool)
+  board = np.asarray(state._board_ownership)
+  capacities = np.sum((board == -1) & tokens[:, None], axis=0)
+  expected_matching = 0.0
+  overflow_probabilities = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+  for rank, remaining in enumerate(unknown_counts):
+    capacity = int(capacities[rank])
+    rank_overflow = np.zeros(3, dtype=np.float64)
+    for count, probability in _public_rank_count_probabilities(
+        population, int(remaining), hand_size
+    ):
+      expected_matching += min(count, capacity) * probability
+      rank_overflow[min(2, max(0, count - capacity))] += probability
+    combined = np.zeros(3, dtype=np.float64)
+    for previous in range(3):
+      for additional in range(3):
+        combined[min(2, previous + additional)] += (
+            overflow_probabilities[previous] * rank_overflow[additional]
+        )
+    overflow_probabilities = combined
+  return {
+      "seat": int(player),
+      "expected_surplus": float(expected_matching - remaining_plays),
+      "approx_failure_probability": float(overflow_probabilities[2]),
+  }
+
+
+def public_posterior_action_score(state, observer, action):
+  """Score an action using only the acting hand and public game information."""
+  candidate = state.clone()
+  candidate.apply_action(int(action))
+  any_paradox = any(bool(flag) for flag in candidate._has_paradoxed)
+  if candidate.is_terminal():
+    marker = -100.0 if any_paradox else 100.0
+    return {
+        "any_paradox": any_paradox,
+        "min_expected_surplus": marker,
+        "total_expected_surplus": marker,
+        "sum_failure_probability": 4.0 if any_paradox else 0.0,
+        "max_failure_probability": 1.0 if any_paradox else 0.0,
+        "next_expected_surplus": marker,
+        "own_margin": marker,
+    }
+  unknown_counts = _public_unknown_rank_counts(candidate, observer)
+  opponent_metrics = [
+      _public_opponent_capacity_posterior(candidate, seat, unknown_counts)
+      for seat in range(int(candidate._num_players))
+      if seat != int(observer) and _public_hand_size(candidate, seat) > 1
+  ]
+  own_view = liveness_oracle.view_from_state(candidate, observer)
+  own_surplus = float(own_view.matching() - own_view.plays_remaining)
+  surpluses = [own_surplus] + [
+      row["expected_surplus"] for row in opponent_metrics
+  ]
+  next_row = next(
+      (
+          row for row in opponent_metrics
+          if row["seat"] == int(candidate.current_player())
+      ),
+      None,
+  )
+  return {
+      "any_paradox": any_paradox,
+      "min_expected_surplus": float(min(surpluses)),
+      "total_expected_surplus": float(sum(surpluses)),
+      "sum_failure_probability": float(sum(
+          row["approx_failure_probability"] for row in opponent_metrics
+      )),
+      "max_failure_probability": float(max([
+          row["approx_failure_probability"] for row in opponent_metrics
+      ] or [0.0])),
+      "next_expected_surplus": float(
+          own_surplus if next_row is None else next_row["expected_surplus"]
+      ),
+      "own_margin": float(own_view.margin()),
+  }
 
 
 class AZValueShieldPolicyBot:
@@ -2984,14 +4693,55 @@ class AZValueShieldPolicyBot:
     self.device = device
     self.args = model_args
     self.players = int(getattr(model_args, "players", 3))
+    base_mode = str(getattr(model_args, "survival_value_base_mode", "policy"))
+    if base_mode not in ("policy", "liveness_shield", "belief", "belief_liveness"):
+      raise ValueError(f"Unsupported survival value shield base mode: {base_mode}")
+    self.base_mode = base_mode
+    self.base_bot = None
+    self.opening_belief_bot = None
+    if base_mode in ("liveness_shield", "belief_liveness"):
+      self.base_bot = AZLivenessShieldPolicyBot(
+          policy_model, f"{name}_base", device, model_args
+      )
+    if base_mode in ("belief", "belief_liveness"):
+      belief_bot = AZBeliefSearchBot(
+          policy_model,
+          f"{name}_belief_base",
+          device,
+          model_args,
+          max(1, int(getattr(model_args, "belief_samples", 4) or 4)),
+          max(1, int(getattr(model_args, "belief_sims", 8) or 8)),
+      )
+      if base_mode == "belief":
+        self.base_bot = belief_bot
+      else:
+        self.opening_belief_bot = belief_bot
+    self._candidate_world_scores = {}
     self._decision_stats = _empty_decision_stats()
     self._decision_stats.update({
         "value_shield_disabled": 0,
+        "value_shield_opening_belief_decisions": 0,
+        "value_shield_liveness_decisions": 0,
+        "value_shield_analytic_considered": 0,
+        "value_shield_analytic_overrides": 0,
+        "value_shield_analytic_blocked_own_feasibility": 0,
+        "value_shield_analytic_blocked_own_margin": 0,
+        "value_shield_analytic_blocked_token_loss": 0,
+        "value_shield_analytic_blocked_advantage": 0,
+        "value_shield_analytic_blocked_bid_incomplete": 0,
+        "value_shield_analytic_blocked_over_target": 0,
+        "value_shield_analytic_competitive_overrides": 0,
+        "value_shield_analytic_overrides_by_trick": {},
         "value_shield_considered": 0,
         "value_shield_base_kept": 0,
         "value_shield_overrides": 0,
         "value_shield_fallback_max_survival": 0,
         "value_shield_no_scores": 0,
+        "value_shield_blocked_improvement": 0,
+        "value_shield_blocked_paired_lcb": 0,
+        "value_shield_blocked_world_agreement": 0,
+        "value_shield_blocked_policy_gap": 0,
+        "value_shield_blocked_public_safety": 0,
         "value_shield_paradox_candidate_filtered": 0,
         "value_shield_scored_candidates": 0,
         "value_shield_base_survival_sum": 0.0,
@@ -3003,6 +4753,10 @@ class AZValueShieldPolicyBot:
         "value_shield_threshold": float(
             getattr(model_args, "survival_value_threshold", 0.55)
         ),
+        "value_shield_selection_mode": str(
+            getattr(model_args, "survival_value_selection_mode", "threshold")
+        ),
+        "value_shield_base_mode": base_mode,
     })
 
   @staticmethod
@@ -3019,10 +4773,22 @@ class AZValueShieldPolicyBot:
 
   def _enabled_for_phase(self, state):
     spec = str(getattr(self.args, "survival_value_phases", "") or "").strip()
-    if not spec:
-      return True
-    allowed = _split_phase_names(spec)
-    return self._phase_name(state).lower() in allowed
+    phase = self._phase_name(state).lower()
+    if spec and phase not in _split_phase_names(spec):
+      return False
+    if phase == "play":
+      trick_number = int(getattr(state, "_trick_number", -1))
+      min_trick = int(
+          getattr(self.args, "survival_value_min_trick_number", -1)
+      )
+      max_trick = int(
+          getattr(self.args, "survival_value_max_trick_number", -1)
+      )
+      if min_trick >= 0 and trick_number < min_trick:
+        return False
+      if max_trick >= 0 and trick_number > max_trick:
+        return False
+    return True
 
   def _any_paradox(self, state):
     paradoxes = getattr(state, "_has_paradoxed", [False] * self.players)
@@ -3115,12 +4881,149 @@ class AZValueShieldPolicyBot:
     return self._survival_probability(raw_value)
 
   def _score_candidates(self, state, player, candidates):
+    self._candidate_world_scores = {}
+    sample_count = max(
+        1, int(getattr(self.args, "survival_value_belief_samples", 4) or 1)
+    )
+    worlds = sampled_belief_states_for_policy(
+        state,
+        player,
+        sample_count,
+        self.args,
+        self.policy_model,
+        self.device,
+        float(getattr(self.args, "value_scale", 1.0)),
+        context="eval",
+    )
+    if not worlds:
+      raise RuntimeError("Survival value shield produced no information-state worlds")
+    expected_observation = np.asarray(
+        state.observation_tensor(player), dtype=np.float32
+    )
+    expected_legal = sorted(int(action) for action in state.legal_actions(player))
+    for world in worlds:
+      sampled_observation = np.asarray(
+          world.observation_tensor(player), dtype=np.float32
+      )
+      sampled_legal = sorted(
+          int(action) for action in world.legal_actions(player)
+      )
+      if (
+          sampled_legal != expected_legal
+          or not np.array_equal(sampled_observation, expected_observation)
+      ):
+        raise RuntimeError(
+            "Survival value shield sampled a world outside the acting "
+            "player's information state"
+        )
     scores = {}
     for action in candidates:
-      rollout = state.clone()
-      rollout.apply_action(int(action))
-      scores[int(action)] = self._state_survival_score(rollout, player)
+      action_scores = []
+      for sampled in worlds:
+        rollout = sampled.clone()
+        rollout.apply_action(int(action))
+        action_scores.append(self._state_survival_score(rollout, player))
+      self._candidate_world_scores[int(action)] = tuple(
+          float(score) for score in action_scores
+      )
+      scores[int(action)] = float(np.mean(action_scores))
     return scores
+
+  def _publicly_safe_alternative(self, state, player, base_action, action):
+    if not bool(
+        getattr(self.args, "survival_value_require_public_safety", False)
+    ):
+      return True
+    base = action_liveness_certificate(
+        state, player, int(base_action), base_action=int(base_action)
+    )
+    candidate = action_liveness_certificate(
+        state, player, int(action), base_action=int(base_action)
+    )
+    return (
+        int(candidate.get("min_player_open_slots_after", 0))
+        >= int(base.get("min_player_open_slots_after", 0))
+        and int(candidate.get("public_slot_damage", 0))
+        <= int(base.get("public_slot_damage", 0))
+        and int(candidate.get("own_total_deficit", 0))
+        <= int(base.get("own_total_deficit", 0))
+        and int(candidate.get("own_dead_rank_count", 0))
+        <= int(base.get("own_dead_rank_count", 0))
+        and (
+            not bool(base.get("own_feasible", False))
+            or bool(candidate.get("own_feasible", False))
+        )
+    )
+
+  def _dominant_alternative(
+      self, state, player, scores, policy, base_action
+  ):
+    base_action = int(base_action)
+    base_score = float(scores.get(base_action, 0.0))
+    base_samples = np.asarray(
+        self._candidate_world_scores.get(base_action, (base_score,)),
+        dtype=np.float64,
+    )
+    min_improvement = max(
+        0.0, float(getattr(self.args, "survival_value_min_improvement", 0.0))
+    )
+    lcb_z = max(
+        0.0, float(getattr(self.args, "survival_value_paired_lcb_z", 0.0))
+    )
+    min_win_share = min(1.0, max(
+        0.0,
+        float(getattr(self.args, "survival_value_min_world_win_share", 0.0)),
+    ))
+    eligible = []
+    for action, score in scores.items():
+      action = int(action)
+      if action == base_action:
+        continue
+      candidate_samples = np.asarray(
+          self._candidate_world_scores.get(action, (float(score),)),
+          dtype=np.float64,
+      )
+      if candidate_samples.shape != base_samples.shape:
+        raise RuntimeError(
+            "Survival candidates were not scored on identical paired worlds"
+        )
+      deltas = candidate_samples - base_samples
+      mean_delta = float(np.mean(deltas))
+      if mean_delta <= min_improvement:
+        self._decision_stats["value_shield_blocked_improvement"] += 1
+        continue
+      standard_error = (
+          float(np.std(deltas, ddof=1)) / math.sqrt(float(len(deltas)))
+          if len(deltas) > 1 else 0.0
+      )
+      paired_lcb = mean_delta - lcb_z * standard_error
+      if paired_lcb <= min_improvement:
+        self._decision_stats["value_shield_blocked_paired_lcb"] += 1
+        continue
+      world_win_share = float(np.mean(deltas > 1e-9))
+      if world_win_share < min_win_share:
+        self._decision_stats["value_shield_blocked_world_agreement"] += 1
+        continue
+      if not self._within_policy_gap(policy, base_action, action):
+        self._decision_stats["value_shield_blocked_policy_gap"] += 1
+        continue
+      if not self._publicly_safe_alternative(
+          state, player, base_action, action
+      ):
+        self._decision_stats["value_shield_blocked_public_safety"] += 1
+        continue
+      eligible.append((
+          paired_lcb,
+          mean_delta,
+          float(policy[action]),
+          -action,
+          action,
+          float(score),
+      ))
+    if not eligible:
+      return base_action, base_score
+    winner = max(eligible)
+    return int(winner[-2]), float(winner[-1])
 
   def _within_policy_gap(self, policy, base_action, action):
     max_gap = float(
@@ -3132,9 +5035,204 @@ class AZValueShieldPolicyBot:
     action_log = math.log(max(float(policy[int(action)]), 1e-12))
     return (base_log - action_log) <= max_gap
 
+  def _protected_base_action(self, state, player, legal, policy):
+    if self.base_bot is None:
+      return int(max(legal, key=lambda action: policy[action]))
+    if self.opening_belief_bot is not None:
+      min_trick = int(
+          getattr(self.args, "survival_value_opening_min_trick_number", 0)
+      )
+      max_trick = int(
+          getattr(self.args, "survival_value_opening_max_trick_number", 1)
+      )
+      trick_number = int(getattr(state, "_trick_number", -1))
+      require_leading = bool(
+          getattr(self.args, "survival_value_opening_lead_only", False)
+      )
+      if (
+          self._phase_name(state).lower() == "play"
+          and min_trick <= trick_number <= max_trick
+          and (not require_leading or getattr(state, "_led_color", None) is None)
+      ):
+        self._decision_stats["value_shield_opening_belief_decisions"] += 1
+        return self._deterministic_opening_belief_action(state, player, legal)
+      self._decision_stats["value_shield_liveness_decisions"] += 1
+    return int(self.base_bot.step(state.clone(), player))
+
+  @staticmethod
+  def _opening_information_state_seed(state, player, legal):
+    digest = hashlib.sha256()
+    digest.update(b"quantum-cat-opening-belief-v1")
+    digest.update(np.asarray(
+        state.observation_tensor(int(player)), dtype=np.float32
+    ).tobytes())
+    digest.update(np.asarray(
+        sorted(int(action) for action in legal), dtype=np.int32
+    ).tobytes())
+    digest.update(str(int(player)).encode("ascii"))
+    return int.from_bytes(digest.digest()[:4], byteorder="little", signed=False)
+
+  def _deterministic_opening_belief_action(self, state, player, legal):
+    seed = self._opening_information_state_seed(state, player, legal)
+    previous_numpy_state = np.random.get_state()
+    try:
+      np.random.seed(seed)
+      return int(self.opening_belief_bot.step(state.clone(), player))
+    finally:
+      np.random.set_state(previous_numpy_state)
+
+  def _analytic_posterior_action(self, state, player, legal, base_action):
+    if not bool(getattr(self.args, "survival_value_analytic_posterior", False)):
+      return int(base_action)
+    if self._phase_name(state).lower() != "play" or int(base_action) == 999:
+      return int(base_action)
+    trick_number = int(getattr(state, "_trick_number", -1))
+    if trick_number < int(
+        getattr(self.args, "survival_value_analytic_min_trick_number", 2)
+    ):
+      return int(base_action)
+    alternatives = [int(action) for action in legal if int(action) != 999]
+    if len(alternatives) < 2 or int(base_action) not in alternatives:
+      return int(base_action)
+    objective = str(
+        getattr(
+            self.args, "survival_value_analytic_objective", "table_survival"
+        ) or "table_survival"
+    )
+    if objective not in ("table_survival", "competitive"):
+      raise ValueError(f"Unsupported analytic posterior objective: {objective}")
+    if objective == "competitive":
+      predictions = list(getattr(state, "_predictions", []))
+      tricks_won = list(getattr(state, "_tricks_won", []))
+      if (
+          int(player) >= len(predictions)
+          or int(player) >= len(tricks_won)
+          or int(predictions[int(player)]) < 0
+          or int(predictions[int(player)]) != int(tricks_won[int(player)])
+      ):
+        self._decision_stats[
+            "value_shield_analytic_blocked_bid_incomplete"
+        ] += 1
+        return int(base_action)
+    self._decision_stats["value_shield_analytic_considered"] += 1
+    scores = {
+        action: public_posterior_action_score(state, player, action)
+        for action in alternatives
+    }
+    if objective == "competitive":
+      base_row = scores[int(base_action)]
+      eligible = []
+      minimum_advantage = float(
+          getattr(self.args, "survival_value_analytic_min_advantage", 0.04)
+      )
+      for action in alternatives:
+        if int(action) == int(base_action):
+          continue
+        candidate_row = scores[int(action)]
+        certificate = action_liveness_certificate(
+            state, player, int(action), base_action=int(base_action)
+        )
+        if not bool(certificate.get("own_feasible", False)):
+          self._decision_stats[
+              "value_shield_analytic_blocked_own_feasibility"
+          ] += 1
+          continue
+        if candidate_row["own_margin"] < base_row["own_margin"]:
+          self._decision_stats["value_shield_analytic_blocked_own_margin"] += 1
+          continue
+        if (
+            bool(certificate.get("lost_led_token", False))
+            and not bool(certificate.get("responsible_red_win_switch", False))
+        ):
+          self._decision_stats[
+              "value_shield_analytic_blocked_token_loss"
+          ] += 1
+          continue
+        if bool(certificate.get("over_target_would_win", False)):
+          self._decision_stats[
+              "value_shield_analytic_blocked_over_target"
+          ] += 1
+          continue
+        opponent_pressure_gain = (
+            float(candidate_row["sum_failure_probability"])
+            - float(base_row["sum_failure_probability"])
+        )
+        if opponent_pressure_gain < minimum_advantage:
+          self._decision_stats[
+              "value_shield_analytic_blocked_advantage"
+          ] += 1
+          continue
+        eligible.append((
+            round(opponent_pressure_gain, 7),
+            round(float(candidate_row["max_failure_probability"]), 7),
+            round(float(candidate_row["own_margin"]), 7),
+            -int(action),
+            int(action),
+        ))
+      if not eligible:
+        return int(base_action)
+      candidate_action = int(max(eligible)[-1])
+      self._decision_stats["value_shield_analytic_overrides"] += 1
+      self._decision_stats["value_shield_analytic_competitive_overrides"] += 1
+      _inc_counter(
+          self._decision_stats["value_shield_analytic_overrides_by_trick"],
+          str(trick_number),
+      )
+      return candidate_action
+    candidate_action = max(
+        alternatives,
+        key=lambda action: (
+            -round(scores[action]["sum_failure_probability"], 7),
+            -round(scores[action]["max_failure_probability"], 7),
+            round(scores[action]["min_expected_surplus"], 7),
+            int(action == int(base_action)),
+        ),
+    )
+    if candidate_action == int(base_action):
+      return int(base_action)
+    base_row = scores[int(base_action)]
+    candidate_row = scores[candidate_action]
+    certificate = action_liveness_certificate(
+        state, player, candidate_action, base_action=int(base_action)
+    )
+    if not bool(certificate.get("own_feasible", False)):
+      self._decision_stats[
+          "value_shield_analytic_blocked_own_feasibility"
+      ] += 1
+      return int(base_action)
+    if candidate_row["own_margin"] - base_row["own_margin"] < -1:
+      self._decision_stats["value_shield_analytic_blocked_own_margin"] += 1
+      return int(base_action)
+    if (
+        bool(certificate.get("lost_led_token", False))
+        and not bool(certificate.get("responsible_red_win_switch", False))
+    ):
+      self._decision_stats["value_shield_analytic_blocked_token_loss"] += 1
+      return int(base_action)
+    failure_improvement = (
+        base_row["sum_failure_probability"]
+        - candidate_row["sum_failure_probability"]
+    )
+    if failure_improvement < float(
+        getattr(self.args, "survival_value_analytic_min_advantage", 0.04)
+    ):
+      self._decision_stats["value_shield_analytic_blocked_advantage"] += 1
+      return int(base_action)
+    self._decision_stats["value_shield_analytic_overrides"] += 1
+    _inc_counter(
+        self._decision_stats["value_shield_analytic_overrides_by_trick"],
+        str(trick_number),
+    )
+    return int(candidate_action)
+
   def step(self, state, player):
     legal = state.legal_actions(player)
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return legal[0]
@@ -3146,7 +5244,10 @@ class AZValueShieldPolicyBot:
         self.args.value_scale,
         self.device,
     )
-    base_action = max(legal, key=lambda action: policy[action])
+    base_action = self._protected_base_action(state, player, legal, policy)
+    base_action = self._analytic_posterior_action(
+        state, player, legal, base_action
+    )
     if not self._enabled_for_phase(state):
       self._decision_stats["value_shield_disabled"] += 1
       _record_decision(self._decision_stats, state, base_action, legal_count)
@@ -3170,7 +5271,22 @@ class AZValueShieldPolicyBot:
     base_survival = float(scores.get(int(base_action), 0.0))
     self._decision_stats["value_shield_base_survival_sum"] += base_survival
     self._decision_stats["value_shield_max_survival_sum"] += float(max_survival)
-    if base_scored and base_survival >= threshold:
+    selection_mode = str(
+        getattr(self.args, "survival_value_selection_mode", "threshold")
+    )
+    if selection_mode == "relative_dominance":
+      if not base_scored or base_survival >= threshold:
+        selected_action, selected_survival = int(base_action), base_survival
+      else:
+        selected_action, selected_survival = self._dominant_alternative(
+            state, player, scores, policy, int(base_action)
+        )
+      if selected_action == int(base_action):
+        self._decision_stats["value_shield_base_kept"] += 1
+      else:
+        self._decision_stats["value_shield_overrides"] += 1
+        _inc_counter(self._decision_stats["value_shield_overrides_by_phase"], phase)
+    elif base_scored and base_survival >= threshold:
       selected_action = int(base_action)
       selected_survival = base_survival
       self._decision_stats["value_shield_base_kept"] += 1
@@ -3212,7 +5328,10 @@ class AZValueShieldPolicyBot:
     return stats
 
   def raw_decision_stats(self):
-    return json.loads(json.dumps(self._decision_stats))
+    stats = json.loads(json.dumps(self._decision_stats))
+    if self.base_bot is not None and hasattr(self.base_bot, "raw_decision_stats"):
+      stats["nested"] = {"base_bot": self.base_bot.raw_decision_stats()}
+    return stats
 
 
 class AZPhaseGraftBot:
@@ -3223,6 +5342,12 @@ class AZPhaseGraftBot:
     self.graft_bot = graft_bot
     self.name = name
     self.graft_phases = _split_phase_names(graft_phases or "play")
+    prediction_bot = (
+        self.graft_bot if "prediction" in self.graft_phases else self.base_bot
+    )
+    self.uses_neural_prediction = bool(
+        getattr(prediction_bot, "uses_neural_prediction", False)
+    )
     self._decision_stats = _empty_decision_stats()
     self._decision_stats.update({
         "base_phase_decisions": 0,
@@ -3237,10 +5362,16 @@ class AZPhaseGraftBot:
     return _phase_name(state)
 
   def step(self, state, player):
-    legal_count = len(state.legal_actions(player))
+    legal = list(state.legal_actions(player))
+    legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     phase = self._phase_name(state).lower()
     if legal_count <= 1:
-      action = state.legal_actions(player)[0]
+      action = legal[0]
       _record_decision(self._decision_stats, state, action, legal_count)
       return action
     if phase in self.graft_phases:
@@ -3289,6 +5420,27 @@ class AZRootRolloutBot:
     self.model = model
     self.device = device
     self.args = model_args
+    self.uses_neural_prediction = _uses_neural_prediction(model_args)
+    self._search_rng = np.random.RandomState(0)
+    base_mode = str(
+        getattr(model_args, "root_rollout_base_mode", "policy") or "policy"
+    ).strip().lower().replace("-", "_")
+    if base_mode == "policy":
+      self._base_neural_bot = None
+    elif base_mode == "liveness_shield":
+      self._base_neural_bot = AZLivenessShieldPolicyBot(
+          model, f"{name}_base_liveness_shield", device, model_args
+      )
+    elif base_mode == "competitive_tactics":
+      self._base_neural_bot = AZCompetitiveTacticsBot(
+          model, f"{name}_base_competitive_tactics", device, model_args
+      )
+      self.uses_neural_prediction = bool(
+          getattr(self._base_neural_bot, "uses_neural_prediction", False)
+      )
+    else:
+      raise ValueError(f"Unsupported root rollout base mode: {base_mode}")
+    self._base_mode = base_mode
     continuation_bot_name = str(
         getattr(model_args, "root_rollout_continuation_bot", "") or ""
     ).strip()
@@ -3307,7 +5459,11 @@ class AZRootRolloutBot:
       raise ValueError("root_rollout cannot be used as its own continuation mode")
     if continuation_mode == "policy":
       self._continuation_neural_bot = AZPolicyBot(
-          model, f"{name}_continuation_policy", device, model_args.value_scale
+          model,
+          f"{name}_continuation_policy",
+          device,
+          model_args.value_scale,
+          use_shared_prediction=not self.uses_neural_prediction,
       )
     elif continuation_mode == "q_policy":
       self._continuation_neural_bot = AZQPolicyBot(
@@ -3317,23 +5473,57 @@ class AZRootRolloutBot:
       self._continuation_neural_bot = AZLivenessShieldPolicyBot(
           model, f"{name}_continuation_liveness_shield", device, model_args
       )
+    elif continuation_mode == "competitive_tactics":
+      self._continuation_neural_bot = AZCompetitiveTacticsBot(
+          model, f"{name}_continuation_competitive_tactics", device, model_args
+      )
     elif continuation_mode:
       raise ValueError(f"Unsupported root rollout continuation mode: {continuation_mode}")
     else:
       self._continuation_neural_bot = None
     self._continuation_mode = continuation_mode
+    max_audit_p = float(
+        getattr(model_args, "root_rollout_max_audit_paired_binomial_p", 1.0)
+    )
+    if not 0.0 <= max_audit_p <= 1.0:
+      raise ValueError(
+          "root_rollout_max_audit_paired_binomial_p must be in [0, 1]"
+      )
     self._decision_stats = _empty_decision_stats()
     self._decision_stats.update({
         "root_rollout_disabled": 0,
+        "root_rollout_protected_tactical_overrides": 0,
+        "root_rollout_blocked_own_liveness": 0,
+        "root_rollout_blocked_baseline_risk": 0,
         "root_rollout_considered": 0,
         "root_rollout_no_candidates": 0,
         "root_rollout_no_rollouts": 0,
+        "root_rollout_blocked_paradox_margin": 0,
+        "root_rollout_belief_sample_failures": 0,
+        "root_rollout_audit_considered": 0,
+        "root_rollout_audit_no_rollouts": 0,
+        "root_rollout_audit_blocked": 0,
+        "root_rollout_audit_passed": 0,
+        "root_rollout_audit_passes_passed": 0,
         "root_rollout_overrides": 0,
         "root_rollout_scored_candidates": 0,
         "root_rollout_by_phase": {},
+        "root_rollout_by_trick": {},
         "root_rollout_overrides_by_phase": {},
+        "root_rollout_overrides_by_trick": {},
+        "root_rollout_base_mode": base_mode,
+        "root_rollout_base_failures": 0,
         "root_rollout_continuation_mode": continuation_mode,
         "root_rollout_continuation_bot": continuation_bot_name,
+        "root_rollout_belief_source": str(
+            getattr(model_args, "belief_source", "infostate") or "infostate"
+        ),
+        "root_rollout_audit_inference_unit": "information_state_world",
+        "root_rollout_audit_paradox_scope": str(
+            getattr(model_args, "root_rollout_paradox_scope", "acting")
+        ),
+        "root_rollout_rng_scope": "acting_information_state",
+        "root_rollout_replay_samples": [],
     })
 
   @staticmethod
@@ -3380,25 +5570,182 @@ class AZRootRolloutBot:
         state.num_distinct_actions(),
         self.args.value_scale,
         self.device,
+        use_shared_prediction=not self.uses_neural_prediction,
     )
     return max(legal, key=lambda action: policy[action])
+
+  def _reset_search_rng(self, state, player, legal):
+    """Seeds search from deployable information, independent of prior calls."""
+    digest = hashlib.sha256()
+    observation = np.asarray(
+        state.observation_tensor(player), dtype=np.float32
+    )
+    digest.update(observation.tobytes())
+    digest.update(np.asarray(
+        sorted(int(action) for action in legal), dtype=np.int32
+    ).tobytes())
+    digest.update(str(int(player)).encode("ascii"))
+    digest.update(str(int(
+        getattr(self.args, "root_rollout_seed_salt", 0)
+    )).encode("ascii"))
+    seed = int.from_bytes(digest.digest()[:4], byteorder="little", signed=False)
+    self._search_rng.seed(seed)
+    return seed
+
+  @classmethod
+  def _paired_audit_summary(cls, scored, baseline_action, proposed_action):
+    baseline = scored.get(int(baseline_action))
+    proposed = scored.get(int(proposed_action))
+    if baseline is None or proposed is None:
+      return {"valid": False, "reason": "missing_action"}
+    baseline_outcomes = baseline.get("paradox_world_rates")
+    proposed_outcomes = proposed.get("paradox_world_rates")
+    if baseline_outcomes is None and proposed_outcomes is None:
+      baseline_outcomes = baseline.get("paradox_outcomes")
+      proposed_outcomes = proposed.get("paradox_outcomes")
+    if (
+        not isinstance(baseline_outcomes, list)
+        or not isinstance(proposed_outcomes, list)
+        or not baseline_outcomes
+        or len(baseline_outcomes) != len(proposed_outcomes)
+    ):
+      return {"valid": False, "reason": "misaligned_outcomes"}
+    saved = 0
+    harmed = 0
+    for baseline_value, proposed_value in zip(
+        baseline_outcomes, proposed_outcomes
+    ):
+      difference = float(baseline_value) - float(proposed_value)
+      saved += int(difference > 1e-12)
+      harmed += int(difference < -1e-12)
+    return {
+        "valid": True,
+        "worlds": len(baseline_outcomes),
+        "baseline_paradox": float(baseline["paradox"]),
+        "proposed_paradox": float(proposed["paradox"]),
+        "paradox_improvement": (
+            float(baseline["paradox"]) - float(proposed["paradox"])
+        ),
+        "baseline_score": float(baseline["score"]),
+        "proposed_score": float(proposed["score"]),
+        "saved": saved,
+        "harmed": harmed,
+        "paired_binomial_p": cls._one_sided_binomial_tail(saved, harmed),
+    }
+
+  def _record_replay_sample(
+      self, state, player, legal, policy, baseline_action, proposed_action,
+      selected_action, search_seed, selection_scored, audit_summaries,
+  ):
+    if not bool(getattr(
+        self.args, "root_rollout_record_replay_samples", False
+    )):
+      return
+    legal = [int(action) for action in legal]
+    all_action_features = action_feature_matrix(
+        state, player, state.num_distinct_actions()
+    )
+    sample = {
+        "schema_version": 1,
+        "information_safe": True,
+        "player": int(player),
+        "phase": _phase_name(state),
+        "trick_number": int(getattr(state, "_trick_number", -1)),
+        "search_seed": int(search_seed),
+        "observation": np.asarray(
+            state.observation_tensor(player), dtype=np.float32
+        ).tolist(),
+        "legal_actions": legal,
+        "legal_action_features": np.asarray(
+            all_action_features[legal], dtype=np.float32
+        ).tolist(),
+        "legal_policy": [float(policy[action]) for action in legal],
+        "baseline_action": int(baseline_action),
+        "proposed_action": int(proposed_action),
+        "selected_action": int(selected_action),
+        "audit_accepted": int(selected_action) == int(proposed_action),
+        "audit_contract": {
+            "baseline_mode": self._base_mode,
+            "samples": int(getattr(self.args, "root_rollout_audit_samples", 0)),
+            "rollouts_per_world": int(getattr(
+                self.args, "root_rollout_audit_rollouts", 1
+            )),
+            "required_passes": int(getattr(
+                self.args, "root_rollout_audit_passes", 1
+            )),
+            "min_paradox_improvement": float(getattr(
+                self.args, "root_rollout_min_audit_paradox_improvement", 0.0
+            )),
+            "min_score_improvement": float(getattr(
+                self.args, "root_rollout_min_audit_score_improvement", -1e9
+            )),
+            "max_paired_binomial_p": float(getattr(
+                self.args, "root_rollout_max_audit_paired_binomial_p", 1.0
+            )),
+            "paradox_scope": str(getattr(
+                self.args, "root_rollout_paradox_scope", "acting"
+            )),
+            "inference_unit": "information_state_world",
+        },
+        "selection": self._paired_audit_summary(
+            selection_scored, baseline_action, proposed_action
+        ),
+        "audit_passes": audit_summaries,
+    }
+    self._decision_stats["root_rollout_replay_samples"].append(sample)
+    self._decision_stats["root_rollout_replay_samples"][:] = (
+        _trim_root_rollout_replay_samples(
+            self._decision_stats["root_rollout_replay_samples"]
+        )
+    )
 
   def _has_explicit_continuation_policy(self):
     return bool(self._continuation_bots) or self._continuation_neural_bot is not None
 
-  def _candidate_actions(self, state, player, legal, policy):
+  def _candidate_actions(
+      self, state, player, legal, policy, baseline_action=None
+  ):
     legal = list(legal)
     max_actions = int(getattr(self.args, "root_rollout_max_actions", 4))
     if max_actions <= 0 or len(legal) <= max_actions:
       return sorted(legal)
     selected = []
     selected_set = set()
+    if baseline_action in legal:
+      selected.append(int(baseline_action))
+      selected_set.add(int(baseline_action))
     top_count = max(0, int(getattr(self.args, "root_rollout_top_policy", 2)))
     if top_count > 0:
       ordered = sorted(legal, key=lambda action: float(policy[action]), reverse=True)
       for action in ordered[:min(top_count, max_actions)]:
+        if action in selected_set:
+          continue
         selected.append(action)
         selected_set.add(action)
+        if len(selected) >= max_actions:
+          break
+    if bool(getattr(self.args, "root_rollout_teacher_candidates", False)):
+      led_color = getattr(state, "_led_color", None)
+      if led_color in ("B", "Y", "G"):
+        buckets = (
+            [action for action in legal if _action_color(state, action) == led_color],
+            [action for action in legal if _action_color(state, action) == "R"],
+            [
+                action for action in legal
+                if _action_color(state, action) not in (None, led_color)
+            ],
+        )
+        for bucket in buckets:
+          ordered = sorted(
+              bucket, key=lambda action: float(policy[action]), reverse=True
+          )
+          for action in ordered:
+            if action not in selected_set:
+              selected.append(action)
+              selected_set.add(action)
+              break
+          if len(selected) >= max_actions:
+            return sorted(selected[:max_actions])
     for bot_name in _split_csv(
         getattr(self.args, "root_rollout_include_bots", "")
     ):
@@ -3431,17 +5778,125 @@ class AZRootRolloutBot:
       if fill_count >= len(remaining):
         selected.extend(remaining)
       else:
-        chosen = np.random.choice(
+        chosen = self._search_rng.choice(
             remaining, size=fill_count, replace=False
         ).tolist()
         selected.extend(int(action) for action in chosen)
     return sorted(selected)
 
+  def _base_action(self, state, player, legal, policy):
+    if self._base_neural_bot is not None:
+      try:
+        action = int(self._base_neural_bot.step(state.clone(), player))
+        if action in legal:
+          return action
+      except Exception:
+        self._decision_stats["root_rollout_base_failures"] += 1
+    return int(max(legal, key=lambda action: policy[action]))
+
+  def _safe_candidate_actions(self, state, player, candidates, baseline_action):
+    """Filter search proposals using only actor-public incumbent safeguards."""
+    preserve_liveness = bool(
+        getattr(self.args, "root_rollout_preserve_own_liveness", False)
+    )
+    risk_limit = float(
+        getattr(self.args, "root_rollout_max_baseline_risk_increase", -1.0)
+    )
+    if not preserve_liveness and risk_limit < 0.0:
+      return list(candidates)
+
+    baseline_action = int(baseline_action)
+    baseline_row = None
+    baseline_margin = None
+    own_view = None
+    if preserve_liveness:
+      try:
+        baseline_row = action_liveness_certificate(
+            state, player, baseline_action, base_action=baseline_action
+        )
+        own_view = liveness_oracle.view_from_state(state, player)
+        baseline_margin = int(
+            liveness_oracle.post_play_margin(own_view, baseline_action)
+        )
+      except Exception:
+        self._decision_stats["root_rollout_blocked_own_liveness"] += max(
+            0, len(candidates) - 1
+        )
+        return [baseline_action]
+
+    risks = None
+    if risk_limit >= 0.0:
+      try:
+        _, _, _, risks, _ = model_policy_value_action_aux(
+            self.model,
+            state,
+            player,
+            state.num_distinct_actions(),
+            self.args.value_scale,
+            self.device,
+            need_action_risks=True,
+            use_shared_prediction=not self.uses_neural_prediction,
+        )
+      except Exception:
+        risks = None
+      if risks is None or not np.isfinite(float(risks[baseline_action])):
+        self._decision_stats["root_rollout_blocked_baseline_risk"] += max(
+            0, len(candidates) - 1
+        )
+        return [baseline_action]
+
+    allowed = []
+    for candidate in candidates:
+      action = int(candidate)
+      if action == baseline_action:
+        allowed.append(action)
+        continue
+      if preserve_liveness:
+        try:
+          candidate_row = action_liveness_certificate(
+              state, player, action, base_action=baseline_action
+          )
+          candidate_margin = int(
+              liveness_oracle.post_play_margin(own_view, action)
+          )
+        except Exception:
+          self._decision_stats["root_rollout_blocked_own_liveness"] += 1
+          continue
+        worsens_feasibility = (
+            bool(baseline_row.get("own_feasible", False))
+            and not bool(candidate_row.get("own_feasible", False))
+        )
+        loses_irresponsible_token = (
+            bool(candidate_row.get("lost_led_token", False))
+            and not bool(baseline_row.get("lost_led_token", False))
+            and not bool(candidate_row.get("responsible_red_win_switch", False))
+        )
+        breaks_exact_bid = (
+            bool(candidate_row.get("over_target_would_win", False))
+            and not bool(baseline_row.get("over_target_would_win", False))
+        )
+        if (
+            worsens_feasibility
+            or candidate_margin < baseline_margin
+            or int(candidate_row.get("own_buffer_deficit", 0))
+            > int(baseline_row.get("own_buffer_deficit", 0))
+            or loses_irresponsible_token
+            or breaks_exact_bid
+        ):
+          self._decision_stats["root_rollout_blocked_own_liveness"] += 1
+          continue
+      if risk_limit >= 0.0 and (
+          not np.isfinite(float(risks[action]))
+          or float(risks[action])
+          > float(risks[baseline_action]) + risk_limit + 1e-9
+      ):
+        self._decision_stats["root_rollout_blocked_baseline_risk"] += 1
+        continue
+      allowed.append(action)
+    return allowed if baseline_action in allowed else [baseline_action]
+
   def _enabled_for_phase(self, state):
     spec = str(getattr(self.args, "root_rollout_phases", "") or "").strip()
-    if not spec:
-      return True
-    allowed = {part.strip() for part in spec.split(",") if part.strip()}
     phase = {
         0: "chance",
         1: "discard",
@@ -3449,14 +5904,48 @@ class AZRootRolloutBot:
         3: "play",
         4: "terminal",
     }.get(int(getattr(state, "_phase", -1)), "unknown")
-    return phase in allowed
+    if spec:
+      allowed = {part.strip() for part in spec.split(",") if part.strip()}
+      if phase not in allowed:
+        return False
+    led_spec = str(
+        getattr(self.args, "root_rollout_led_colors", "") or ""
+    ).strip()
+    if led_spec:
+      allowed_led = _split_phase_names(led_spec)
+      led_color = getattr(state, "_led_color", None)
+      led_name = "none" if led_color is None else str(led_color).lower()
+      if led_name not in allowed_led:
+        return False
+    trick_number = int(getattr(state, "_trick_number", -1))
+    min_trick = int(getattr(self.args, "root_rollout_min_trick_number", -1))
+    max_trick = int(getattr(self.args, "root_rollout_max_trick_number", -1))
+    if min_trick >= 0 and trick_number < min_trick:
+      return False
+    if max_trick >= 0 and trick_number > max_trick:
+      return False
+    match_round = int(getattr(state, "_match_round", -1))
+    min_round = int(getattr(self.args, "root_rollout_min_match_round", -1))
+    max_round = int(getattr(self.args, "root_rollout_max_match_round", -1))
+    if min_round >= 0 and match_round < min_round:
+      return False
+    if max_round >= 0 and match_round > max_round:
+      return False
+    return True
+
+  def _preserves_tactical_override(self):
+    return bool(
+        getattr(self.args, "root_rollout_preserve_tactical_overrides", False)
+        and self._base_mode == "competitive_tactics"
+        and getattr(self._base_neural_bot, "last_tactical_override", False)
+    )
 
   def _leaf_value(self, state, player):
     while state.is_chance_node() and not state.is_terminal():
       actions, probs = zip(*state.chance_outcomes())
-      state.apply_action(int(np.random.choice(actions, p=probs)))
+      state.apply_action(int(self._search_rng.choice(actions, p=probs)))
     if state.is_terminal():
-      return float(np.array(state.returns(), dtype=np.float32)[player])
+      return float(terminal_search_value(state, self.args)[player])
     _, value = model_policy_value(
         self.model,
         state,
@@ -3479,6 +5968,177 @@ class AZRootRolloutBot:
       return float(paradoxes[int(player)])
     return 0.0
 
+  def _sample_infostate_worlds(self, state, player, samples):
+    """Samples deployment-safe worlds and fails closed on any mismatch."""
+    expected_legal = [int(action) for action in state.legal_actions(player)]
+    expected_observation = np.asarray(
+        state.observation_tensor(player), dtype=np.float32
+    )
+    sample_count = max(1, int(samples))
+    source = str(
+        getattr(self.args, "belief_source", "infostate") or "infostate"
+    ).strip().lower()
+    if source == "infostate":
+      sampled_worlds = []
+      for _ in range(sample_count):
+        try:
+          sampled_worlds.append(
+              state.resample_from_infostate(player, self._search_rng)
+          )
+        except Exception:
+          self._decision_stats["root_rollout_belief_sample_failures"] += 1
+          return []
+    else:
+      global_rng_state = np.random.get_state()
+      sampler_seed = int(self._search_rng.randint(0, 2**32 - 1))
+      try:
+        np.random.seed(sampler_seed)
+        sampled_worlds = sampled_belief_states_for_policy(
+            state,
+            player,
+            sample_count,
+            self.args,
+            self.model,
+            self.device,
+            self.args.value_scale,
+            context="eval",
+        )
+      except Exception:
+        self._decision_stats["root_rollout_belief_sample_failures"] += 1
+        return []
+      finally:
+        np.random.set_state(global_rng_state)
+
+    worlds = []
+    for sampled in sampled_worlds:
+      try:
+        sampled_legal = [
+            int(action) for action in sampled.legal_actions(player)
+        ]
+        sampled_observation = np.asarray(
+            sampled.observation_tensor(player), dtype=np.float32
+        )
+      except Exception:
+        self._decision_stats["root_rollout_belief_sample_failures"] += 1
+        return []
+      if (
+          sampled_legal != expected_legal
+          or not np.array_equal(sampled_observation, expected_observation)
+      ):
+        self._decision_stats["root_rollout_belief_sample_failures"] += 1
+        return []
+      worlds.append(sampled)
+    return worlds
+
+  def _score_actions(self, states, player, actions, rollouts):
+    action_results = {
+        int(action): {
+            "paradox": [],
+            "score": [],
+            "paradox_world_rates": [],
+        }
+        for action in actions
+    }
+    rollouts = max(1, int(rollouts))
+    for belief_state in states:
+      legal_in_belief = set(belief_state.legal_actions(player))
+      legal_actions = [
+          int(action) for action in actions if int(action) in legal_in_belief
+      ]
+      if not legal_actions:
+        continue
+      world_paradox = {action: [] for action in legal_actions}
+      for _ in range(rollouts):
+        np_state = self._search_rng.get_state()
+        for action in legal_actions:
+          self._search_rng.set_state(np_state)
+          result = self._rollout_result(belief_state, player, action)
+          paradox = float(result["paradox"])
+          action_results[action]["paradox"].append(paradox)
+          action_results[action]["score"].append(float(result["score"]))
+          world_paradox[action].append(paradox)
+      for action in legal_actions:
+        if world_paradox[action]:
+          action_results[action]["paradox_world_rates"].append(
+              float(np.mean(world_paradox[action]))
+          )
+    return {
+        action: {
+            "paradox": float(np.mean(results["paradox"])),
+            "score": float(np.mean(results["score"])),
+            "paradox_outcomes": list(results["paradox"]),
+            "paradox_world_rates": list(results["paradox_world_rates"]),
+            "rollout_worlds": int(len(results["paradox_world_rates"])),
+            "rollouts_per_world": int(rollouts),
+        }
+        for action, results in action_results.items()
+        if results["score"]
+    }
+
+  @staticmethod
+  def _one_sided_binomial_tail(successes, failures):
+    successes = int(successes)
+    failures = int(failures)
+    trials = successes + failures
+    if trials <= 0:
+      return 1.0
+    return float(
+        sum(math.comb(trials, k) for k in range(successes, trials + 1))
+        / (2 ** trials)
+    )
+
+  @classmethod
+  def _audit_override_allowed(
+      cls,
+      scored,
+      baseline_action,
+      selected_action,
+      min_improvement,
+      max_paired_binomial_p=1.0,
+      min_score_improvement=-1e9,
+  ):
+    baseline_result = scored.get(int(baseline_action))
+    selected_result = scored.get(int(selected_action))
+    if baseline_result is None or selected_result is None:
+      return False
+    improvement = (
+        float(baseline_result["paradox"])
+        - float(selected_result["paradox"])
+    )
+    if improvement < float(min_improvement):
+      return False
+    if (
+        float(selected_result["score"]) - float(baseline_result["score"])
+        < float(min_score_improvement)
+    ):
+      return False
+    max_p = float(max_paired_binomial_p)
+    if max_p >= 1.0:
+      return True
+    baseline_outcomes = baseline_result.get("paradox_world_rates")
+    selected_outcomes = selected_result.get("paradox_world_rates")
+    # Legacy/unit-test records with one outcome per independent world remain
+    # readable. Newly scored records always carry explicit world-level rates.
+    if baseline_outcomes is None and selected_outcomes is None:
+      baseline_outcomes = baseline_result.get("paradox_outcomes")
+      selected_outcomes = selected_result.get("paradox_outcomes")
+    if (
+        not isinstance(baseline_outcomes, list)
+        or not isinstance(selected_outcomes, list)
+        or len(baseline_outcomes) != len(selected_outcomes)
+        or not baseline_outcomes
+    ):
+      return False
+    saved = 0
+    harmed = 0
+    for baseline_value, selected_value in zip(
+        baseline_outcomes, selected_outcomes
+    ):
+      difference = float(baseline_value) - float(selected_value)
+      saved += int(difference > 1e-12)
+      harmed += int(difference < -1e-12)
+    return cls._one_sided_binomial_tail(saved, harmed) <= max_p + 1e-12
+
   def _rollout_round_result(self, belief_state, player, first_action):
     rollout = belief_state.clone()
     rollout.apply_action(first_action)
@@ -3487,7 +6147,7 @@ class AZRootRolloutBot:
     while not rollout.is_terminal():
       if rollout.is_chance_node():
         actions, probs = zip(*rollout.chance_outcomes())
-        rollout.apply_action(int(np.random.choice(actions, p=probs)))
+        rollout.apply_action(int(self._search_rng.choice(actions, p=probs)))
         continue
       if max_plies > 0 and decision_plies >= max_plies:
         return {
@@ -3499,14 +6159,14 @@ class AZRootRolloutBot:
       decision_plies += 1
     return {
         "paradox": self._paradox_indicator(rollout, player),
-        "score": float(np.array(rollout.returns(), dtype=np.float32)[player]),
+        "score": float(terminal_search_value(rollout, self.args)[player]),
     }
 
   def _play_model_round(self, state):
     while not state.is_terminal():
       if state.is_chance_node():
         actions, probs = zip(*state.chance_outcomes())
-        state.apply_action(int(np.random.choice(actions, p=probs)))
+        state.apply_action(int(self._search_rng.choice(actions, p=probs)))
         continue
       current = int(state.current_player())
       state.apply_action(self._continuation_action(state, current))
@@ -3525,7 +6185,7 @@ class AZRootRolloutBot:
     while not rollout.is_terminal():
       if rollout.is_chance_node():
         actions, probs = zip(*rollout.chance_outcomes())
-        rollout.apply_action(int(np.random.choice(actions, p=probs)))
+        rollout.apply_action(int(self._search_rng.choice(actions, p=probs)))
         continue
       if max_plies > 0 and decision_plies >= max_plies:
         return {
@@ -3538,6 +6198,7 @@ class AZRootRolloutBot:
 
     current_round_paradox = self._paradox_indicator(rollout, player)
     totals = np.array(rollout.returns(), dtype=np.float32)
+    final_terminal_state = rollout
     for next_round in range(current_round + 1, players):
       start_player = (initial_start + next_round) % players
       game = pyspiel.load_game(
@@ -3552,11 +6213,30 @@ class AZRootRolloutBot:
       if getattr(self.args, "match_context", False):
         next_state.set_match_context(totals, next_round)
       next_state = self._play_model_round(next_state)
+      final_terminal_state = next_state
       next_returns = np.array(next_state.returns(), dtype=np.float32)
       if getattr(self.args, "match_context", False):
         totals = next_returns
       else:
         totals += next_returns
+    if float(getattr(self.args, "official_outcome_value_weight", 0.0)) > 0:
+      paradox_target = np.asarray(
+          getattr(final_terminal_state, "_has_paradoxed", [False] * players),
+          dtype=np.float32,
+      )
+      final_round_scores = (
+          final_terminal_state.raw_round_scores()
+          if hasattr(final_terminal_state, "raw_round_scores")
+          else final_terminal_state.returns()
+      )
+      totals = (
+          value_targets_from_scores(
+              totals,
+              paradox_target,
+              self.args,
+              final_round_scores=final_round_scores,
+          ) * float(getattr(self.args, "value_scale", 1.0))
+      )
     return {
         "paradox": current_round_paradox,
         "score": float(totals[player]),
@@ -3573,6 +6253,11 @@ class AZRootRolloutBot:
   def step(self, state, player):
     legal = state.legal_actions(player)
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if len(legal) == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return legal[0]
@@ -3583,57 +6268,45 @@ class AZRootRolloutBot:
         state.num_distinct_actions(),
         self.args.value_scale,
         self.device,
+        use_shared_prediction=not self.uses_neural_prediction,
     )
-    baseline_action = max(legal, key=lambda action: policy[action])
+    baseline_action = self._base_action(state, player, legal, policy)
     if not self._enabled_for_phase(state):
       self._decision_stats["root_rollout_disabled"] += 1
       _record_decision(self._decision_stats, state, baseline_action, legal_count)
       return baseline_action
+    if self._preserves_tactical_override():
+      self._decision_stats["root_rollout_protected_tactical_overrides"] += 1
+      _record_decision(self._decision_stats, state, baseline_action, legal_count)
+      return baseline_action
     phase = _phase_name(state)
+    trick_number = int(getattr(state, "_trick_number", -1))
     self._decision_stats["root_rollout_considered"] += 1
     _inc_counter(self._decision_stats["root_rollout_by_phase"], phase)
-    candidates = self._candidate_actions(state, player, legal, policy)
+    _inc_counter(
+        self._decision_stats["root_rollout_by_trick"], str(trick_number)
+    )
+    search_seed = self._reset_search_rng(state, player, legal)
+    candidates = self._candidate_actions(
+        state, player, legal, policy, baseline_action=baseline_action
+    )
+    candidates = self._safe_candidate_actions(
+        state, player, candidates, baseline_action
+    )
     if not candidates:
       self._decision_stats["root_rollout_no_candidates"] += 1
       _record_decision(self._decision_stats, state, baseline_action, legal_count)
       return baseline_action
     samples = max(1, int(getattr(self.args, "root_rollout_samples", 2)))
-    sampled_states = sampled_belief_states_for_policy(
-        state,
-        player,
-        samples,
-        self.args,
-        self.model,
-        self.device,
-        self.args.value_scale,
-        context="eval",
-    )
+    sampled_states = self._sample_infostate_worlds(state, player, samples)
+    if not sampled_states:
+      self._decision_stats["root_rollout_no_rollouts"] += 1
+      _record_decision(self._decision_stats, state, baseline_action, legal_count)
+      return baseline_action
     rollouts = max(1, int(getattr(self.args, "root_rollouts", 1)))
-    action_results = {
-        action: {"paradox": [], "score": []} for action in candidates
-    }
-    for belief_state in sampled_states:
-      legal_in_belief = set(belief_state.legal_actions(player))
-      legal_candidates = [
-          action for action in candidates if action in legal_in_belief
-      ]
-      if not legal_candidates:
-        continue
-      for _ in range(rollouts):
-        np_state = np.random.get_state()
-        for action in legal_candidates:
-          np.random.set_state(np_state)
-          result = self._rollout_result(belief_state, player, action)
-          action_results[action]["paradox"].append(float(result["paradox"]))
-          action_results[action]["score"].append(float(result["score"]))
-    scored = {
-        action: {
-            "paradox": float(np.mean(results["paradox"])),
-            "score": float(np.mean(results["score"])),
-        }
-        for action, results in action_results.items()
-        if results["score"]
-    }
+    scored = self._score_actions(
+        sampled_states, player, candidates, rollouts
+    )
     if not scored:
       self._decision_stats["root_rollout_no_rollouts"] += 1
       _record_decision(self._decision_stats, state, baseline_action, legal_count)
@@ -3644,9 +6317,107 @@ class AZRootRolloutBot:
         policy,
         getattr(self.args, "root_rollout_objective", "score"),
     )
+    if (
+        selected_action != baseline_action
+        and str(getattr(self.args, "root_rollout_objective", "score"))
+        == "paradox_then_score"
+    ):
+      baseline_result = scored.get(int(baseline_action))
+      selected_result = scored.get(int(selected_action))
+      min_improvement = float(
+          getattr(self.args, "root_rollout_min_paradox_improvement", 0.0)
+      )
+      if (
+          baseline_result is None
+          or selected_result is None
+          or float(baseline_result["paradox"])
+          - float(selected_result["paradox"]) < min_improvement
+      ):
+        self._decision_stats["root_rollout_blocked_paradox_margin"] += 1
+        selected_action = int(baseline_action)
+    proposed_action = int(selected_action)
+    audit_summaries = []
+    audit_samples = max(
+        0, int(getattr(self.args, "root_rollout_audit_samples", 0))
+    )
+    if (
+        selected_action != baseline_action
+        and str(getattr(self.args, "root_rollout_objective", "score"))
+        == "paradox_then_score"
+        and audit_samples > 0
+    ):
+      self._decision_stats["root_rollout_audit_considered"] += 1
+      audit_rollouts = max(
+          1, int(getattr(self.args, "root_rollout_audit_rollouts", 1))
+      )
+      audit_passes = max(
+          1, int(getattr(self.args, "root_rollout_audit_passes", 1))
+      )
+      audit_passed = True
+      for _ in range(audit_passes):
+        audit_states = self._sample_infostate_worlds(
+            state, player, audit_samples
+        )
+        audit_scored = self._score_actions(
+            audit_states,
+            player,
+            [baseline_action, selected_action],
+            audit_rollouts,
+        ) if audit_states else {}
+        if not audit_scored:
+          self._decision_stats["root_rollout_audit_no_rollouts"] += 1
+          audit_passed = False
+          break
+        audit_summaries.append(self._paired_audit_summary(
+            audit_scored, baseline_action, proposed_action
+        ))
+        if not self._audit_override_allowed(
+            audit_scored,
+            baseline_action,
+            selected_action,
+            getattr(
+                self.args,
+                "root_rollout_min_audit_paradox_improvement",
+                0.0,
+            ),
+            getattr(
+                self.args,
+                "root_rollout_max_audit_paired_binomial_p",
+                1.0,
+            ),
+            getattr(
+                self.args,
+                "root_rollout_min_audit_score_improvement",
+                -1e9,
+            ),
+        ):
+          self._decision_stats["root_rollout_audit_blocked"] += 1
+          audit_passed = False
+          break
+        self._decision_stats["root_rollout_audit_passes_passed"] += 1
+      if audit_passed:
+        self._decision_stats["root_rollout_audit_passed"] += 1
+      else:
+        selected_action = int(baseline_action)
+      self._record_replay_sample(
+          state,
+          player,
+          legal,
+          policy,
+          baseline_action,
+          proposed_action,
+          selected_action,
+          search_seed,
+          scored,
+          audit_summaries,
+      )
     if selected_action != baseline_action:
       self._decision_stats["root_rollout_overrides"] += 1
       _inc_counter(self._decision_stats["root_rollout_overrides_by_phase"], phase)
+      _inc_counter(
+          self._decision_stats["root_rollout_overrides_by_trick"],
+          str(trick_number),
+      )
     _record_decision(
         self._decision_stats, state, selected_action, legal_count
     )
@@ -3659,15 +6430,24 @@ class AZRootRolloutBot:
 
   def raw_decision_stats(self):
     stats = json.loads(json.dumps(self._decision_stats))
+    if self._base_neural_bot is not None:
+      if hasattr(self._base_neural_bot, "raw_decision_stats"):
+        stats.setdefault("nested", {})["base_bot"] = (
+            self._base_neural_bot.raw_decision_stats()
+        )
+      elif hasattr(self._base_neural_bot, "decision_stats"):
+        stats.setdefault("nested", {})["base_bot"] = (
+            self._base_neural_bot.decision_stats()
+        )
     if self._continuation_neural_bot is not None:
       if hasattr(self._continuation_neural_bot, "raw_decision_stats"):
-        stats["nested"] = {
-            "continuation_bot": self._continuation_neural_bot.raw_decision_stats()
-        }
+        stats.setdefault("nested", {})["continuation_bot"] = (
+            self._continuation_neural_bot.raw_decision_stats()
+        )
       elif hasattr(self._continuation_neural_bot, "decision_stats"):
-        stats["nested"] = {
-            "continuation_bot": self._continuation_neural_bot.decision_stats()
-        }
+        stats.setdefault("nested", {})["continuation_bot"] = (
+            self._continuation_neural_bot.decision_stats()
+        )
     return stats
 
 
@@ -3802,6 +6582,24 @@ def _action_would_win_after_play(state, player, action):
   if not led:
     return False
   return max(led, key=lambda item: item[1])[0] == int(player)
+
+
+def _must_win_current_trick_to_hit_prediction(state, player):
+  predictions = getattr(state, "_predictions", [])
+  tricks_won = getattr(state, "_tricks_won", [])
+  player = int(player)
+  if player >= len(predictions) or player >= len(tricks_won):
+    return False
+  prediction = int(predictions[player])
+  if prediction < 0:
+    return False
+  tricks = int(tricks_won[player])
+  if tricks >= prediction:
+    return False
+  num_tricks = int(getattr(state, "_num_tricks", 0) or 0)
+  trick_number = int(getattr(state, "_trick_number", 0) or 0)
+  remaining_after_current = max(0, num_tricks - trick_number - 1)
+  return (prediction - tricks) > remaining_after_current
 
 
 def public_exit_liquidity(state, player):
@@ -4036,7 +6834,7 @@ def public_exit_liquidity_after_action(state, player, action):
       "lost_led_token": bool(lost_led_token),
       "would_win_now": would_win_now,
       "over_target_would_win": bool(
-          would_win_now is True and prediction >= 0 and tricks >= prediction
+          would_win_now is True and prediction >= 0 and tricks == prediction
       ),
   }
   return row
@@ -4047,18 +6845,29 @@ def action_liveness_key(row, action, base_action=None):
 
   Higher is better. This key is deliberately local and public/own-info only:
   exact own remaining-hand feasibility comes first, then public exit-space
-  preservation, then prediction/token-loss tie breakers. It is meant for
-  within-state comparisons, not as a calibrated global risk probability.
+  preservation, then prediction/token-loss tie breakers. A red switch that wins
+  a still-needed trick is treated as responsible lane spending instead of a
+  generic lost-led-token mistake. It is meant for within-state comparisons, not
+  as a calibrated global risk probability.
   """
   base_bonus = (
       1 if base_action is not None and int(action) == int(base_action) else 0
   )
+  lost_led_token = bool(row.get("lost_led_token", False))
+  responsible_red_win_switch = (
+      lost_led_token
+      and bool(row.get("would_win_now", False))
+      and not bool(row.get("over_target_would_win", False))
+  )
+  preserves_lane_or_spends_to_win = (
+      not lost_led_token or responsible_red_win_switch
+  )
   return (
       0 if bool(row.get("is_paradox", False)) else 1,
       1 if bool(row.get("own_feasible", False)) else 0,
+      1 if preserves_lane_or_spends_to_win else 0,
       -int(row.get("own_total_deficit", 0)),
       -int(row.get("own_dead_rank_count", 0)),
-      0 if bool(row.get("lost_led_token", False)) else 1,
       int(row.get("min_player_lane_surplus_after", 0)),
       int(row.get("total_player_lane_surplus_after", 0)),
       int(row.get("own_lane_surplus_after", 0)),
@@ -4087,7 +6896,13 @@ def action_liveness_certificate(state, player, action, base_action=None):
       "action": int(action),
       "phase": _phase_name(state).lower(),
       "trick_number": int(getattr(state, "_trick_number", -1)),
+      "led_color": getattr(state, "_led_color", None),
   })
+  row["responsible_red_win_switch"] = bool(
+      row.get("lost_led_token", False)
+      and bool(row.get("would_win_now", False))
+      and not bool(row.get("over_target_would_win", False))
+  )
   key = action_liveness_key(row, action, base_action=base_action)
   row["liveness_key"] = [int(value) for value in key]
   row["liveness_failure_count"] = int(bool(row.get("is_paradox", False))) + int(
@@ -4138,6 +6953,552 @@ def exact_legal_pressure_after_action(state, action):
       "exact_current_nonparadox_legal_after": int(current_count),
       "exact_total_nonparadox_legal_after": int(sum(counts)),
   }
+
+
+def exact_table_liveness_after_action(state, action):
+  """Full-state post-action table liveness margins for teacher diagnostics.
+
+  This reads every player's hand after applying the candidate action. It is
+  therefore only appropriate for exact simulator teachers, audits, and
+  training-label generation, not deployed information-legal inference.
+  """
+  clone = state.clone()
+  clone.apply_action(int(action))
+  num_players = int(getattr(clone, "_num_players", 0) or 0)
+  has_paradoxed = list(getattr(clone, "_has_paradoxed", [False] * num_players))
+  any_paradox = any(bool(value) for value in has_paradoxed)
+  if clone.is_terminal():
+    good_terminal = not any_paradox
+    margin = 99 if good_terminal else -99
+    return {
+        "table_terminal_after": True,
+        "table_any_paradox_after": bool(any_paradox),
+        "table_dead_margin_players_after": int(
+            sum(1 for value in has_paradoxed if value)
+        ),
+        "table_min_margin_after": int(margin),
+        "table_current_margin_after": int(margin),
+        "table_total_margin_after": int(margin * max(1, num_players)),
+        "table_active_players_after": 0,
+    }
+
+  margins = []
+  dead_count = 0
+  for seat in range(num_players):
+    if bool(has_paradoxed[seat]):
+      dead_count += 1
+      continue
+    remaining_cards = int(np.sum(getattr(clone, "_hands", [])[seat]))
+    if remaining_cards <= 0:
+      continue
+    view = liveness_oracle.view_from_state(clone, seat)
+    margin = int(view.margin())
+    margins.append(margin)
+    if margin < 0:
+      dead_count += 1
+
+  current = int(clone.current_player())
+  current_margin = 99
+  if 0 <= current < num_players and not bool(has_paradoxed[current]):
+    current_remaining = int(np.sum(getattr(clone, "_hands", [])[current]))
+    if current_remaining > 0:
+      current_margin = int(liveness_oracle.view_from_state(clone, current).margin())
+
+  return {
+      "table_terminal_after": False,
+      "table_any_paradox_after": bool(any_paradox),
+      "table_dead_margin_players_after": int(dead_count),
+      "table_min_margin_after": int(min(margins)) if margins else 99,
+      "table_current_margin_after": int(current_margin),
+      "table_total_margin_after": int(sum(margins)) if margins else 99 * max(1, num_players),
+      "table_active_players_after": int(len(margins)),
+  }
+
+
+class AZBeliefTableLivenessPolicyBot:
+  """Information-legal approximation of the exact table-liveness teacher.
+
+  The exact teacher reads every real hand and is diagnostic-only.  This bot
+  instead samples hidden worlds exclusively through the acting player's
+  information state, evaluates every legal action on the same sampled worlds,
+  and fails closed to its base policy unless a paired lower-confidence-bound
+  gate clears.  The real state is never passed to an exact liveness scorer.
+  """
+
+  def __init__(self, model, name, device, model_args):
+    self.model = model
+    self.name = name
+    self.device = device
+    self.args = model_args
+    self.uses_neural_prediction = _uses_neural_prediction(model_args)
+    base_mode = str(
+        getattr(model_args, "belief_table_liveness_base_mode", "policy")
+        or "policy"
+    )
+    if base_mode == "policy":
+      self.base_bot = AZPolicyBot(
+          model,
+          f"{name}_base_policy",
+          device,
+          model_args.value_scale,
+          use_shared_prediction=not self.uses_neural_prediction,
+      )
+    elif base_mode == "liveness_shield":
+      self.base_bot = AZLivenessShieldPolicyBot(
+          model, f"{name}_base_liveness_shield", device, model_args
+      )
+    else:
+      raise ValueError(
+          "belief_table_liveness_base_mode must be policy or "
+          f"liveness_shield, got {base_mode!r}"
+      )
+    aggregation = str(
+        getattr(
+            model_args,
+            "belief_table_liveness_aggregation",
+            "teacher_vote",
+        )
+        or "teacher_vote"
+    ).strip().lower()
+    if aggregation not in ("scalar_mean", "scalar_quantile", "teacher_vote"):
+      raise ValueError(
+          "belief_table_liveness_aggregation must be scalar_mean, "
+          f"scalar_quantile, or teacher_vote, got {aggregation!r}"
+      )
+    quantile = float(
+        getattr(model_args, "belief_table_liveness_quantile", 0.25)
+    )
+    if not 0.0 <= quantile <= 1.0:
+      raise ValueError(
+          "belief_table_liveness_quantile must be in [0, 1], "
+          f"got {quantile}"
+      )
+    self.aggregation = aggregation
+    self.quantile = quantile
+    self._decision_stats = _empty_decision_stats()
+    self._decision_stats.update({
+        "belief_table_liveness_disabled": 0,
+        "belief_table_liveness_considered": 0,
+        "belief_table_liveness_base_kept": 0,
+        "belief_table_liveness_overrides": 0,
+        "belief_table_liveness_shadow_overrides": 0,
+        "belief_table_liveness_sample_failures": 0,
+        "belief_table_liveness_infostate_mismatches": 0,
+        "belief_table_liveness_insufficient_worlds": 0,
+        "belief_table_liveness_blocked_paired_lcb": 0,
+        "belief_table_liveness_blocked_best_share": 0,
+        "belief_table_liveness_blocked_policy_gap": 0,
+        "belief_table_liveness_worlds_scored": 0,
+        "belief_table_liveness_paired_delta_sum": 0.0,
+        "belief_table_liveness_paired_lcb_sum": 0.0,
+        "belief_table_liveness_best_share_sum": 0.0,
+        "belief_table_liveness_by_trick": {},
+        "belief_table_liveness_overrides_by_trick": {},
+        "belief_table_liveness_base_mode": base_mode,
+        "belief_table_liveness_aggregation": aggregation,
+        "belief_table_liveness_quantile": quantile,
+        "belief_table_liveness_inference_unit": "acting_information_state_world",
+        "belief_table_liveness_real_state_exact_scoring": False,
+        "belief_table_liveness_override_samples": [],
+    })
+
+  def _enabled_for_state(self, state):
+    phases = _split_phase_names(
+        getattr(self.args, "belief_table_liveness_phases", "play")
+    )
+    if phases and _phase_name(state).lower() not in phases:
+      return False
+    trick = int(getattr(state, "_trick_number", -1))
+    min_trick = int(
+        getattr(self.args, "belief_table_liveness_min_trick_number", 5)
+    )
+    max_trick = int(
+        getattr(self.args, "belief_table_liveness_max_trick_number", 7)
+    )
+    if min_trick >= 0 and trick < min_trick:
+      return False
+    if max_trick >= 0 and trick > max_trick:
+      return False
+    return True
+
+  def _policy(self, state, player):
+    policy, _ = model_policy_value(
+        self.model,
+        state,
+        player,
+        state.num_distinct_actions(),
+        self.args.value_scale,
+        self.device,
+        use_shared_prediction=not self.uses_neural_prediction,
+    )
+    return policy
+
+  def _information_state_seed(self, state, player, legal):
+    digest = hashlib.sha256()
+    observation = np.asarray(
+        state.observation_tensor(player), dtype=np.float32
+    )
+    digest.update(observation.tobytes())
+    digest.update(np.asarray(
+        sorted(int(action) for action in legal), dtype=np.int32
+    ).tobytes())
+    digest.update(str(int(player)).encode("ascii"))
+    digest.update(str(int(
+        getattr(self.args, "belief_table_liveness_seed_salt", 0)
+    )).encode("ascii"))
+    return int.from_bytes(digest.digest()[:4], byteorder="little", signed=False)
+
+  def _sample_information_state_worlds(self, state, player, legal):
+    requested = max(
+        1, int(getattr(self.args, "belief_table_liveness_samples", 16))
+    )
+    rng = np.random.RandomState(
+        self._information_state_seed(state, player, legal)
+    )
+    observation = np.asarray(
+        state.observation_tensor(player), dtype=np.float32
+    )
+    legal_set = set(int(action) for action in legal)
+    worlds = []
+    for _ in range(requested):
+      try:
+        sampled = state.resample_from_infostate(player, rng)
+      except Exception:
+        self._decision_stats["belief_table_liveness_sample_failures"] += 1
+        continue
+      sampled_observation = np.asarray(
+          sampled.observation_tensor(player), dtype=np.float32
+      )
+      sampled_legal = set(int(action) for action in sampled.legal_actions(player))
+      if (
+          not np.array_equal(sampled_observation, observation)
+          or sampled_legal != legal_set
+      ):
+        self._decision_stats[
+            "belief_table_liveness_infostate_mismatches"
+        ] += 1
+        continue
+      worlds.append(sampled)
+    return worlds, requested
+
+  @staticmethod
+  def _table_scalar(row):
+    if bool(row.get("table_terminal_after", False)):
+      return -6.0 if bool(row.get("table_any_paradox_after", False)) else 6.0
+    dead = float(row.get("table_dead_margin_players_after", 0.0))
+    min_margin = float(row.get("table_min_margin_after", -99.0))
+    current_margin = float(row.get("table_current_margin_after", -99.0))
+    total_margin = float(row.get("table_total_margin_after", -99.0))
+    return float(
+        -7.0 * dead
+        + 1.10 * max(-6.0, min(min_margin, 8.0))
+        + 0.25 * max(-6.0, min(current_margin, 8.0))
+        + 0.04 * max(-24.0, min(total_margin, 40.0))
+    )
+
+  @staticmethod
+  def _teacher_key(row, action, base_action):
+    liveness_key = action_liveness_key(
+        row, int(action), base_action=int(base_action)
+    )
+    return (
+        0 if bool(row.get("table_any_paradox_after", False)) else 1,
+        -int(row.get("table_dead_margin_players_after", 0)),
+        int(row.get("table_min_margin_after", -99)),
+        int(row.get("table_current_margin_after", -99)),
+        int(row.get("table_total_margin_after", -99)),
+        1 if bool(row.get("table_terminal_after", False)) else 0,
+        -int(row.get("exact_forced_paradox_players_after", 0)),
+        int(row.get("exact_min_nonparadox_legal_after", 0)),
+        int(row.get("exact_current_nonparadox_legal_after", 0)),
+        int(row.get("exact_total_nonparadox_legal_after", 0)),
+        0 if bool(row.get("lost_led_token", False)) else 1,
+    ) + tuple(int(value) for value in liveness_key)
+
+  def _score_world(self, sampled, player, legal, base_action, policy):
+    rows = {}
+    scalars = {}
+    for action in legal:
+      row = action_liveness_certificate(
+          sampled, player, int(action), base_action=int(base_action)
+      )
+      row.update(exact_legal_pressure_after_action(sampled, int(action)))
+      row.update(exact_table_liveness_after_action(sampled, int(action)))
+      rows[int(action)] = row
+      scalars[int(action)] = self._table_scalar(row)
+    teacher_best = max(
+        legal,
+        key=lambda action: (
+            self._teacher_key(rows[int(action)], action, base_action),
+            float(policy[int(action)]),
+            -int(action),
+        ),
+    )
+    return scalars, int(teacher_best)
+
+  @staticmethod
+  def _paired_summary(values):
+    array = np.asarray(values, dtype=np.float64)
+    mean_delta = float(np.mean(array)) if array.size else 0.0
+    stderr = (
+        float(np.std(array, ddof=1) / math.sqrt(array.size))
+        if array.size > 1 else 0.0
+    )
+    return mean_delta, stderr
+
+  def _score_actions(self, state, player, legal, base_action, policy):
+    worlds, requested = self._sample_information_state_worlds(
+        state, player, legal
+    )
+    configured_minimum = int(
+        getattr(self.args, "belief_table_liveness_min_valid_samples", 0)
+    )
+    minimum = requested if configured_minimum <= 0 else configured_minimum
+    if len(worlds) < minimum:
+      self._decision_stats["belief_table_liveness_insufficient_worlds"] += 1
+      return None
+    scalar_values = {int(action): [] for action in legal}
+    teacher_votes = {int(action): [] for action in legal}
+    for sampled in worlds:
+      scalars, teacher_best = self._score_world(
+          sampled, player, legal, base_action, policy
+      )
+      for action in legal:
+        scalar_values[int(action)].append(float(scalars[int(action)]))
+        teacher_votes[int(action)].append(
+            1.0 if int(action) == int(teacher_best) else 0.0
+        )
+    self._decision_stats["belief_table_liveness_worlds_scored"] += len(worlds)
+    scalar_means = {
+        int(action): float(np.mean(values))
+        for action, values in scalar_values.items()
+    }
+    vote_shares = {
+        int(action): float(np.mean(values))
+        for action, values in teacher_votes.items()
+    }
+    if self.aggregation == "scalar_mean":
+      selected = max(
+          legal,
+          key=lambda action: (
+              scalar_means[int(action)],
+              float(policy[int(action)]),
+              -int(action),
+          ),
+      )
+      paired_values = [
+          selected_value - base_value
+          for selected_value, base_value in zip(
+              scalar_values[int(selected)], scalar_values[int(base_action)]
+          )
+      ]
+    elif self.aggregation == "scalar_quantile":
+      scalar_quantiles = {
+          int(action): float(np.quantile(values, self.quantile))
+          for action, values in scalar_values.items()
+      }
+      selected = max(
+          legal,
+          key=lambda action: (
+              scalar_quantiles[int(action)],
+              scalar_means[int(action)],
+              float(policy[int(action)]),
+              -int(action),
+          ),
+      )
+      paired_values = [
+          selected_value - base_value
+          for selected_value, base_value in zip(
+              scalar_values[int(selected)], scalar_values[int(base_action)]
+          )
+      ]
+    else:
+      selected = max(
+          legal,
+          key=lambda action: (
+              vote_shares[int(action)],
+              scalar_means[int(action)],
+              float(policy[int(action)]),
+              -int(action),
+          ),
+      )
+      paired_values = [
+          selected_value - base_value
+          for selected_value, base_value in zip(
+              teacher_votes[int(selected)], teacher_votes[int(base_action)]
+          )
+      ]
+    mean_delta, stderr = self._paired_summary(paired_values)
+    z_value = max(
+        0.0,
+        float(getattr(self.args, "belief_table_liveness_paired_lcb_z", 1.0)),
+    )
+    paired_lcb = float(mean_delta - z_value * stderr)
+    return {
+        "selected_action": int(selected),
+        "worlds": int(len(worlds)),
+        "mean_delta": float(mean_delta),
+        "stderr": float(stderr),
+        "paired_lcb": float(paired_lcb),
+        "best_share": float(vote_shares[int(selected)]),
+        "base_share": float(vote_shares[int(base_action)]),
+        "selected_scalar_mean": float(scalar_means[int(selected)]),
+        "base_scalar_mean": float(scalar_means[int(base_action)]),
+    }
+
+  def _within_policy_gap(self, policy, base_action, selected_action):
+    max_gap = float(
+        getattr(
+            self.args, "belief_table_liveness_max_policy_log_gap", -1.0
+        )
+    )
+    if max_gap < 0:
+      return True
+    gap = math.log(max(float(policy[int(base_action)]), 1e-12)) - math.log(
+        max(float(policy[int(selected_action)]), 1e-12)
+    )
+    return float(gap) <= max_gap
+
+  def _append_override_sample(
+      self, state, player, legal, base_action, score, shadow
+  ):
+    samples = self._decision_stats[
+        "belief_table_liveness_override_samples"
+    ]
+    limit = int(
+        getattr(self.args, "belief_table_liveness_sample_limit", 20) or 0
+    )
+    if limit <= 0 or len(samples) >= limit:
+      return
+    samples.append({
+        "player": int(player),
+        "phase": _phase_name(state).lower(),
+        "trick_number": int(getattr(state, "_trick_number", -1)),
+        "legal_actions": [int(action) for action in legal],
+        "base_action": int(base_action),
+        "selected_action": int(score["selected_action"]),
+        "shadow": bool(shadow),
+        "worlds": int(score["worlds"]),
+        "mean_delta": float(score["mean_delta"]),
+        "stderr": float(score["stderr"]),
+        "paired_lcb": float(score["paired_lcb"]),
+        "best_share": float(score["best_share"]),
+        "base_share": float(score["base_share"]),
+    })
+
+  def step(self, state, player):
+    legal = [int(action) for action in state.legal_actions(player)]
+    legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return int(setup_action)
+    if legal_count == 1:
+      _record_decision(self._decision_stats, state, legal[0], legal_count)
+      return int(legal[0])
+    base_action = int(self.base_bot.step(state.clone(), player))
+    policy = self._policy(state, player)
+    if base_action not in legal:
+      base_action = int(max(
+          legal, key=lambda action: (float(policy[action]), -int(action))
+      ))
+    if not self._enabled_for_state(state):
+      self._decision_stats["belief_table_liveness_disabled"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    self._decision_stats["belief_table_liveness_considered"] += 1
+    trick = str(int(getattr(state, "_trick_number", -1)))
+    _inc_counter(self._decision_stats["belief_table_liveness_by_trick"], trick)
+    score = self._score_actions(
+        state, player, legal, base_action, policy
+    )
+    if score is None:
+      self._decision_stats["belief_table_liveness_base_kept"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    selected_action = int(score["selected_action"])
+    self._decision_stats["belief_table_liveness_paired_delta_sum"] += float(
+        score["mean_delta"]
+    )
+    self._decision_stats["belief_table_liveness_paired_lcb_sum"] += float(
+        score["paired_lcb"]
+    )
+    self._decision_stats["belief_table_liveness_best_share_sum"] += float(
+        score["best_share"]
+    )
+    should_override = selected_action != base_action
+    min_lcb = float(
+        getattr(self.args, "belief_table_liveness_min_paired_lcb", 0.0)
+    )
+    if should_override and float(score["paired_lcb"]) < min_lcb:
+      self._decision_stats["belief_table_liveness_blocked_paired_lcb"] += 1
+      should_override = False
+    min_best_share = float(
+        getattr(self.args, "belief_table_liveness_min_best_share", 0.0)
+    )
+    if should_override and float(score["best_share"]) < min_best_share:
+      self._decision_stats["belief_table_liveness_blocked_best_share"] += 1
+      should_override = False
+    if should_override and not self._within_policy_gap(
+        policy, base_action, selected_action
+    ):
+      self._decision_stats["belief_table_liveness_blocked_policy_gap"] += 1
+      should_override = False
+    shadow = bool(
+        getattr(self.args, "belief_table_liveness_shadow_only", False)
+    )
+    final_action = int(base_action)
+    if should_override:
+      self._append_override_sample(
+          state, player, legal, base_action, score, shadow=shadow
+      )
+      if shadow:
+        self._decision_stats["belief_table_liveness_shadow_overrides"] += 1
+      else:
+        final_action = selected_action
+        self._decision_stats["belief_table_liveness_overrides"] += 1
+        _inc_counter(
+            self._decision_stats[
+                "belief_table_liveness_overrides_by_trick"
+            ],
+            trick,
+        )
+    else:
+      self._decision_stats["belief_table_liveness_base_kept"] += 1
+    _record_decision(self._decision_stats, state, final_action, legal_count)
+    return int(final_action)
+
+  def decision_stats(self):
+    stats = self.raw_decision_stats()
+    _decision_stats_rates(stats)
+    considered = float(
+        stats.get("belief_table_liveness_considered", 0) or 0
+    )
+    if considered:
+      stats["belief_table_liveness_override_rate_when_considered"] = round(
+          float(stats.get("belief_table_liveness_overrides", 0)) / considered,
+          6,
+      )
+      stats["belief_table_liveness_paired_delta_avg"] = round(
+          float(stats.get("belief_table_liveness_paired_delta_sum", 0.0))
+          / considered,
+          6,
+      )
+      stats["belief_table_liveness_paired_lcb_avg"] = round(
+          float(stats.get("belief_table_liveness_paired_lcb_sum", 0.0))
+          / considered,
+          6,
+      )
+      stats["belief_table_liveness_best_share_avg"] = round(
+          float(stats.get("belief_table_liveness_best_share_sum", 0.0))
+          / considered,
+          6,
+      )
+    return stats
+
+  def raw_decision_stats(self):
+    return json.loads(json.dumps(self._decision_stats))
 
 
 class ExitLiquidityShieldBot:
@@ -4282,6 +7643,11 @@ class ExitLiquidityShieldBot:
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -4541,6 +7907,11 @@ class LiquidityFeasibilityShieldBot:
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -4659,6 +8030,10 @@ class LivenessKeyTeacherBot:
         "liveness_teacher_selected_forced_players_sum": 0.0,
         "liveness_teacher_base_min_nonparadox_legal_sum": 0.0,
         "liveness_teacher_selected_min_nonparadox_legal_sum": 0.0,
+        "liveness_teacher_base_table_min_margin_sum": 0.0,
+        "liveness_teacher_selected_table_min_margin_sum": 0.0,
+        "liveness_teacher_base_table_dead_players_sum": 0.0,
+        "liveness_teacher_selected_table_dead_players_sum": 0.0,
         "liveness_teacher_by_phase": {},
         "liveness_teacher_overrides_by_phase": {},
         "liveness_teacher_base_bot": base_name,
@@ -4708,12 +8083,22 @@ class LivenessKeyTeacherBot:
     use_exact = bool(
         getattr(self.args, "liveness_teacher_exact_legal_pressure", False)
     )
+    key_order = str(
+        getattr(self.args, "liveness_teacher_exact_key_order", "lane_first")
+        or "lane_first"
+    )
+    use_table = key_order in (
+        "table_liveness_first",
+        "late_table_liveness_first",
+    )
     for action in legal:
       row = action_liveness_certificate(
           state, player, action, base_action=base_action
       )
       if use_exact:
         row.update(exact_legal_pressure_after_action(state, action))
+      if use_table:
+        row.update(exact_table_liveness_after_action(state, action))
       scored[int(action)] = row
     return scored
 
@@ -4721,13 +8106,62 @@ class LivenessKeyTeacherBot:
     liveness_key = tuple(int(value) for value in row.get("liveness_key", []))
     if not bool(getattr(self.args, "liveness_teacher_exact_legal_pressure", False)):
       return liveness_key
+    forced = -int(row.get("exact_forced_paradox_players_after", 0))
+    min_legal = int(row.get("exact_min_nonparadox_legal_after", 0))
+    current_legal = int(row.get("exact_current_nonparadox_legal_after", 0))
+    total_legal = int(row.get("exact_total_nonparadox_legal_after", 0))
+    preserves_led = 0 if bool(row.get("lost_led_token", False)) else 1
+    terminal = 1 if bool(row.get("exact_terminal_after", False)) else 0
+    key_order = str(
+        getattr(self.args, "liveness_teacher_exact_key_order", "lane_first")
+        or "lane_first"
+    )
+    table_first = key_order == "table_liveness_first"
+    if key_order == "late_table_liveness_first":
+      led_color = row.get("led_color", None)
+      trick_number = int(row.get("trick_number", -1))
+      table_first = trick_number >= 5 and led_color in (None, "R")
+    if table_first:
+      table_terminal = 1 if bool(row.get("table_terminal_after", False)) else 0
+      table_no_paradox = 0 if bool(row.get("table_any_paradox_after", False)) else 1
+      table_dead = -int(row.get("table_dead_margin_players_after", 0))
+      table_min_margin = int(row.get("table_min_margin_after", -99))
+      table_current_margin = int(row.get("table_current_margin_after", -99))
+      table_total_margin = int(row.get("table_total_margin_after", -99))
+      return (
+          table_no_paradox,
+          table_dead,
+          table_min_margin,
+          table_current_margin,
+          table_total_margin,
+          table_terminal,
+          forced,
+          min_legal,
+          current_legal,
+          total_legal,
+          preserves_led,
+      ) + liveness_key
+    pressure_first = key_order == "pressure_first"
+    if key_order == "late_red_pressure_first":
+      led_color = row.get("led_color", None)
+      trick_number = int(row.get("trick_number", -1))
+      pressure_first = trick_number >= 5 and led_color in (None, "R")
+    if pressure_first:
+      return (
+          terminal,
+          forced,
+          min_legal,
+          current_legal,
+          total_legal,
+          preserves_led,
+      ) + liveness_key
     return (
-        1 if bool(row.get("exact_terminal_after", False)) else 0,
-        -int(row.get("exact_forced_paradox_players_after", 0)),
-        0 if bool(row.get("lost_led_token", False)) else 1,
-        int(row.get("exact_min_nonparadox_legal_after", 0)),
-        int(row.get("exact_current_nonparadox_legal_after", 0)),
-        int(row.get("exact_total_nonparadox_legal_after", 0)),
+        terminal,
+        forced,
+        preserves_led,
+        min_legal,
+        current_legal,
+        total_legal,
     ) + liveness_key
 
   def _append_override_sample(
@@ -4754,6 +8188,11 @@ class LivenessKeyTeacherBot:
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -4819,6 +8258,18 @@ class LivenessKeyTeacherBot:
     )
     self._decision_stats["liveness_teacher_selected_min_nonparadox_legal_sum"] += float(
         selected_row.get("exact_min_nonparadox_legal_after", 0.0)
+    )
+    self._decision_stats["liveness_teacher_base_table_min_margin_sum"] += float(
+        base_row.get("table_min_margin_after", 0.0)
+    )
+    self._decision_stats["liveness_teacher_selected_table_min_margin_sum"] += float(
+        selected_row.get("table_min_margin_after", 0.0)
+    )
+    self._decision_stats["liveness_teacher_base_table_dead_players_sum"] += float(
+        base_row.get("table_dead_margin_players_after", 0.0)
+    )
+    self._decision_stats["liveness_teacher_selected_table_dead_players_sum"] += float(
+        selected_row.get("table_dead_margin_players_after", 0.0)
     )
 
     if selected_action == int(base_action):
@@ -4964,6 +8415,11 @@ class OwnHandFeasibilityShieldBot:
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -5447,6 +8903,11 @@ class SurvivalShieldBot:
   def step(self, state, player):
     legal = list(state.legal_actions(player))
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return int(legal[0])
@@ -5630,6 +9091,11 @@ def load_improve_scorer(path, device):
           or saved_args.get("policy_context_mode")
           or "none"
       ),
+      "game_context_mode": str(
+          payload.get("game_context_mode")
+          or saved_args.get("game_context_mode")
+          or "none"
+      ),
       "args": saved_args,
   }
 
@@ -5643,6 +9109,17 @@ class AZImproveGraftBot:
     self.improve_scorer = improve_scorer
     self.device = device
     self.args = model_args
+    self.base_mode = str(getattr(model_args, "improve_base_mode", "policy"))
+    if self.base_mode == "policy":
+      self.base_bot = None
+    elif self.base_mode == "q_policy":
+      self.base_bot = AZQPolicyBot(model, f"{name}_improve_base", device, model_args)
+    elif self.base_mode == "liveness_shield":
+      self.base_bot = AZLivenessShieldPolicyBot(
+          model, f"{name}_improve_base", device, model_args
+      )
+    else:
+      raise ValueError(f"Unsupported improve_base_mode: {self.base_mode}")
     self._decision_stats = _empty_decision_stats()
     self._decision_stats.update({
         "improve_disabled": 0,
@@ -5654,6 +9131,14 @@ class AZImproveGraftBot:
         "improve_scored_candidates": 0,
         "improve_risk_vetoed": 0,
         "improve_risk_model_missing": 0,
+        "improve_guard_led_follow_filtered": 0,
+        "improve_guard_led_follow_base_follow_states": 0,
+        "improve_guard_led_follow_responsible_red_kept": 0,
+        "improve_guard_led_follow_nonurgent_red_filtered": 0,
+        "improve_policy_gap_filtered": 0,
+        "improve_base_off_led_filtered": 0,
+        "improve_candidate_color_filtered": 0,
+        "improve_responsible_red_win_filtered": 0,
         "improve_by_phase": {},
         "improve_overrides_by_phase": {},
         "improve_shadow_overrides_by_phase": {},
@@ -5661,11 +9146,26 @@ class AZImproveGraftBot:
         "improve_shadow_override_samples": [],
         "improve_max_prob_sum": 0.0,
         "improve_max_safe_prob_sum": 0.0,
+        "improve_base_mode": self.base_mode,
     })
 
   @staticmethod
   def _phase_name(state):
     return _phase_name(state)
+
+  @staticmethod
+  def _action_color(state, action):
+    action = int(action)
+    if action == 999:
+      return None
+    num_card_types = int(getattr(state, "_num_card_types", 0) or 0)
+    if num_card_types <= 0:
+      return None
+    color_idx = action // num_card_types
+    color_names = ["R", "B", "Y", "G"]
+    if 0 <= color_idx < len(color_names):
+      return color_names[color_idx]
+    return None
 
   @staticmethod
   def _near_paradox_pressure_score(state, player, legal):
@@ -5719,8 +9219,22 @@ class AZImproveGraftBot:
     if max_legal > 0 and legal_count > max_legal:
       return False, "legal_count_high"
     min_trick = int(getattr(self.args, "improve_min_trick_number", -1))
-    if min_trick >= 0 and int(getattr(state, "_trick_number", -1)) < min_trick:
+    trick_number = int(getattr(state, "_trick_number", -1))
+    if min_trick >= 0 and trick_number < min_trick:
       return False, "trick_number"
+    trick_spec = str(getattr(self.args, "improve_trick_numbers", "") or "").strip()
+    if trick_spec:
+      allowed_tricks = {
+          int(part.strip()) for part in trick_spec.split(",") if part.strip()
+      }
+      if trick_number not in allowed_tricks:
+        return False, "trick_number_filter"
+    led_spec = str(getattr(self.args, "improve_led_colors", "") or "").strip()
+    if led_spec:
+      allowed_led = _split_phase_names(led_spec)
+      led_color = str(getattr(state, "_led_color", "") or "").lower()
+      if led_color not in allowed_led:
+        return False, "led_color"
     min_round = int(getattr(self.args, "improve_min_match_round", -1))
     if min_round >= 0 and int(getattr(state, "_match_round", -1)) < min_round:
       return False, "match_round"
@@ -5762,6 +9276,103 @@ class AZImproveGraftBot:
       return sorted(int(action) for action in sampled if action != policy_action)
     return sorted(int(action) for action in legal if action != policy_action)
 
+  def _guard_led_follow_candidates(self, state, player, policy_action, candidates):
+    if not bool(getattr(self.args, "improve_guard_led_follow", False)):
+      return candidates
+    led_color = getattr(state, "_led_color", None)
+    if led_color not in ("B", "Y", "G"):
+      return candidates
+    if self._action_color(state, policy_action) != led_color:
+      return candidates
+    self._decision_stats["improve_guard_led_follow_base_follow_states"] += 1
+    kept = []
+    for action in candidates:
+      if self._action_color(state, action) == led_color:
+        kept.append(action)
+        continue
+      row = action_liveness_certificate(
+          state, player, action, base_action=policy_action
+      )
+      if bool(row.get("responsible_red_win_switch", False)):
+        if (
+            bool(
+                getattr(
+                    self.args,
+                    "improve_guard_led_follow_red_win_must_be_urgent",
+                    False,
+                )
+            )
+            and not _must_win_current_trick_to_hit_prediction(state, player)
+        ):
+          self._decision_stats[
+              "improve_guard_led_follow_nonurgent_red_filtered"
+          ] += 1
+          self._decision_stats["improve_guard_led_follow_filtered"] += 1
+          continue
+        kept.append(action)
+        self._decision_stats["improve_guard_led_follow_responsible_red_kept"] += 1
+      else:
+        self._decision_stats["improve_guard_led_follow_filtered"] += 1
+    return kept
+
+  def _guard_candidate_shape(self, state, player, policy_action, candidates):
+    if not candidates:
+      return candidates
+    led_color = getattr(state, "_led_color", None)
+    if bool(getattr(self.args, "improve_require_base_off_led", False)):
+      if led_color not in ("R", "B", "Y", "G"):
+        self._decision_stats["improve_base_off_led_filtered"] += len(candidates)
+        return []
+      if self._action_color(state, policy_action) == led_color:
+        self._decision_stats["improve_base_off_led_filtered"] += len(candidates)
+        return []
+    color_spec = str(getattr(self.args, "improve_candidate_colors", "") or "").strip()
+    if color_spec:
+      allowed_colors = _split_phase_names(color_spec)
+      kept = []
+      for action in candidates:
+        color = str(self._action_color(state, action) or "").lower()
+        if color in allowed_colors:
+          kept.append(action)
+        else:
+          self._decision_stats["improve_candidate_color_filtered"] += 1
+      candidates = kept
+    if bool(getattr(self.args, "improve_require_responsible_red_win", False)):
+      kept = []
+      for action in candidates:
+        row = action_liveness_certificate(
+            state, player, action, base_action=policy_action
+        )
+        if bool(row.get("responsible_red_win_switch", False)):
+          kept.append(action)
+        else:
+          self._decision_stats["improve_responsible_red_win_filtered"] += 1
+      candidates = kept
+    return candidates
+
+  def _guard_policy_gap_candidates(self, policy, policy_action, candidates):
+    max_gap = float(getattr(self.args, "improve_max_policy_log_gap", -1.0))
+    if max_gap < 0:
+      return candidates
+    floor = 1e-12
+    base_logp = float(np.log(max(float(policy[policy_action]), floor)))
+    kept = []
+    for action in candidates:
+      candidate_logp = float(np.log(max(float(policy[action]), floor)))
+      if base_logp - candidate_logp <= max_gap:
+        kept.append(action)
+      else:
+        self._decision_stats["improve_policy_gap_filtered"] += 1
+    return kept
+
+  def _base_action(self, state, player, legal, policy_action):
+    if self.base_bot is None:
+      return int(policy_action)
+    action = int(self.base_bot.step(state.clone(), player))
+    if action not in legal:
+      return int(policy_action)
+    return action
+
   def _score_candidates(self, state, player, legal, policy, policy_action, candidates):
     if not candidates:
       return {}
@@ -5774,6 +9385,9 @@ class AZImproveGraftBot:
     )
     policy_context_mode = str(
         self.improve_scorer.get("policy_context_mode", "none") or "none"
+    )
+    game_context_mode = str(
+        self.improve_scorer.get("game_context_mode", "none") or "none"
     )
     legal_mask = np.zeros(state.num_distinct_actions(), dtype=np.float32)
     legal_mask[list(legal)] = 1.0
@@ -5792,6 +9406,11 @@ class AZImproveGraftBot:
             observation_feature_mode=observation_feature_mode,
             policy_context=policy,
             policy_context_mode=policy_context_mode,
+            game_context_mode=game_context_mode,
+            trick_number=int(getattr(state, "_trick_number", -1)),
+            match_round=int(getattr(state, "_match_round", -1)),
+            player=int(player),
+            players=int(getattr(self.args, "players", 3)),
             include_target_match_features=bool(
                 self.improve_scorer.get("include_target_match_features", False)
             ),
@@ -5865,6 +9484,11 @@ class AZImproveGraftBot:
   def step(self, state, player):
     legal = state.legal_actions(player)
     legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
     if legal_count == 1:
       _record_decision(self._decision_stats, state, legal[0], legal_count)
       return legal[0]
@@ -5876,7 +9500,8 @@ class AZImproveGraftBot:
         self.args.value_scale,
         self.device,
     )
-    policy_action = max(legal, key=lambda action: policy[action])
+    raw_policy_action = int(max(legal, key=lambda action: policy[action]))
+    policy_action = self._base_action(state, player, legal, raw_policy_action)
     enabled, disabled_reason = self._enabled_for_state(state, legal_count)
     if not enabled:
       self._decision_stats["improve_disabled"] += 1
@@ -5890,6 +9515,13 @@ class AZImproveGraftBot:
     self._decision_stats["improve_considered"] += 1
     _inc_counter(self._decision_stats["improve_by_phase"], phase)
     candidates = self._candidate_actions(state, player, legal, policy, policy_action)
+    candidates = self._guard_led_follow_candidates(
+        state, player, policy_action, candidates
+    )
+    candidates = self._guard_candidate_shape(
+        state, player, policy_action, candidates
+    )
+    candidates = self._guard_policy_gap_candidates(policy, policy_action, candidates)
     scores = self._score_candidates(
         state, player, legal, policy, policy_action, candidates
     )
@@ -5974,8 +9606,2859 @@ class AZImproveGraftBot:
     return json.loads(json.dumps(self._decision_stats))
 
 
+def load_intralane_filter(path, device):
+  payload = torch.load(path, map_location=device, weights_only=False)
+  saved_args = payload.get("args", {})
+  feature_size = int(payload.get("feature_size", len(payload["feature_mean"])))
+  hidden = int(saved_args.get("hidden", 128))
+  dropout = float(saved_args.get("dropout", 0.0))
+  model = IntraLaneRankFilter(feature_size, hidden, dropout).to(device)
+  model.load_state_dict(payload["model_state"])
+  model.eval()
+  mean_arr = np.asarray(payload["feature_mean"], dtype=np.float32)
+  std_arr = np.asarray(payload["feature_std"], dtype=np.float32)
+  std_arr = np.where(std_arr < 1e-6, 1.0, std_arr)
+  return {
+      "model": model,
+      "feature_mean": mean_arr,
+      "feature_std": std_arr,
+      "feature_size": feature_size,
+      "args": saved_args,
+      "round_context_schema": list(payload.get("round_context_schema", []) or []),
+      "intralane_context_schema": list(
+          payload.get("intralane_context_schema", []) or []
+      ),
+      "replay_sources": payload.get("replay_sources", []),
+  }
+
+
+def load_pairwise_boundary(path, device):
+  payload = torch.load(path, map_location=device, weights_only=False)
+  saved_args = payload.get("args", {})
+  feature_size = int(payload.get("feature_size", len(payload["feature_mean"])))
+  hidden = int(saved_args.get("hidden", 128))
+  model = PairwiseBoundary(feature_size, hidden).to(device)
+  model.load_state_dict(payload["model_state"])
+  model.eval()
+  mean_arr = np.asarray(payload["feature_mean"], dtype=np.float32)
+  std_arr = np.asarray(payload["feature_std"], dtype=np.float32)
+  std_arr = np.where(std_arr < 1e-6, 1.0, std_arr)
+  return {
+      "model": model,
+      "feature_mean": mean_arr,
+      "feature_std": std_arr,
+      "feature_size": feature_size,
+      "args": saved_args,
+      "replay_sources": payload.get("replay_sources", []),
+  }
+
+
+def load_action_set_transformer(path, device):
+  payload = torch.load(path, map_location=device, weights_only=False)
+  saved_args = payload.get("args", {})
+  feature_size = int(payload.get("feature_size", len(payload["feature_mean"])))
+  round_context_schema = list(payload.get("round_context_schema", []) or [])
+  feature_schema_version = str(payload.get("feature_schema_version", "") or "")
+  if round_context_schema and (
+      feature_schema_version != "legal_set_transformer_v1_public_history_v1"
+      or tuple(round_context_schema) != tuple(PUBLIC_HISTORY_ACTION_SCHEMA)
+  ):
+    raise ValueError(
+        "live ActionSetTransformer deployment only supports no context or the "
+        "exact deployable public-history schema; got "
+        f"version={feature_schema_version!r}, schema={round_context_schema!r}"
+    )
+  model = ActionSetTransformer(
+      feature_size,
+      int(saved_args.get("hidden", 128)),
+      int(saved_args.get("layers", 2)),
+      int(saved_args.get("heads", 4)),
+      float(saved_args.get("dropout", 0.0)),
+  ).to(device)
+  model.load_state_dict(payload["model_state"])
+  model.eval()
+  mean_arr = np.asarray(payload["feature_mean"], dtype=np.float32)
+  std_arr = np.asarray(payload["feature_std"], dtype=np.float32)
+  std_arr = np.where(std_arr < 1e-6, 1.0, std_arr)
+  return {
+      "model": model,
+      "feature_mean": mean_arr,
+      "feature_std": std_arr,
+      "feature_size": feature_size,
+      "args": saved_args,
+      "feature_schema_version": feature_schema_version,
+      "round_context_schema": round_context_schema,
+      "replay_sources": payload.get("replay_sources", []),
+  }
+
+
+def load_proposal_veto_selector(path, device):
+  payload = torch.load(path, map_location=device, weights_only=False)
+  saved_args = payload.get("args", {})
+  feature_size = int(payload.get("feature_size", len(payload["mean"])))
+  model_kind = str(
+      payload.get("proposal_model_kind")
+      or ("deepset" if str(payload.get("kind", "")).endswith("deepset") else "mlp")
+  )
+  hidden = int(payload.get("hidden", saved_args.get("hidden", 96)))
+  dropout = float(payload.get("dropout", saved_args.get("dropout", 0.0)))
+  if model_kind == "deepset":
+    model = ProposalVetoDeepSet(feature_size, hidden, dropout).to(device)
+  elif model_kind == "mlp":
+    model = ProposalVetoMLP(feature_size, hidden, dropout).to(device)
+  else:
+    raise ValueError(f"unsupported proposal veto model kind: {model_kind}")
+  state_dict = payload.get("state_dict", payload.get("model_state"))
+  if state_dict is None:
+    raise ValueError(f"proposal veto checkpoint has no state_dict: {path}")
+  model.load_state_dict(state_dict)
+  model.eval()
+  mean_arr = np.asarray(payload["mean"], dtype=np.float32)
+  std_arr = np.asarray(payload["std"], dtype=np.float32)
+  std_arr = np.where(std_arr < 1e-6, 1.0, std_arr)
+  return {
+      "model": model,
+      "model_kind": model_kind,
+      "feature_size": feature_size,
+      "feature_mean": mean_arr,
+      "feature_std": std_arr,
+      "args": saved_args,
+      "approve_label": payload.get("approve_label", ""),
+  }
+
+
+class AZPairwiseBoundaryBot:
+  """Frozen base policy with an abstaining pairwise override boundary."""
+
+  def __init__(self, model, boundary, name, device, model_args):
+    self.name = name
+    self.model = model
+    self.boundary = boundary
+    self.device = device
+    self.args = model_args
+    self.base_mode = str(
+        getattr(model_args, "pairwise_boundary_base_mode", "policy")
+    )
+    if self.base_mode == "policy":
+      self.base_bot = None
+    elif self.base_mode == "q_policy":
+      self.base_bot = AZQPolicyBot(model, f"{name}_pairwise_base", device, model_args)
+    elif self.base_mode == "liveness_shield":
+      self.base_bot = AZLivenessShieldPolicyBot(
+          model, f"{name}_pairwise_base", device, model_args
+      )
+    else:
+      raise ValueError(
+          f"Unsupported pairwise_boundary_base_mode: {self.base_mode}"
+      )
+    self._decision_stats = _empty_decision_stats()
+    self._decision_stats.update({
+        "pairwise_boundary_base_mode": self.base_mode,
+        "pairwise_boundary_disabled": 0,
+        "pairwise_boundary_disabled_by_reason": {},
+        "pairwise_boundary_considered": 0,
+        "pairwise_boundary_abstained": 0,
+        "pairwise_boundary_overrides": 0,
+        "pairwise_boundary_shadow_overrides": 0,
+        "pairwise_boundary_scored_candidates": 0,
+        "pairwise_boundary_forced_lane_filtered": 0,
+        "pairwise_boundary_policy_gap_filtered": 0,
+        "pairwise_boundary_by_phase": {},
+        "pairwise_boundary_overrides_by_phase": {},
+        "pairwise_boundary_shadow_overrides_by_phase": {},
+        "pairwise_boundary_override_samples": [],
+        "pairwise_boundary_shadow_override_samples": [],
+        "pairwise_boundary_best_margin_sum": 0.0,
+        "pairwise_boundary_base_score_sum": 0.0,
+        "pairwise_boundary_selected_score_sum": 0.0,
+    })
+
+  def _enabled_for_state(self, state, legal_count):
+    spec = str(getattr(self.args, "pairwise_boundary_phases", "play") or "")
+    if spec:
+      allowed = _split_phase_names(spec)
+      if _phase_name(state).lower() not in allowed:
+        return False, "phase"
+    min_legal = int(getattr(self.args, "pairwise_boundary_min_legal_count", 0) or 0)
+    max_legal = int(getattr(self.args, "pairwise_boundary_max_legal_count", 0) or 0)
+    if min_legal > 0 and legal_count < min_legal:
+      return False, "legal_count_low"
+    if max_legal > 0 and legal_count > max_legal:
+      return False, "legal_count_high"
+    min_trick = int(getattr(self.args, "pairwise_boundary_min_trick_number", -1))
+    max_trick = int(getattr(self.args, "pairwise_boundary_max_trick_number", -1))
+    trick_number = int(getattr(state, "_trick_number", -1))
+    if min_trick >= 0 and trick_number < min_trick:
+      return False, "trick_number_low"
+    if max_trick >= 0 and trick_number > max_trick:
+      return False, "trick_number_high"
+    if legal_count <= 1:
+      return False, "forced"
+    return True, "enabled"
+
+  def _base_action(self, state, player, legal, raw_policy_action):
+    if self.base_bot is None:
+      return int(raw_policy_action)
+    action = int(self.base_bot.step(state.clone(), player))
+    if action not in legal:
+      return int(raw_policy_action)
+    return int(action)
+
+  def _candidate_actions(self, state, player, legal, policy, base_action, action_features):
+    legal = [int(action) for action in legal]
+    max_actions = int(getattr(self.args, "pairwise_boundary_max_actions", 0) or 0)
+    if max_actions > 0:
+      sampler_args = SimpleNamespace(
+          counterfactual_action_max_legal=max_actions,
+          counterfactual_action_top_policy=max(
+              0, int(getattr(self.args, "pairwise_boundary_top_policy", 0) or 0)
+          ),
+          counterfactual_action_include_bots=str(
+              getattr(
+                  self.args,
+                  "pairwise_boundary_include_bots",
+                  "heuristic,heuristic_target2,heuristic_adj2",
+              )
+          ),
+          counterfactual_action_feature_candidates=bool(
+              getattr(self.args, "pairwise_boundary_feature_candidates", True)
+          ),
+      )
+      candidates = sorted(
+          int(action) for action in sampled_counterfactual_legal_actions(
+              state, player, legal, sampler_args, policy=policy
+          )
+          if int(action) != int(base_action)
+      )
+    else:
+      candidates = sorted(int(action) for action in legal if int(action) != int(base_action))
+    if bool(
+        getattr(self.args, "pairwise_boundary_exclude_forced_led_lane_negatives", True)
+    ):
+      filter_args = SimpleNamespace(
+          force_led_lane_burn_negative=True,
+          led_lane_red_exception=str(
+              getattr(self.args, "pairwise_boundary_led_lane_red_exception", "win")
+          ),
+      )
+      kept = []
+      for action in candidates:
+        forced, _ = _led_lane_burn_label_shape(
+            action_features, int(base_action), int(action), filter_args
+        )
+        if forced:
+          self._decision_stats["pairwise_boundary_forced_lane_filtered"] += 1
+        else:
+          kept.append(int(action))
+      candidates = kept
+    max_gap = float(
+        getattr(self.args, "pairwise_boundary_max_policy_log_gap", -1.0)
+    )
+    if max_gap >= 0.0 and candidates:
+      floor = 1e-12
+      base_logp = float(np.log(max(float(policy[int(base_action)]), floor)))
+      kept = []
+      for action in candidates:
+        candidate_logp = float(np.log(max(float(policy[int(action)]), floor)))
+        if base_logp - candidate_logp <= max_gap:
+          kept.append(int(action))
+        else:
+          self._decision_stats["pairwise_boundary_policy_gap_filtered"] += 1
+      candidates = kept
+    return candidates
+
+  def _feature_for_action(
+      self,
+      action_features,
+      legal_mask,
+      observation,
+      policy,
+      action,
+      base_action,
+      legal_count,
+  ):
+    saved_args = self.boundary.get("args", {})
+    return pair_feature_vector_from_matrix(
+        action_features,
+        legal_mask,
+        int(action),
+        int(base_action),
+        target_action=int(action),
+        label_margin=0.0,
+        legal_count=int(legal_count),
+        candidate_count=int(legal_count),
+        include_label_margin=False,
+        observation=observation,
+        observation_feature_mode=str(
+            saved_args.get("observation_feature_mode", "summary") or "summary"
+        ),
+        policy_context=policy,
+        policy_context_mode=str(
+            saved_args.get("policy_context_mode", "summary") or "summary"
+        ),
+        include_target_match_features=False,
+    )
+
+  def _score_candidates(
+      self,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      candidates,
+      action_features,
+  ):
+    if not candidates:
+      return {}
+    num_actions = state.num_distinct_actions()
+    pool = sorted({int(base_action), *[int(action) for action in candidates]})
+    legal_mask = np.zeros(num_actions, dtype=np.float32)
+    legal_mask[pool] = 1.0
+    observation = np.array(state.observation_tensor(player), dtype=np.float32)
+    base_feature = self._feature_for_action(
+        action_features,
+        legal_mask,
+        observation,
+        policy,
+        int(base_action),
+        int(base_action),
+        len(pool),
+    )
+    rows = [
+        self._feature_for_action(
+            action_features,
+            legal_mask,
+            observation,
+            policy,
+            int(action),
+            int(base_action),
+            len(pool),
+        )
+        for action in candidates
+    ]
+    x = np.asarray(rows, dtype=np.float32)
+    base = np.asarray(base_feature, dtype=np.float32)
+    feature_size = int(self.boundary["feature_size"])
+    if x.shape[1] != feature_size or base.shape[0] != feature_size:
+      raise ValueError(
+          "pairwise boundary feature size mismatch: "
+          f"{x.shape[1]} / {base.shape[0]} vs {feature_size}"
+      )
+    mean_arr = self.boundary["feature_mean"]
+    std_arr = self.boundary["feature_std"]
+    x = (x - mean_arr) / std_arr
+    base = (base - mean_arr) / std_arr
+    with torch.no_grad():
+      x_t = torch.tensor(x, dtype=torch.float32, device=self.device)
+      base_t = torch.tensor(base, dtype=torch.float32, device=self.device)
+      base_batch = base_t.unsqueeze(0).expand(x_t.shape[0], -1)
+      scores = self.boundary["model"](x_t, base_batch).cpu().numpy()
+      base_score = float(
+          self.boundary["model"](
+              base_t.unsqueeze(0), base_t.unsqueeze(0)
+          ).detach().cpu().numpy()[0]
+      )
+    return {
+        int(action): {
+            "score": float(score),
+            "base_score": float(base_score),
+            "margin": float(score - base_score),
+        }
+        for action, score in zip(candidates, scores)
+    }
+
+  def _append_override_sample(
+      self,
+      key,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      candidate_action,
+      score,
+  ):
+    samples = self._decision_stats.setdefault(key, [])
+    limit = int(getattr(self.args, "pairwise_boundary_sample_limit", 20) or 0)
+    if limit <= 0 or len(samples) >= limit:
+      return
+    samples.append({
+        "player": int(player),
+        "phase": _phase_name(state).lower(),
+        "legal_count": int(len(legal)),
+        "trick_number": int(getattr(state, "_trick_number", -1)),
+        "match_round": int(getattr(state, "_match_round", -1)),
+        "base_action": int(base_action),
+        "candidate_action": int(candidate_action),
+        "base_policy_prob": float(policy[int(base_action)]),
+        "candidate_policy_prob": float(policy[int(candidate_action)]),
+        "score": float(score["score"]),
+        "base_score": float(score["base_score"]),
+        "margin": float(score["margin"]),
+        "legal_actions": [int(action) for action in legal],
+    })
+
+  def step(self, state, player):
+    legal = [int(action) for action in state.legal_actions(player)]
+    legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
+    if legal_count == 1:
+      _record_decision(self._decision_stats, state, legal[0], legal_count)
+      return int(legal[0])
+    policy, _ = model_policy_value(
+        self.model,
+        state,
+        player,
+        state.num_distinct_actions(),
+        self.args.value_scale,
+        self.device,
+    )
+    raw_policy_action = int(max(legal, key=lambda action: float(policy[int(action)])))
+    base_action = self._base_action(state, player, legal, raw_policy_action)
+    enabled, disabled_reason = self._enabled_for_state(state, legal_count)
+    if not enabled:
+      self._decision_stats["pairwise_boundary_disabled"] += 1
+      _inc_counter(
+          self._decision_stats["pairwise_boundary_disabled_by_reason"],
+          disabled_reason,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    phase = _phase_name(state).lower()
+    self._decision_stats["pairwise_boundary_considered"] += 1
+    _inc_counter(self._decision_stats["pairwise_boundary_by_phase"], phase)
+    action_features = action_feature_matrix(
+        state, player, state.num_distinct_actions()
+    )
+    candidates = self._candidate_actions(
+        state, player, legal, policy, int(base_action), action_features
+    )
+    scores = self._score_candidates(
+        state,
+        player,
+        legal,
+        policy,
+        int(base_action),
+        candidates,
+        action_features,
+    )
+    self._decision_stats["pairwise_boundary_scored_candidates"] += len(scores)
+    if not scores:
+      self._decision_stats["pairwise_boundary_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    best_action, best_score = max(
+        scores.items(),
+        key=lambda item: (
+            float(item[1]["margin"]),
+            float(policy[int(item[0])]),
+        ),
+    )
+    self._decision_stats["pairwise_boundary_best_margin_sum"] += float(
+        best_score["margin"]
+    )
+    self._decision_stats["pairwise_boundary_base_score_sum"] += float(
+        best_score["base_score"]
+    )
+    self._decision_stats["pairwise_boundary_selected_score_sum"] += float(
+        best_score["score"]
+    )
+    threshold = float(getattr(self.args, "pairwise_boundary_threshold", 0.0))
+    if float(best_score["margin"]) < threshold:
+      self._decision_stats["pairwise_boundary_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    if bool(getattr(self.args, "pairwise_boundary_shadow_only", False)):
+      self._decision_stats["pairwise_boundary_shadow_overrides"] += 1
+      self._decision_stats["pairwise_boundary_abstained"] += 1
+      _inc_counter(
+          self._decision_stats["pairwise_boundary_shadow_overrides_by_phase"],
+          phase,
+      )
+      self._append_override_sample(
+          "pairwise_boundary_shadow_override_samples",
+          state,
+          player,
+          legal,
+          policy,
+          base_action,
+          best_action,
+          best_score,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    self._decision_stats["pairwise_boundary_overrides"] += 1
+    _inc_counter(self._decision_stats["pairwise_boundary_overrides_by_phase"], phase)
+    self._append_override_sample(
+        "pairwise_boundary_override_samples",
+        state,
+        player,
+        legal,
+        policy,
+        base_action,
+        best_action,
+        best_score,
+    )
+    _record_decision(self._decision_stats, state, best_action, legal_count)
+    return int(best_action)
+
+  def decision_stats(self):
+    stats = self.raw_decision_stats()
+    _decision_stats_rates(stats)
+    considered = float(stats.get("pairwise_boundary_considered", 0) or 0)
+    if considered:
+      stats["pairwise_boundary_override_rate_when_considered"] = round(
+          float(stats.get("pairwise_boundary_overrides", 0)) / considered,
+          4,
+      )
+      stats["pairwise_boundary_shadow_override_rate_when_considered"] = round(
+          float(stats.get("pairwise_boundary_shadow_overrides", 0)) / considered,
+          4,
+      )
+      stats["pairwise_boundary_abstain_rate_when_considered"] = round(
+          float(stats.get("pairwise_boundary_abstained", 0)) / considered,
+          4,
+      )
+      stats["pairwise_boundary_scored_candidates_avg"] = round(
+          float(stats.get("pairwise_boundary_scored_candidates", 0)) / considered,
+          4,
+      )
+      stats["pairwise_boundary_best_margin_avg"] = round(
+          float(stats.get("pairwise_boundary_best_margin_sum", 0.0)) / considered,
+          6,
+      )
+      stats["pairwise_boundary_base_score_avg"] = round(
+          float(stats.get("pairwise_boundary_base_score_sum", 0.0)) / considered,
+          6,
+      )
+      stats["pairwise_boundary_selected_score_avg"] = round(
+          float(stats.get("pairwise_boundary_selected_score_sum", 0.0)) / considered,
+          6,
+      )
+    return stats
+
+  def raw_decision_stats(self):
+    return json.loads(json.dumps(self._decision_stats))
+
+
+class AZActionSetTransformerBot:
+  """Frozen base policy with an abstaining set-aware action override model."""
+
+  def __init__(self, model, selector, name, device, model_args):
+    self.name = name
+    self.model = model
+    self.selector = selector
+    self.device = device
+    self.args = model_args
+    self.saved_args = selector.get("args", {})
+    self.base_mode = str(
+        getattr(model_args, "action_set_transformer_base_mode", "policy")
+    )
+    if self.base_mode == "policy":
+      self.base_bot = None
+    elif self.base_mode == "q_policy":
+      self.base_bot = AZQPolicyBot(
+          model, f"{name}_action_set_base", device, model_args
+      )
+    elif self.base_mode == "liveness_shield":
+      self.base_bot = AZLivenessShieldPolicyBot(
+          model, f"{name}_action_set_base", device, model_args
+      )
+    else:
+      raise ValueError(
+          "Unsupported action_set_transformer_base_mode: "
+          f"{self.base_mode}"
+      )
+    self._decision_stats = _empty_decision_stats()
+    self._decision_stats.update({
+        "action_set_transformer_base_mode": self.base_mode,
+        "action_set_transformer_disabled": 0,
+        "action_set_transformer_disabled_by_reason": {},
+        "action_set_transformer_considered": 0,
+        "action_set_transformer_abstained": 0,
+        "action_set_transformer_overrides": 0,
+        "action_set_transformer_shadow_overrides": 0,
+        "action_set_transformer_scored_candidates": 0,
+        "action_set_transformer_forced_lane_filtered": 0,
+        "action_set_transformer_policy_gap_filtered": 0,
+        "action_set_transformer_by_phase": {},
+        "action_set_transformer_overrides_by_phase": {},
+        "action_set_transformer_shadow_overrides_by_phase": {},
+        "action_set_transformer_override_samples": [],
+        "action_set_transformer_shadow_override_samples": [],
+        "action_set_transformer_best_margin_sum": 0.0,
+        "action_set_transformer_base_score_sum": 0.0,
+        "action_set_transformer_selected_score_sum": 0.0,
+        "action_set_transformer_selected_value_delta_sum": 0.0,
+        "action_set_transformer_selected_positive_prob_sum": 0.0,
+    })
+
+  def _enabled_for_state(self, state, legal_count):
+    spec = str(
+        getattr(self.args, "action_set_transformer_phases", "play") or ""
+    )
+    if spec:
+      allowed = _split_phase_names(spec)
+      if _phase_name(state).lower() not in allowed:
+        return False, "phase"
+    min_legal = int(
+        getattr(self.args, "action_set_transformer_min_legal_count", 0) or 0
+    )
+    max_legal = int(
+        getattr(self.args, "action_set_transformer_max_legal_count", 0) or 0
+    )
+    if min_legal > 0 and legal_count < min_legal:
+      return False, "legal_count_low"
+    if max_legal > 0 and legal_count > max_legal:
+      return False, "legal_count_high"
+    min_trick = int(
+        getattr(self.args, "action_set_transformer_min_trick_number", -1)
+    )
+    if min_trick < 0:
+      min_trick = int(self.saved_args.get("selection_min_trick_number", -1))
+    max_trick = int(
+        getattr(self.args, "action_set_transformer_max_trick_number", -1)
+    )
+    if max_trick < 0:
+      max_trick = int(self.saved_args.get("selection_max_trick_number", -1))
+    trick_number = int(getattr(state, "_trick_number", -1))
+    if min_trick >= 0 and trick_number < min_trick:
+      return False, "trick_number_low"
+    if max_trick >= 0 and trick_number > max_trick:
+      return False, "trick_number_high"
+    if legal_count <= 1:
+      return False, "forced"
+    return True, "enabled"
+
+  def _base_action(self, state, player, legal, raw_policy_action):
+    if self.base_bot is None:
+      return int(raw_policy_action)
+    action = int(self.base_bot.step(state.clone(), player))
+    if action not in legal:
+      return int(raw_policy_action)
+    return int(action)
+
+  def _candidate_actions(self, state, player, legal, policy, base_action, action_features):
+    legal = [int(action) for action in legal]
+    max_actions = int(
+        getattr(self.args, "action_set_transformer_max_actions", 4) or 0
+    )
+    if max_actions > 0:
+      sampler_args = SimpleNamespace(
+          counterfactual_action_max_legal=max_actions,
+          counterfactual_action_top_policy=max(
+              0,
+              int(getattr(self.args, "action_set_transformer_top_policy", 2) or 0),
+          ),
+          counterfactual_action_include_bots=str(
+              getattr(
+                  self.args,
+                  "action_set_transformer_include_bots",
+                  "heuristic,heuristic_target2,heuristic_adj2",
+              )
+          ),
+          counterfactual_action_feature_candidates=bool(
+              getattr(self.args, "action_set_transformer_feature_candidates", True)
+          ),
+      )
+      candidates = sorted(
+          int(action) for action in sampled_counterfactual_legal_actions(
+              state, player, legal, sampler_args, policy=policy
+          )
+          if int(action) != int(base_action)
+      )
+    else:
+      candidates = sorted(
+          int(action) for action in legal if int(action) != int(base_action)
+      )
+    if bool(
+        getattr(
+            self.args,
+            "action_set_transformer_exclude_forced_led_lane_negatives",
+            True,
+        )
+    ):
+      filter_args = SimpleNamespace(
+          force_led_lane_burn_negative=bool(
+              self.saved_args.get("force_led_lane_burn_negative", False)
+          ),
+          led_lane_red_exception=str(
+              self.saved_args.get("led_lane_red_exception", "urgent_win")
+          ),
+      )
+      kept = []
+      for action in candidates:
+        forced, _ = _led_lane_burn_label_shape(
+            action_features, int(base_action), int(action), filter_args
+        )
+        if forced:
+          self._decision_stats["action_set_transformer_forced_lane_filtered"] += 1
+        else:
+          kept.append(int(action))
+      candidates = kept
+    max_gap = float(
+        getattr(self.args, "action_set_transformer_max_policy_log_gap", -1.0)
+    )
+    if max_gap >= 0.0 and candidates:
+      floor = 1e-12
+      base_logp = float(np.log(max(float(policy[int(base_action)]), floor)))
+      kept = []
+      for action in candidates:
+        candidate_logp = float(np.log(max(float(policy[int(action)]), floor)))
+        if base_logp - candidate_logp <= max_gap:
+          kept.append(int(action))
+        else:
+          self._decision_stats["action_set_transformer_policy_gap_filtered"] += 1
+      candidates = kept
+    return candidates
+
+  def _feature_for_action(
+      self,
+      action_features,
+      legal_mask,
+      observation,
+      policy,
+      action,
+      base_action,
+      history_features=None,
+  ):
+    feature_args = SimpleNamespace(**self.saved_args)
+    feature = selector_pair_feature(
+        feature_args,
+        action_features,
+        np.asarray(legal_mask, dtype=bool),
+        int(action),
+        int(base_action),
+        observation,
+        policy,
+    )
+    if history_features is None:
+      return feature
+    action = int(action)
+    follows = bool(
+        float(action_features[action, ACTION_FEATURE_FOLLOWS_LED_INDEX]) > 0.5
+    )
+    red = bool(
+        float(action_features[action, ACTION_FEATURE_IS_RED_INDEX]) > 0.5
+    )
+    token_loss = bool(
+        float(
+            action_features[action, ACTION_FEATURE_OFF_LED_LOSES_TOKEN_INDEX]
+        ) > 0.5
+        or float(
+            action_features[
+                action,
+                APPENDED_ACTION_FEATURE_INDEX["token_loss_newly_loses_led"],
+            ]
+        ) > 0.5
+    )
+    return np.concatenate([
+        np.asarray(feature, dtype=np.float32),
+        public_history_action_features(
+            history_features,
+            candidate_follows_led=follows,
+            candidate_is_red=red,
+            candidate_token_loss=token_loss,
+        ),
+    ]).astype(np.float32)
+
+  def _score_actions(
+      self,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      candidates,
+      action_features,
+  ):
+    pool = sorted({int(base_action), *[int(action) for action in candidates]})
+    if len(pool) < 2:
+      return {}
+    num_actions = state.num_distinct_actions()
+    legal_mask = np.zeros(num_actions, dtype=np.float32)
+    legal_mask[[int(action) for action in legal]] = 1.0
+    observation = np.array(state.observation_tensor(player), dtype=np.float32)
+    history_features = None
+    if self.selector.get("round_context_schema"):
+      history_features = public_history_features(state, player)
+    rows = [
+        self._feature_for_action(
+            action_features,
+            legal_mask,
+            observation,
+          policy,
+          int(action),
+          int(base_action),
+          history_features,
+        )
+        for action in pool
+    ]
+    x = np.asarray(rows, dtype=np.float32)
+    feature_size = int(self.selector["feature_size"])
+    if x.shape[1] != feature_size:
+      raise ValueError(
+          "action-set transformer feature size mismatch: "
+          f"{x.shape[1]} vs {feature_size}"
+      )
+    x = (x - self.selector["feature_mean"]) / self.selector["feature_std"]
+    with torch.no_grad():
+      x_t = torch.tensor(
+          x[None, :, :], dtype=torch.float32, device=self.device
+      )
+      mask_t = torch.ones((1, len(pool)), dtype=torch.bool, device=self.device)
+      scores, value_p, _risk_p, positive_logit, _safe_logit = (
+          self.selector["model"](x_t, mask_t)
+      )
+      scores_np = scores[0].detach().cpu().numpy()
+      value_np = value_p[0].detach().cpu().numpy()
+      positive_np = torch.sigmoid(positive_logit[0]).detach().cpu().numpy()
+    base_idx = pool.index(int(base_action))
+    base_score = float(scores_np[base_idx])
+    return {
+        int(action): {
+            "score": float(score),
+            "base_score": base_score,
+            "margin": float(score - base_score),
+            "pred_value_delta": float(value_delta),
+            "pred_positive_prob": float(positive_prob),
+        }
+        for action, score, value_delta, positive_prob in zip(
+            pool, scores_np, value_np, positive_np
+        )
+    }
+
+  def _append_override_sample(
+      self,
+      key,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      candidate_action,
+      score,
+  ):
+    samples = self._decision_stats.setdefault(key, [])
+    limit = int(
+        getattr(self.args, "action_set_transformer_sample_limit", 20) or 0
+    )
+    if limit <= 0 or len(samples) >= limit:
+      return
+    samples.append({
+        "player": int(player),
+        "phase": _phase_name(state).lower(),
+        "legal_count": int(len(legal)),
+        "trick_number": int(getattr(state, "_trick_number", -1)),
+        "match_round": int(getattr(state, "_match_round", -1)),
+        "base_action": int(base_action),
+        "candidate_action": int(candidate_action),
+        "base_policy_prob": float(policy[int(base_action)]),
+        "candidate_policy_prob": float(policy[int(candidate_action)]),
+        "score": float(score["score"]),
+        "base_score": float(score["base_score"]),
+        "margin": float(score["margin"]),
+        "pred_value_delta": float(score["pred_value_delta"]),
+        "pred_positive_prob": float(score["pred_positive_prob"]),
+        "legal_actions": [int(action) for action in legal],
+    })
+
+  def step(self, state, player):
+    legal = [int(action) for action in state.legal_actions(player)]
+    legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
+    if legal_count == 1:
+      _record_decision(self._decision_stats, state, legal[0], legal_count)
+      return int(legal[0])
+    policy, _ = model_policy_value(
+        self.model,
+        state,
+        player,
+        state.num_distinct_actions(),
+        self.args.value_scale,
+        self.device,
+    )
+    raw_policy_action = int(max(legal, key=lambda action: float(policy[int(action)])))
+    base_action = self._base_action(state, player, legal, raw_policy_action)
+    enabled, disabled_reason = self._enabled_for_state(state, legal_count)
+    if not enabled:
+      self._decision_stats["action_set_transformer_disabled"] += 1
+      _inc_counter(
+          self._decision_stats["action_set_transformer_disabled_by_reason"],
+          disabled_reason,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    phase = _phase_name(state).lower()
+    self._decision_stats["action_set_transformer_considered"] += 1
+    _inc_counter(self._decision_stats["action_set_transformer_by_phase"], phase)
+    action_features = action_feature_matrix(
+        state, player, state.num_distinct_actions()
+    )
+    candidates = self._candidate_actions(
+        state, player, legal, policy, int(base_action), action_features
+    )
+    scores = self._score_actions(
+        state,
+        player,
+        legal,
+        policy,
+        int(base_action),
+        candidates,
+        action_features,
+    )
+    self._decision_stats["action_set_transformer_scored_candidates"] += max(
+        0, len(scores) - 1
+    )
+    if not scores:
+      self._decision_stats["action_set_transformer_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    base_score = scores[int(base_action)]
+    score_margin_threshold = float(
+        getattr(self.args, "action_set_transformer_score_margin_threshold", 0.0)
+    )
+    value_threshold = float(
+        getattr(self.args, "action_set_transformer_value_threshold", 0.0)
+    )
+    positive_threshold = float(
+        getattr(self.args, "action_set_transformer_positive_threshold", 0.5)
+    )
+    value_bonus = float(
+        getattr(self.args, "action_set_transformer_selection_value_bonus", 0.05)
+    )
+    policy_tiebreak = float(
+        getattr(self.args, "action_set_transformer_policy_tiebreak", 0.01)
+    )
+    best_action = None
+    best_score = None
+    best_rank = None
+    for action, score in scores.items():
+      if int(action) == int(base_action):
+        continue
+      if float(score["margin"]) < score_margin_threshold:
+        continue
+      if float(score["pred_value_delta"]) < value_threshold:
+        continue
+      if float(score["pred_positive_prob"]) < positive_threshold:
+        continue
+      rank = (
+          float(score["margin"])
+          + value_bonus * float(score["pred_value_delta"])
+          + policy_tiebreak * float(policy[int(action)])
+      )
+      if best_action is None or rank > float(best_rank):
+        best_action = int(action)
+        best_score = score
+        best_rank = float(rank)
+    if best_action is None:
+      self._decision_stats["action_set_transformer_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    self._decision_stats["action_set_transformer_best_margin_sum"] += float(
+        best_score["margin"]
+    )
+    self._decision_stats["action_set_transformer_base_score_sum"] += float(
+        base_score["score"]
+    )
+    self._decision_stats["action_set_transformer_selected_score_sum"] += float(
+        best_score["score"]
+    )
+    self._decision_stats["action_set_transformer_selected_value_delta_sum"] += float(
+        best_score["pred_value_delta"]
+    )
+    self._decision_stats[
+        "action_set_transformer_selected_positive_prob_sum"
+    ] += float(best_score["pred_positive_prob"])
+    if bool(getattr(self.args, "action_set_transformer_shadow_only", False)):
+      self._decision_stats["action_set_transformer_shadow_overrides"] += 1
+      self._decision_stats["action_set_transformer_abstained"] += 1
+      _inc_counter(
+          self._decision_stats["action_set_transformer_shadow_overrides_by_phase"],
+          phase,
+      )
+      self._append_override_sample(
+          "action_set_transformer_shadow_override_samples",
+          state,
+          player,
+          legal,
+          policy,
+          base_action,
+          best_action,
+          best_score,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    self._decision_stats["action_set_transformer_overrides"] += 1
+    _inc_counter(
+        self._decision_stats["action_set_transformer_overrides_by_phase"],
+        phase,
+    )
+    self._append_override_sample(
+        "action_set_transformer_override_samples",
+        state,
+        player,
+        legal,
+        policy,
+        base_action,
+        best_action,
+        best_score,
+    )
+    _record_decision(self._decision_stats, state, best_action, legal_count)
+    return int(best_action)
+
+  def decision_stats(self):
+    stats = self.raw_decision_stats()
+    _decision_stats_rates(stats)
+    considered = float(
+        stats.get("action_set_transformer_considered", 0) or 0
+    )
+    if considered:
+      stats["action_set_transformer_override_rate_when_considered"] = round(
+          float(stats.get("action_set_transformer_overrides", 0)) / considered,
+          4,
+      )
+      stats["action_set_transformer_shadow_override_rate_when_considered"] = round(
+          float(stats.get("action_set_transformer_shadow_overrides", 0))
+          / considered,
+          4,
+      )
+      stats["action_set_transformer_abstain_rate_when_considered"] = round(
+          float(stats.get("action_set_transformer_abstained", 0)) / considered,
+          4,
+      )
+      stats["action_set_transformer_scored_candidates_avg"] = round(
+          float(stats.get("action_set_transformer_scored_candidates", 0))
+          / considered,
+          4,
+      )
+      stats["action_set_transformer_best_margin_avg"] = round(
+          float(stats.get("action_set_transformer_best_margin_sum", 0.0))
+          / considered,
+          6,
+      )
+      stats["action_set_transformer_base_score_avg"] = round(
+          float(stats.get("action_set_transformer_base_score_sum", 0.0))
+          / considered,
+          6,
+      )
+      stats["action_set_transformer_selected_score_avg"] = round(
+          float(stats.get("action_set_transformer_selected_score_sum", 0.0))
+          / considered,
+          6,
+      )
+      stats["action_set_transformer_selected_value_delta_avg"] = round(
+          float(
+              stats.get("action_set_transformer_selected_value_delta_sum", 0.0)
+          )
+          / considered,
+          6,
+      )
+      stats["action_set_transformer_selected_positive_prob_avg"] = round(
+          float(
+              stats.get(
+                  "action_set_transformer_selected_positive_prob_sum", 0.0
+              )
+          )
+          / considered,
+          6,
+      )
+    return stats
+
+  def raw_decision_stats(self):
+    return json.loads(json.dumps(self._decision_stats))
+
+
+class AZProposalVetoTop1Bot:
+  """Top-1 proposal-veto ranker stacked on a frozen action-set proposal slate."""
+
+  _HISTORY_KEYS = [
+      "history_available",
+      "history_prior_events_norm",
+      "history_prior_play_events_norm",
+      "history_own_prior_play_events_norm",
+      "history_other_prior_play_events_norm",
+      "history_prior_follow_led_rate",
+      "history_prior_switch_rate",
+      "history_prior_avoidable_switch_rate",
+      "history_prior_red_when_switch_rate",
+      "history_prior_red_when_avoidable_switch_rate",
+      "history_prior_nonred_when_avoidable_switch_rate",
+      "history_prior_token_loss_rate",
+      "history_prior_avoidable_token_loss_rate",
+      "history_own_prior_token_loss_rate",
+      "history_other_prior_token_loss_rate",
+      "history_last_event_is_play",
+      "history_last_event_follows_led",
+      "history_last_event_is_red",
+      "history_last_event_switches_off_led",
+      "history_last_event_avoidable_switch",
+      "history_last_event_avoidable_nonred_switch",
+      "history_last_event_off_led_loses_token",
+      "history_last_event_led_legal_ratio",
+      "history_last_event_red_legal_ratio",
+      "history_last_event_switch_legal_ratio",
+  ]
+
+  def __init__(self, model, source_selector, proposal_veto, name, device, model_args):
+    self.name = name
+    self.model = model
+    self.source_selector = source_selector
+    self.proposal_veto = proposal_veto
+    self.device = device
+    self.args = model_args
+    self.source_args = source_selector.get("args", {})
+    self.proposal_args = SimpleNamespace(**proposal_veto.get("args", {}))
+    self.proposal_saved_args = proposal_veto.get("args", {})
+    self.base_mode = str(getattr(model_args, "proposal_veto_base_mode", "policy"))
+    if self.base_mode == "policy":
+      self.base_bot = None
+    elif self.base_mode == "q_policy":
+      self.base_bot = AZQPolicyBot(
+          model, f"{name}_proposal_veto_base", device, model_args
+      )
+    elif self.base_mode == "liveness_shield":
+      self.base_bot = AZLivenessShieldPolicyBot(
+          model, f"{name}_proposal_veto_base", device, model_args
+      )
+    else:
+      raise ValueError(
+          f"Unsupported proposal_veto_base_mode: {self.base_mode}"
+      )
+    self._decision_stats = _empty_decision_stats()
+    self._decision_stats.update({
+        "proposal_veto_base_mode": self.base_mode,
+        "proposal_veto_disabled": 0,
+        "proposal_veto_disabled_by_reason": {},
+        "proposal_veto_considered": 0,
+        "proposal_veto_abstained": 0,
+        "proposal_veto_overrides": 0,
+        "proposal_veto_shadow_overrides": 0,
+        "proposal_veto_scored_candidates": 0,
+        "proposal_veto_augmented_candidates": 0,
+        "proposal_veto_forced_lane_filtered": 0,
+        "proposal_veto_policy_gap_filtered": 0,
+        "proposal_veto_no_source_scores": 0,
+        "proposal_veto_no_rows": 0,
+        "proposal_veto_blocked_score_threshold": 0,
+        "proposal_veto_blocked_margin_threshold": 0,
+        "proposal_veto_blocked_source_score_threshold": 0,
+        "proposal_veto_blocked_source_margin_threshold": 0,
+        "proposal_veto_blocked_source_value_threshold": 0,
+        "proposal_veto_blocked_source_positive_threshold": 0,
+        "proposal_veto_history_available": 0,
+        "proposal_veto_history_unavailable": 0,
+        "proposal_veto_by_phase": {},
+        "proposal_veto_overrides_by_phase": {},
+        "proposal_veto_shadow_overrides_by_phase": {},
+        "proposal_veto_override_samples": [],
+        "proposal_veto_shadow_override_samples": [],
+        "proposal_veto_selected_logit_sum": 0.0,
+        "proposal_veto_selected_margin_sum": 0.0,
+        "proposal_veto_selected_source_margin_sum": 0.0,
+        "proposal_veto_selected_value_delta_sum": 0.0,
+        "proposal_veto_selected_positive_prob_sum": 0.0,
+    })
+
+  def _enabled_for_state(self, state, legal_count):
+    spec = str(getattr(self.args, "proposal_veto_phases", "play") or "")
+    if spec:
+      allowed = _split_phase_names(spec)
+      if _phase_name(state).lower() not in allowed:
+        return False, "phase"
+    min_legal = int(getattr(self.args, "proposal_veto_min_legal_count", 0) or 0)
+    max_legal = int(getattr(self.args, "proposal_veto_max_legal_count", 0) or 0)
+    if min_legal > 0 and legal_count < min_legal:
+      return False, "legal_count_low"
+    if max_legal > 0 and legal_count > max_legal:
+      return False, "legal_count_high"
+    min_trick = int(getattr(self.args, "proposal_veto_min_trick_number", -1))
+    max_trick = int(getattr(self.args, "proposal_veto_max_trick_number", -1))
+    trick_number = int(getattr(state, "_trick_number", -1))
+    if min_trick >= 0 and trick_number < min_trick:
+      return False, "trick_number_low"
+    if max_trick >= 0 and trick_number > max_trick:
+      return False, "trick_number_high"
+    if legal_count <= 1:
+      return False, "forced"
+    return True, "enabled"
+
+  def _base_action(self, state, player, legal, raw_policy_action):
+    if self.base_bot is None:
+      return int(raw_policy_action)
+    action = int(self.base_bot.step(state.clone(), player))
+    if action not in legal:
+      return int(raw_policy_action)
+    return int(action)
+
+  def _candidate_actions(self, state, player, legal, policy, base_action, action_features):
+    legal = [int(action) for action in legal]
+    max_actions = int(getattr(self.args, "proposal_veto_max_actions", 6) or 0)
+    mode = str(
+        getattr(
+            self.args,
+            "proposal_veto_candidate_mode",
+            "source_plus_red_follow_policy",
+        ) or "source_plus_red_follow_policy"
+    )
+    red_switch_only = mode in ("red_switch", "red_switch_only")
+    if red_switch_only:
+      candidates = []
+    elif max_actions > 0:
+      sampler_args = SimpleNamespace(
+          counterfactual_action_max_legal=max_actions,
+          counterfactual_action_top_policy=max(
+              0,
+              int(getattr(self.args, "proposal_veto_top_policy", 4) or 0),
+          ),
+          counterfactual_action_include_bots=str(
+              getattr(
+                  self.args,
+                  "proposal_veto_include_bots",
+                  "heuristic,heuristic_target2,heuristic_adj2",
+              )
+          ),
+          counterfactual_action_feature_candidates=bool(
+              getattr(self.args, "proposal_veto_feature_candidates", True)
+          ),
+      )
+      candidates = sorted(
+          int(action) for action in sampled_counterfactual_legal_actions(
+              state, player, legal, sampler_args, policy=policy
+          )
+          if int(action) != int(base_action)
+      )
+    else:
+      candidates = sorted(
+          int(action) for action in legal if int(action) != int(base_action)
+      )
+    if mode in (
+        "source_plus_red_follow_policy",
+        "source_plus_red_follow",
+        "augmented",
+    ) or red_switch_only:
+      cap = max_actions if max_actions > 0 else len(legal)
+      seen = {int(action) for action in candidates}
+      led_color = getattr(state, "_led_color", None)
+
+      def add(action):
+        action = int(action)
+        if (
+            action == int(base_action)
+            or action == 999
+            or action not in legal
+            or action in seen
+            or len(candidates) >= cap
+        ):
+          return
+        candidates.append(action)
+        seen.add(action)
+        self._decision_stats["proposal_veto_augmented_candidates"] += 1
+
+      legal_nonbase = [
+          int(action) for action in legal
+          if int(action) != int(base_action) and int(action) != 999
+      ]
+      red_switches = [
+          action for action in legal_nonbase
+          if _action_color(state, action) == "R"
+          and (
+              led_color != "R"
+              if not red_switch_only
+              else led_color not in (None, "R")
+          )
+      ]
+      if red_switch_only:
+        buckets = (red_switches,)
+      else:
+        follows_led = [
+            action for action in legal_nonbase
+            if led_color is not None and _action_color(state, action) == led_color
+        ]
+        top_policy = sorted(
+            legal_nonbase,
+            key=lambda action: float(policy[int(action)]),
+            reverse=True,
+        )
+        buckets = (red_switches, follows_led, top_policy)
+      for bucket in buckets:
+        for action in sorted(
+            bucket,
+            key=lambda item: float(policy[int(item)]),
+            reverse=True,
+        ):
+          add(action)
+          if len(candidates) >= cap:
+            break
+        if len(candidates) >= cap:
+          break
+    elif mode not in ("source", "source_only"):
+      raise ValueError(f"unknown proposal_veto_candidate_mode={mode}")
+    candidates = sorted({int(action) for action in candidates})
+    if bool(
+        getattr(
+            self.args,
+            "proposal_veto_exclude_forced_led_lane_negatives",
+            True,
+        )
+    ):
+      filter_args = SimpleNamespace(
+          force_led_lane_burn_negative=bool(
+              self.source_args.get("force_led_lane_burn_negative", False)
+          ),
+          led_lane_red_exception=str(
+              self.source_args.get("led_lane_red_exception", "urgent_win")
+          ),
+      )
+      kept = []
+      for action in candidates:
+        forced, _ = _led_lane_burn_label_shape(
+            action_features, int(base_action), int(action), filter_args
+        )
+        if forced:
+          self._decision_stats["proposal_veto_forced_lane_filtered"] += 1
+        else:
+          kept.append(int(action))
+      candidates = kept
+    max_gap = float(getattr(self.args, "proposal_veto_max_policy_log_gap", -1.0))
+    if max_gap >= 0.0 and candidates:
+      floor = 1e-12
+      base_logp = float(np.log(max(float(policy[int(base_action)]), floor)))
+      kept = []
+      for action in candidates:
+        candidate_logp = float(np.log(max(float(policy[int(action)]), floor)))
+        if base_logp - candidate_logp <= max_gap:
+          kept.append(int(action))
+        else:
+          self._decision_stats["proposal_veto_policy_gap_filtered"] += 1
+      candidates = kept
+    return candidates
+
+  def _pair_feature(
+      self,
+      saved_args,
+      action_features,
+      legal_mask,
+      observation,
+      policy,
+      action,
+      base_action,
+      candidate_count,
+  ):
+    return pair_feature_vector_from_matrix(
+        action_features,
+        legal_mask,
+        int(action),
+        int(base_action),
+        target_action=int(action),
+        label_margin=0.0,
+        legal_count=int(candidate_count),
+        candidate_count=int(candidate_count),
+        include_label_margin=False,
+        observation=observation,
+        observation_feature_mode=str(
+            saved_args.get("observation_feature_mode", "summary") or "summary"
+        ),
+        policy_context=policy,
+        policy_context_mode=str(
+            saved_args.get("policy_context_mode", "summary") or "summary"
+        ),
+        include_target_match_features=False,
+    )
+
+  def _score_source_actions(
+      self,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      candidates,
+      action_features,
+  ):
+    pool = sorted({int(base_action), *[int(action) for action in candidates]})
+    if len(pool) < 2:
+      return {}
+    num_actions = state.num_distinct_actions()
+    legal_mask = np.zeros(num_actions, dtype=np.float32)
+    legal_mask[[int(action) for action in legal]] = 1.0
+    observation = np.array(state.observation_tensor(player), dtype=np.float32)
+    rows = [
+        self._pair_feature(
+            self.source_args,
+            action_features,
+            legal_mask,
+            observation,
+            policy,
+            int(action),
+            int(base_action),
+            len(pool),
+        )
+        for action in pool
+    ]
+    x = np.asarray(rows, dtype=np.float32)
+    feature_size = int(self.source_selector["feature_size"])
+    if x.shape[1] != feature_size:
+      raise ValueError(
+          "proposal-veto source feature size mismatch: "
+          f"{x.shape[1]} vs {feature_size}"
+      )
+    x = (
+        x - self.source_selector["feature_mean"]
+    ) / self.source_selector["feature_std"]
+    with torch.no_grad():
+      x_t = torch.tensor(x[None, :, :], dtype=torch.float32, device=self.device)
+      mask_t = torch.ones((1, len(pool)), dtype=torch.bool, device=self.device)
+      scores, value_p, _risk_p, positive_logit, _safe_logit = (
+          self.source_selector["model"](x_t, mask_t)
+      )
+      scores_np = scores[0].detach().cpu().numpy()
+      value_np = value_p[0].detach().cpu().numpy()
+      positive_np = torch.sigmoid(positive_logit[0]).detach().cpu().numpy()
+    base_idx = pool.index(int(base_action))
+    base_score = float(scores_np[base_idx])
+    return {
+        int(action): {
+            "action": int(action),
+            "score": float(score),
+            "base_score": base_score,
+            "margin": float(score - base_score),
+            "pred_value_delta": float(value_delta),
+            "pred_positive_prob": float(positive_prob),
+            "policy_prob": float(policy[int(action)]),
+        }
+        for action, score, value_delta, positive_prob in zip(
+            pool, scores_np, value_np, positive_np
+        )
+    }
+
+  def _state_context_fields(self, state, legal):
+    legal = [int(action) for action in legal]
+    legal_count = float(len(legal))
+    led_color = getattr(state, "_led_color", None)
+    led_legal = sum(1 for action in legal if _action_color(state, action) == led_color)
+    red_legal = sum(1 for action in legal if _action_color(state, action) == "R")
+    switch_legal = sum(
+        1 for action in legal
+        if action != 999 and _action_color(state, action) not in (None, led_color)
+    )
+    denom = max(1.0, legal_count)
+    return {
+        "state_trick_number_norm": float(getattr(state, "_trick_number", 0)) / 8.0,
+        "state_legal_count_norm": min(1.0, legal_count / 40.0),
+        "state_decision_index_norm": 0.0,
+        "state_round_index_norm": float(getattr(state, "_match_round", 0)) / 5.0,
+        "state_start_player_norm": float(
+            getattr(state, "_round_start_player", getattr(state, "_start_player", 0))
+        ) / 4.0,
+        "state_led_legal_count_norm": min(1.0, float(led_legal) / 20.0),
+        "state_red_legal_count_norm": min(1.0, float(red_legal) / 20.0),
+        "state_switch_legal_count_norm": min(1.0, float(switch_legal) / 40.0),
+        "state_led_legal_ratio": float(led_legal) / denom,
+        "state_red_legal_ratio": float(red_legal) / denom,
+        "state_switch_legal_ratio": float(switch_legal) / denom,
+        "state_avoidable_switch": 1.0 if led_legal > 0 and switch_legal > 0 else 0.0,
+    }
+
+  def _round_history_context_fields(self):
+    return {key: 0.0 for key in self._HISTORY_KEYS}
+
+  def _proposal_rows(
+      self,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      scored_items,
+      action_features,
+  ):
+    num_actions = state.num_distinct_actions()
+    legal_mask = np.zeros(num_actions, dtype=np.float32)
+    legal_mask[[int(action) for action in legal]] = 1.0
+    observation = np.array(state.observation_tensor(player), dtype=np.float32)
+    full_legal_count = int(len(legal))
+    base_feature = self._pair_feature(
+        self.proposal_saved_args,
+        action_features,
+        legal_mask,
+        observation,
+        policy,
+        int(base_action),
+        int(base_action),
+        full_legal_count,
+    )
+    total = int(len(scored_items))
+    context = self._state_context_fields(state, legal)
+    history = self._round_history_context_fields()
+    aux_values = np.zeros(num_actions, dtype=np.float32)
+    aux_risks = np.zeros(num_actions, dtype=np.float32)
+    if "_aux_" in str(
+        getattr(self.proposal_args, "proposal_feature_mode", "") or ""
+    ):
+      _, _, aux_values, aux_risks, _ = model_policy_value_action_aux(
+          self.model,
+          state,
+          player,
+          num_actions,
+          self.args.value_scale,
+          self.device,
+          need_action_values=True,
+          need_action_risks=True,
+      )
+    rows = []
+    views = []
+    for rank, item in enumerate(scored_items):
+      action = int(item["action"])
+      candidate_feature = self._pair_feature(
+          self.proposal_saved_args,
+          action_features,
+          legal_mask,
+          observation,
+          policy,
+          action,
+          int(base_action),
+          full_legal_count,
+      )
+      view = {
+          "candidate_action": action,
+          "score_margin": float(item["margin"]),
+          "margin": float(item["margin"]),
+          "candidate_score": float(item["score"]),
+          "score": float(item["score"]),
+          "base_score": float(item["base_score"]),
+          "candidate_pred_value_delta": float(item["pred_value_delta"]),
+          "pred_value_delta": float(item["pred_value_delta"]),
+          "candidate_pred_positive_prob": float(item["pred_positive_prob"]),
+          "pred_positive_prob": float(item["pred_positive_prob"]),
+          "candidate_policy_prob": float(item["policy_prob"]),
+          "policy_prob": float(item["policy_prob"]),
+          "base_policy_prob": float(policy[int(base_action)]),
+          "candidate_count": int(total),
+          "scored_candidate_count": int(total),
+          "candidate_aux_action_value": float(aux_values[int(action)]),
+          "base_aux_action_value": float(aux_values[int(base_action)]),
+          "aux_action_value_delta": float(
+              aux_values[int(action)] - aux_values[int(base_action)]
+          ),
+          "candidate_aux_action_paradox_risk": float(aux_risks[int(action)]),
+          "base_aux_action_paradox_risk": float(aux_risks[int(base_action)]),
+          "aux_action_paradox_risk_delta": float(
+              aux_risks[int(action)] - aux_risks[int(base_action)]
+          ),
+      }
+      view.update(_slate_relative_fields(item, scored_items, int(rank), total))
+      view.update(context)
+      view.update(history)
+      rows.append(
+          _proposal_feature(
+              self.proposal_args,
+              candidate_feature,
+              base_feature,
+              view,
+              np.asarray(action_features[int(action)], dtype=np.float32),
+              np.asarray(action_features[int(base_action)], dtype=np.float32),
+          )
+      )
+      views.append(view)
+    if not rows:
+      return np.zeros((0, 0), dtype=np.float32), []
+    return np.asarray(rows, dtype=np.float32), views
+
+  def _score_proposals(self, x):
+    feature_size = int(self.proposal_veto["feature_size"])
+    if int(x.shape[1]) != feature_size:
+      raise ValueError(
+          "proposal-veto feature size mismatch: "
+          f"{x.shape[1]} vs {feature_size}"
+      )
+    x = (
+        x - self.proposal_veto["feature_mean"]
+    ) / self.proposal_veto["feature_std"]
+    with torch.no_grad():
+      x_t = torch.tensor(x, dtype=torch.float32, device=self.device)
+      if str(self.proposal_veto.get("model_kind", "mlp")) == "deepset":
+        logits = self.proposal_veto["model"](x_t, [list(range(int(x_t.shape[0])))])
+      else:
+        logits = self.proposal_veto["model"](x_t)
+    return logits.detach().cpu().numpy().astype(np.float32)
+
+  @staticmethod
+  def _source_score_view(item):
+    return {
+        "candidate_action": int(item["action"]),
+        "score_margin": float(item.get("margin", 0.0)),
+        "margin": float(item.get("margin", 0.0)),
+        "candidate_score": float(item.get("score", 0.0)),
+        "score": float(item.get("score", 0.0)),
+        "base_score": float(item.get("base_score", 0.0)),
+        "candidate_pred_value_delta": float(item.get("pred_value_delta", 0.0)),
+        "pred_value_delta": float(item.get("pred_value_delta", 0.0)),
+        "candidate_pred_positive_prob": float(
+            item.get("pred_positive_prob", 0.0)
+        ),
+        "pred_positive_prob": float(item.get("pred_positive_prob", 0.0)),
+        "candidate_policy_prob": float(item.get("policy_prob", 0.0)),
+        "policy_prob": float(item.get("policy_prob", 0.0)),
+    }
+
+  def _append_override_sample(
+      self,
+      key,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      selected_view,
+      selected_logit,
+      selected_margin,
+  ):
+    samples = self._decision_stats.setdefault(key, [])
+    limit = int(getattr(self.args, "proposal_veto_sample_limit", 20) or 0)
+    if limit <= 0 or len(samples) >= limit:
+      return
+    action = int(selected_view["candidate_action"])
+    samples.append({
+        "player": int(player),
+        "phase": _phase_name(state).lower(),
+        "legal_count": int(len(legal)),
+        "trick_number": int(getattr(state, "_trick_number", -1)),
+        "match_round": int(getattr(state, "_match_round", -1)),
+        "base_action": int(base_action),
+        "candidate_action": int(action),
+        "base_policy_prob": float(policy[int(base_action)]),
+        "candidate_policy_prob": float(policy[int(action)]),
+        "proposal_logit": float(selected_logit),
+        "proposal_margin": float(selected_margin),
+        "source_score": float(selected_view.get("candidate_score", 0.0)),
+        "source_base_score": float(selected_view.get("base_score", 0.0)),
+        "source_margin": float(selected_view.get("score_margin", 0.0)),
+        "pred_value_delta": float(
+            selected_view.get("candidate_pred_value_delta", 0.0)
+        ),
+        "pred_positive_prob": float(
+            selected_view.get("candidate_pred_positive_prob", 0.0)
+        ),
+        "source_candidate_rank": int(selected_view.get("source_candidate_rank", 0)),
+        "source_candidate_count": int(
+            selected_view.get("source_candidate_count", 0)
+        ),
+        "legal_actions": [int(action) for action in legal],
+    })
+
+  def step(self, state, player):
+    legal = [int(action) for action in state.legal_actions(player)]
+    legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
+    if legal_count == 1:
+      _record_decision(self._decision_stats, state, legal[0], legal_count)
+      return int(legal[0])
+    policy, _ = model_policy_value(
+        self.model,
+        state,
+        player,
+        state.num_distinct_actions(),
+        self.args.value_scale,
+        self.device,
+    )
+    raw_policy_action = int(max(legal, key=lambda action: float(policy[int(action)])))
+    base_action = self._base_action(state, player, legal, raw_policy_action)
+    enabled, disabled_reason = self._enabled_for_state(state, legal_count)
+    if not enabled:
+      self._decision_stats["proposal_veto_disabled"] += 1
+      _inc_counter(
+          self._decision_stats["proposal_veto_disabled_by_reason"],
+          disabled_reason,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    phase = _phase_name(state).lower()
+    self._decision_stats["proposal_veto_considered"] += 1
+    self._decision_stats["proposal_veto_history_unavailable"] += 1
+    _inc_counter(self._decision_stats["proposal_veto_by_phase"], phase)
+    action_features = action_feature_matrix(
+        state, player, state.num_distinct_actions()
+    )
+    candidates = self._candidate_actions(
+        state, player, legal, policy, int(base_action), action_features
+    )
+    source_scores = self._score_source_actions(
+        state,
+        player,
+        legal,
+        policy,
+        int(base_action),
+        candidates,
+        action_features,
+    )
+    if not source_scores:
+      self._decision_stats["proposal_veto_no_source_scores"] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    scored_items = [
+        dict(source_scores[int(action)])
+        for action in candidates
+        if int(action) in source_scores and int(action) != int(base_action)
+    ]
+    scored_items.sort(
+        key=lambda item: (
+            float(item.get("score", 0.0)),
+            float(item.get("pred_value_delta", 0.0)),
+            float(item.get("policy_prob", 0.0)),
+        ),
+        reverse=True,
+    )
+    self._decision_stats["proposal_veto_scored_candidates"] += len(scored_items)
+    if not scored_items:
+      self._decision_stats["proposal_veto_no_rows"] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    selection_mode = str(
+        getattr(self.args, "proposal_veto_selection_mode", "proposal_model")
+        or "proposal_model"
+    ).lower()
+    if selection_mode in ("source", "source_score", "source_score_top1"):
+      ranked_source_items = list(scored_items)
+      selected_item = ranked_source_items[0]
+      selected_view = self._source_score_view(selected_item)
+      selected_logit = float(selected_item.get("score", 0.0))
+      if len(ranked_source_items) > 1:
+        second_logit = float(ranked_source_items[1].get("score", 0.0))
+        selected_margin = selected_logit - second_logit
+      else:
+        selected_margin = selected_logit
+    elif selection_mode in ("source_value", "source_value_delta"):
+      ranked_source_items = sorted(
+          scored_items,
+          key=lambda item: (
+              float(item.get("pred_value_delta", 0.0)),
+              float(item.get("score", 0.0)),
+              float(item.get("policy_prob", 0.0)),
+          ),
+          reverse=True,
+      )
+      selected_item = ranked_source_items[0]
+      selected_view = self._source_score_view(selected_item)
+      selected_logit = float(selected_item.get("pred_value_delta", 0.0))
+      if len(ranked_source_items) > 1:
+        second_logit = float(ranked_source_items[1].get("pred_value_delta", 0.0))
+        selected_margin = selected_logit - second_logit
+      else:
+        selected_margin = selected_logit
+    elif selection_mode in ("proposal_model", "proposal", "model"):
+      x, views = self._proposal_rows(
+          state,
+          player,
+          legal,
+          policy,
+          int(base_action),
+          scored_items,
+          action_features,
+      )
+      if x.shape[0] == 0:
+        self._decision_stats["proposal_veto_no_rows"] += 1
+        self._decision_stats["proposal_veto_abstained"] += 1
+        _record_decision(self._decision_stats, state, base_action, legal_count)
+        return int(base_action)
+      logits = self._score_proposals(x)
+      best_idx = int(np.argmax(logits))
+      selected_logit = float(logits[best_idx])
+      if len(logits) > 1:
+        second_logit = float(np.partition(logits, -2)[-2])
+        selected_margin = selected_logit - second_logit
+      else:
+        selected_margin = selected_logit
+      selected_view = views[best_idx]
+    else:
+      raise ValueError(f"unknown proposal_veto_selection_mode={selection_mode}")
+    selected_action = int(selected_view["candidate_action"])
+    self._decision_stats["proposal_veto_selected_logit_sum"] += selected_logit
+    self._decision_stats["proposal_veto_selected_margin_sum"] += selected_margin
+    self._decision_stats["proposal_veto_selected_source_margin_sum"] += float(
+        selected_view.get("score_margin", 0.0)
+    )
+    self._decision_stats["proposal_veto_selected_value_delta_sum"] += float(
+        selected_view.get("candidate_pred_value_delta", 0.0)
+    )
+    self._decision_stats["proposal_veto_selected_positive_prob_sum"] += float(
+        selected_view.get("candidate_pred_positive_prob", 0.0)
+    )
+    score_threshold = float(
+        getattr(self.args, "proposal_veto_score_threshold", -1e9)
+    )
+    margin_threshold = float(
+        getattr(self.args, "proposal_veto_margin_threshold", -1e9)
+    )
+    source_score_threshold = float(
+        getattr(self.args, "proposal_veto_min_source_score", -1e9)
+    )
+    source_margin_threshold = float(
+        getattr(self.args, "proposal_veto_min_source_margin", -1e9)
+    )
+    source_value_threshold = float(
+        getattr(self.args, "proposal_veto_min_source_value_delta", -1e9)
+    )
+    source_positive_threshold = float(
+        getattr(self.args, "proposal_veto_min_source_positive_prob", -1e9)
+    )
+    if selected_logit < score_threshold:
+      self._decision_stats["proposal_veto_blocked_score_threshold"] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    if selected_margin < margin_threshold:
+      self._decision_stats["proposal_veto_blocked_margin_threshold"] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    if float(selected_view.get("candidate_score", 0.0)) < source_score_threshold:
+      self._decision_stats[
+          "proposal_veto_blocked_source_score_threshold"
+      ] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    if float(selected_view.get("score_margin", 0.0)) < source_margin_threshold:
+      self._decision_stats[
+          "proposal_veto_blocked_source_margin_threshold"
+      ] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    if (
+        float(selected_view.get("candidate_pred_value_delta", 0.0))
+        < source_value_threshold
+    ):
+      self._decision_stats[
+          "proposal_veto_blocked_source_value_threshold"
+      ] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    if (
+        float(selected_view.get("candidate_pred_positive_prob", 0.0))
+        < source_positive_threshold
+    ):
+      self._decision_stats[
+          "proposal_veto_blocked_source_positive_threshold"
+      ] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    if bool(getattr(self.args, "proposal_veto_shadow_only", False)):
+      self._decision_stats["proposal_veto_shadow_overrides"] += 1
+      self._decision_stats["proposal_veto_abstained"] += 1
+      _inc_counter(
+          self._decision_stats["proposal_veto_shadow_overrides_by_phase"],
+          phase,
+      )
+      self._append_override_sample(
+          "proposal_veto_shadow_override_samples",
+          state,
+          player,
+          legal,
+          policy,
+          base_action,
+          selected_view,
+          selected_logit,
+          selected_margin,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    self._decision_stats["proposal_veto_overrides"] += 1
+    _inc_counter(self._decision_stats["proposal_veto_overrides_by_phase"], phase)
+    self._append_override_sample(
+        "proposal_veto_override_samples",
+        state,
+        player,
+        legal,
+        policy,
+        base_action,
+        selected_view,
+        selected_logit,
+        selected_margin,
+    )
+    _record_decision(self._decision_stats, state, selected_action, legal_count)
+    return int(selected_action)
+
+  def decision_stats(self):
+    stats = self.raw_decision_stats()
+    _decision_stats_rates(stats)
+    return stats
+
+  def raw_decision_stats(self):
+    return json.loads(json.dumps(self._decision_stats))
+
+
+class AZIntraLaneRankFilterBot:
+  """Conservative runtime wrapper for follow-led/no-token-loss rank allocation."""
+
+  def __init__(self, model, intralane_filter, name, device, model_args):
+    self.name = name
+    self.model = model
+    self.filter = intralane_filter
+    self.device = device
+    self.args = model_args
+    self.base_mode = str(getattr(model_args, "intralane_filter_base_mode", "policy"))
+    if self.base_mode == "policy":
+      self.base_bot = None
+    elif self.base_mode == "q_policy":
+      self.base_bot = AZQPolicyBot(model, f"{name}_intralane_base", device, model_args)
+    elif self.base_mode == "liveness_shield":
+      self.base_bot = AZLivenessShieldPolicyBot(
+          model, f"{name}_intralane_base", device, model_args
+      )
+    else:
+      raise ValueError(f"Unsupported intralane filter base mode: {self.base_mode}")
+    self._filter_args = SimpleNamespace(
+        candidate_filter=str(
+            getattr(model_args, "intralane_filter_candidate_filter",
+                    "follow_no_token_loss")
+        )
+    )
+    self._decision_stats = _empty_decision_stats()
+    self._decision_stats.update({
+        "intralane_filter_disabled": 0,
+        "intralane_filter_disabled_by_reason": {},
+        "intralane_filter_considered": 0,
+        "intralane_filter_abstained": 0,
+        "intralane_filter_overrides": 0,
+        "intralane_filter_shadow_overrides": 0,
+        "intralane_filter_scored_candidates": 0,
+        "intralane_filter_policy_gap_filtered": 0,
+        "intralane_filter_by_phase": {},
+        "intralane_filter_overrides_by_phase": {},
+        "intralane_filter_shadow_overrides_by_phase": {},
+        "intralane_filter_override_samples": [],
+        "intralane_filter_shadow_override_samples": [],
+        "intralane_filter_max_positive_prob_sum": 0.0,
+        "intralane_filter_max_safe_prob_sum": 0.0,
+        "intralane_filter_max_value_delta_sum": 0.0,
+        "intralane_filter_min_risk_delta_sum": 0.0,
+        "intralane_filter_base_mode": self.base_mode,
+    })
+
+  def _enabled_for_state(self, state, legal_count):
+    spec = str(getattr(self.args, "intralane_filter_phases", "play") or "").strip()
+    if spec:
+      allowed = _split_phase_names(spec)
+      if _phase_name(state).lower() not in allowed:
+        return False, "phase"
+    min_trick = int(getattr(self.args, "intralane_filter_min_trick_number", -1))
+    max_trick = int(getattr(self.args, "intralane_filter_max_trick_number", -1))
+    trick_number = int(getattr(state, "_trick_number", -1))
+    if min_trick >= 0 and trick_number < min_trick:
+      return False, "trick_number_low"
+    if max_trick >= 0 and trick_number > max_trick:
+      return False, "trick_number_high"
+    if legal_count <= 1:
+      return False, "forced"
+    return True, "enabled"
+
+  def _base_action(self, state, player, legal, raw_policy_action):
+    if self.base_bot is None:
+      return int(raw_policy_action)
+    action = int(self.base_bot.step(state.clone(), player))
+    if action not in legal:
+      return int(raw_policy_action)
+    return action
+
+  def _candidate_actions(self, state, player, legal, action_features, base_action):
+    legal = [int(action) for action in legal]
+    if bool(getattr(
+        self.args,
+        "intralane_filter_require_forced_switch_red_contrast",
+        False,
+    )):
+      if not self._has_forced_switch_red_contrast(action_features, legal):
+        return [], "forced_switch_red_contrast"
+    if (
+        bool(getattr(self.args, "intralane_filter_require_base_allowed", True))
+        and not intralane_candidate_allowed(
+            self._filter_args, action_features, int(base_action)
+        )
+    ):
+      return [], "base_filter"
+    candidates = [
+        int(action) for action in legal
+        if int(action) != int(base_action)
+        and intralane_candidate_allowed(self._filter_args, action_features, int(action))
+    ]
+    max_gap = float(getattr(self.args, "intralane_filter_max_policy_log_gap", -1.0))
+    if max_gap < 0 or not candidates:
+      return sorted(candidates), "ok"
+    policy, _ = model_policy_value(
+        self.model,
+        state,
+        player,
+        state.num_distinct_actions(),
+        self.args.value_scale,
+        self.device,
+    )
+    floor = 1e-12
+    base_logp = float(np.log(max(float(policy[int(base_action)]), floor)))
+    kept = []
+    for action in candidates:
+      candidate_logp = float(np.log(max(float(policy[int(action)]), floor)))
+      if base_logp - candidate_logp <= max_gap:
+        kept.append(int(action))
+      else:
+        self._decision_stats["intralane_filter_policy_gap_filtered"] += 1
+    return sorted(kept), "ok"
+
+  @staticmethod
+  def _token_loss_mask(action_features):
+    appended_idx = APPENDED_ACTION_FEATURE_INDEX.get("token_loss_newly_loses_led")
+    appended = (
+        action_features[:, appended_idx] > 0.5
+        if appended_idx is not None and appended_idx < action_features.shape[1]
+        else np.zeros(action_features.shape[0], dtype=bool)
+    )
+    return (
+        (action_features[:, ACTION_FEATURE_OFF_LED_LOSES_TOKEN_INDEX] > 0.5)
+        | appended
+    )
+
+  @classmethod
+  def _has_forced_switch_red_contrast(cls, action_features, legal):
+    if not legal:
+      return False
+    legal_arr = np.asarray([int(action) for action in legal], dtype=np.int64)
+    follows = action_features[legal_arr, ACTION_FEATURE_FOLLOWS_LED_INDEX] > 0.5
+    token_loss = cls._token_loss_mask(action_features)[legal_arr]
+    red = action_features[legal_arr, ACTION_FEATURE_IS_RED_INDEX] > 0.5
+    red_switch = token_loss & red
+    nonred_switch = token_loss & (~red)
+    return bool(
+        not np.any(follows)
+        and np.any(red_switch)
+        and np.any(nonred_switch)
+    )
+
+  def _score_candidates(
+      self,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      candidates,
+      action_features,
+  ):
+    if not candidates:
+      return {}
+    num_actions = state.num_distinct_actions()
+    pool = sorted({int(base_action), *[int(action) for action in candidates]})
+    legal_mask = np.zeros(num_actions, dtype=np.float32)
+    legal_mask[pool] = 1.0
+    observation = np.array(state.observation_tensor(player), dtype=np.float32)
+    saved_args = self.filter.get("args", {})
+    observation_feature_mode = str(
+        saved_args.get("observation_feature_mode", "summary") or "summary"
+    )
+    policy_context_mode = str(
+        saved_args.get("policy_context_mode", "summary") or "summary"
+    )
+    use_intralane_context = bool(self.filter.get("intralane_context_schema")) or (
+        str(saved_args.get("intralane_context_mode", "none")) == "rank_scarcity"
+    )
+    rows = []
+    for candidate in candidates:
+      feature = pair_feature_vector_from_matrix(
+          action_features,
+          legal_mask,
+          int(candidate),
+          int(base_action),
+          target_action=int(candidate),
+          label_margin=0.0,
+          legal_count=len(pool),
+          candidate_count=len(pool),
+          include_label_margin=False,
+          observation=observation,
+          observation_feature_mode=observation_feature_mode,
+          policy_context=policy,
+          policy_context_mode=policy_context_mode,
+          include_target_match_features=False,
+      )
+      if use_intralane_context:
+        feature = np.concatenate([
+            feature,
+            _intralane_context_vector(
+                action_features,
+                int(candidate),
+                int(base_action),
+                pool,
+            ),
+        ]).astype(np.float32)
+      rows.append(feature)
+    x = np.asarray(rows, dtype=np.float32)
+    feature_size = int(self.filter["feature_size"])
+    if x.shape[1] != feature_size:
+      raise ValueError(
+          "intralane filter feature size mismatch: "
+          f"{x.shape[1]} vs {feature_size}"
+      )
+    x = (x - self.filter["feature_mean"]) / self.filter["feature_std"]
+    with torch.no_grad():
+      x_t = torch.tensor(x, dtype=torch.float32, device=self.device)
+      positive_logit, safe_logit, value_delta, risk_delta = (
+          self.filter["model"](x_t)
+      )
+      positive_prob = torch.sigmoid(positive_logit).cpu().numpy()
+      safe_prob = torch.sigmoid(safe_logit).cpu().numpy()
+      value_np = value_delta.cpu().numpy()
+      risk_np = risk_delta.cpu().numpy()
+    return {
+        int(action): {
+            "positive_prob": float(pos_prob),
+            "safe_prob": float(safe_p),
+            "value_delta": float(value_d),
+            "risk_delta": float(risk_d),
+        }
+        for action, pos_prob, safe_p, value_d, risk_d in zip(
+            candidates, positive_prob, safe_prob, value_np, risk_np
+        )
+    }
+
+  def _append_override_sample(
+      self,
+      key,
+      state,
+      player,
+      legal,
+      policy,
+      base_action,
+      candidate_action,
+      score,
+  ):
+    samples = self._decision_stats.setdefault(key, [])
+    limit = int(getattr(self.args, "intralane_filter_sample_limit", 20) or 0)
+    if limit <= 0 or len(samples) >= limit:
+      return
+    samples.append({
+        "player": int(player),
+        "phase": _phase_name(state).lower(),
+        "legal_count": int(len(legal)),
+        "trick_number": int(getattr(state, "_trick_number", -1)),
+        "match_round": int(getattr(state, "_match_round", -1)),
+        "base_action": int(base_action),
+        "candidate_action": int(candidate_action),
+        "base_policy_prob": float(policy[int(base_action)]),
+        "candidate_policy_prob": float(policy[int(candidate_action)]),
+        "positive_prob": float(score["positive_prob"]),
+        "safe_prob": float(score["safe_prob"]),
+        "value_delta": float(score["value_delta"]),
+        "risk_delta": float(score["risk_delta"]),
+        "legal_actions": [int(action) for action in legal],
+    })
+
+  def step(self, state, player):
+    legal = [int(action) for action in state.legal_actions(player)]
+    legal_count = len(legal)
+    setup_action = _shared_discard_decision(
+        self._decision_stats, state, player, legal
+    )
+    if setup_action is not None:
+      return setup_action
+    if legal_count == 1:
+      _record_decision(self._decision_stats, state, legal[0], legal_count)
+      return legal[0]
+    policy, _ = model_policy_value(
+        self.model,
+        state,
+        player,
+        state.num_distinct_actions(),
+        self.args.value_scale,
+        self.device,
+    )
+    raw_policy_action = int(max(legal, key=lambda action: float(policy[int(action)])))
+    base_action = self._base_action(state, player, legal, raw_policy_action)
+    enabled, disabled_reason = self._enabled_for_state(state, legal_count)
+    if not enabled:
+      self._decision_stats["intralane_filter_disabled"] += 1
+      _inc_counter(
+          self._decision_stats["intralane_filter_disabled_by_reason"],
+          disabled_reason,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    phase = _phase_name(state).lower()
+    self._decision_stats["intralane_filter_considered"] += 1
+    _inc_counter(self._decision_stats["intralane_filter_by_phase"], phase)
+    action_features = action_feature_matrix(
+        state, player, state.num_distinct_actions()
+    )
+    candidates, candidate_status = self._candidate_actions(
+        state, player, legal, action_features, int(base_action)
+    )
+    if candidate_status != "ok":
+      self._decision_stats["intralane_filter_abstained"] += 1
+      _inc_counter(
+          self._decision_stats["intralane_filter_disabled_by_reason"],
+          candidate_status,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    scores = self._score_candidates(
+        state,
+        player,
+        legal,
+        policy,
+        int(base_action),
+        candidates,
+        action_features,
+    )
+    self._decision_stats["intralane_filter_scored_candidates"] += len(scores)
+    if not scores:
+      self._decision_stats["intralane_filter_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    pos_threshold = float(
+        getattr(self.args, "intralane_filter_positive_threshold", 0.50)
+    )
+    safe_threshold = float(
+        getattr(self.args, "intralane_filter_safe_threshold", 0.85)
+    )
+    value_threshold = float(
+        getattr(self.args, "intralane_filter_value_threshold", 0.08)
+    )
+    risk_threshold = float(
+        getattr(self.args, "intralane_filter_risk_threshold", -0.01)
+    )
+    passing = {
+        action: score for action, score in scores.items()
+        if float(score["positive_prob"]) >= pos_threshold
+        and float(score["safe_prob"]) >= safe_threshold
+        and float(score["value_delta"]) >= value_threshold
+        and float(score["risk_delta"]) <= risk_threshold
+    }
+    best_all = max(
+        scores.items(),
+        key=lambda item: (
+            float(item[1]["positive_prob"]),
+            float(item[1]["safe_prob"]),
+            float(item[1]["value_delta"]),
+            -float(item[1]["risk_delta"]),
+            float(policy[int(item[0])]),
+        ),
+    )
+    self._decision_stats["intralane_filter_max_positive_prob_sum"] += float(
+        best_all[1]["positive_prob"]
+    )
+    self._decision_stats["intralane_filter_max_safe_prob_sum"] += float(
+        best_all[1]["safe_prob"]
+    )
+    self._decision_stats["intralane_filter_max_value_delta_sum"] += float(
+        best_all[1]["value_delta"]
+    )
+    self._decision_stats["intralane_filter_min_risk_delta_sum"] += float(
+        min(float(score["risk_delta"]) for score in scores.values())
+    )
+    if not passing:
+      self._decision_stats["intralane_filter_abstained"] += 1
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    value_bonus = float(
+        getattr(self.args, "intralane_filter_selection_value_bonus", 0.05)
+    )
+    risk_penalty = float(
+        getattr(self.args, "intralane_filter_selection_risk_penalty", 0.5)
+    )
+    policy_tiebreak = float(
+        getattr(self.args, "intralane_filter_policy_tiebreak", 0.01)
+    )
+    best_action, best_score = max(
+        passing.items(),
+        key=lambda item: (
+            float(item[1]["positive_prob"])
+            + value_bonus * float(item[1]["value_delta"])
+            - risk_penalty * max(0.0, float(item[1]["risk_delta"]))
+            + policy_tiebreak * float(policy[int(item[0])])
+        ),
+    )
+    if bool(getattr(self.args, "intralane_filter_shadow_only", False)):
+      self._decision_stats["intralane_filter_shadow_overrides"] += 1
+      self._decision_stats["intralane_filter_abstained"] += 1
+      _inc_counter(self._decision_stats["intralane_filter_shadow_overrides_by_phase"], phase)
+      self._append_override_sample(
+          "intralane_filter_shadow_override_samples",
+          state,
+          player,
+          legal,
+          policy,
+          base_action,
+          best_action,
+          best_score,
+      )
+      _record_decision(self._decision_stats, state, base_action, legal_count)
+      return int(base_action)
+    self._decision_stats["intralane_filter_overrides"] += 1
+    _inc_counter(self._decision_stats["intralane_filter_overrides_by_phase"], phase)
+    self._append_override_sample(
+        "intralane_filter_override_samples",
+        state,
+        player,
+        legal,
+        policy,
+        base_action,
+        best_action,
+        best_score,
+    )
+    _record_decision(self._decision_stats, state, best_action, legal_count)
+    return int(best_action)
+
+  def decision_stats(self):
+    stats = self.raw_decision_stats()
+    _decision_stats_rates(stats)
+    considered = float(stats.get("intralane_filter_considered", 0) or 0)
+    if considered:
+      stats["intralane_filter_override_rate_when_considered"] = round(
+          float(stats.get("intralane_filter_overrides", 0)) / considered, 4
+      )
+      stats["intralane_filter_shadow_override_rate_when_considered"] = round(
+          float(stats.get("intralane_filter_shadow_overrides", 0)) / considered,
+          4,
+      )
+      stats["intralane_filter_abstain_rate_when_considered"] = round(
+          float(stats.get("intralane_filter_abstained", 0)) / considered, 4
+      )
+      stats["intralane_filter_scored_candidates_avg"] = round(
+          float(stats.get("intralane_filter_scored_candidates", 0)) / considered,
+          4,
+      )
+      stats["intralane_filter_max_positive_prob_avg"] = round(
+          float(stats.get("intralane_filter_max_positive_prob_sum", 0.0))
+          / considered,
+          6,
+      )
+      stats["intralane_filter_max_safe_prob_avg"] = round(
+          float(stats.get("intralane_filter_max_safe_prob_sum", 0.0))
+          / considered,
+          6,
+      )
+      stats["intralane_filter_max_value_delta_avg"] = round(
+          float(stats.get("intralane_filter_max_value_delta_sum", 0.0))
+          / considered,
+          6,
+      )
+      stats["intralane_filter_min_risk_delta_avg"] = round(
+          float(stats.get("intralane_filter_min_risk_delta_sum", 0.0))
+          / considered,
+          6,
+      )
+    return stats
+
+  def raw_decision_stats(self):
+    return json.loads(json.dumps(self._decision_stats))
+
+
 def _split_csv(value):
   return [item.strip() for item in str(value).split(",") if item.strip()]
+
+
+def _competitive_provisional_winner(state, player, action):
+  """Return the current trick leader using only public cards and our action."""
+  action = int(action)
+  player = int(player)
+  num_ranks = int(getattr(state, "_num_card_types", 0) or 0)
+  if action == 999 or num_ranks <= 0:
+    return None
+  colors = ("R", "B", "Y", "G")
+  color_index, rank_index = divmod(action, num_ranks)
+  if color_index >= len(colors):
+    return None
+  played = list(getattr(state, "_cards_played_this_trick", []))
+  if player >= len(played):
+    return None
+  played[player] = (rank_index + 1, colors[color_index])
+  visible = [(seat, card) for seat, card in enumerate(played) if card is not None]
+  red = [(seat, int(card[0])) for seat, card in visible if card[1] == "R"]
+  if red:
+    return max(red, key=lambda item: item[1])[0]
+  led_color = getattr(state, "_led_color", None) or colors[color_index]
+  led = [
+      (seat, int(card[0])) for seat, card in visible if card[1] == led_color
+  ]
+  return max(led, key=lambda item: item[1])[0] if led else None
+
+
+def _competitive_publicly_unbeatable(state, player, action):
+  """Check whether any remaining opponent has a public higher winning cell."""
+  player = int(player)
+  action = int(action)
+  if _competitive_provisional_winner(state, player, action) != player:
+    return False
+  num_ranks = int(state._num_card_types)
+  color_index, rank_index = divmod(action, num_ranks)
+  board = np.asarray(state._board_ownership)
+  tokens = np.asarray(state._color_tokens, dtype=bool)
+  remaining = [
+      seat for seat, card in enumerate(state._cards_played_this_trick)
+      if seat != player and card is None
+  ]
+  for seat in remaining:
+    if bool(tokens[seat, 0]):
+      red_start = rank_index + 1 if color_index == 0 else 0
+      if np.any(board[0, red_start:] == -1):
+        return False
+    if color_index != 0:
+      led_color = getattr(state, "_led_color", None) or _action_color(state, action)
+      led_index = ("R", "B", "Y", "G").index(led_color)
+      if (
+          bool(tokens[seat, led_index])
+          and np.any(board[led_index, rank_index + 1:] == -1)
+      ):
+        return False
+  return True
+
+
+def _competitive_terminal_action_rows(state, player, legal):
+  """Exhaustively score final-player actions from actor/public information."""
+  if int(getattr(state, "_phase", -1)) != 3:
+    return []
+  if int(state._trick_number) != int(state._num_tricks) - 1:
+    return []
+  if sum(card is not None for card in state._cards_played_this_trick) != (
+      int(state._num_players) - 1
+  ):
+    return []
+  rows = []
+  for action in legal:
+    action = int(action)
+    if action == 999:
+      continue
+    terminal = state.clone()
+    terminal.apply_action(action)
+    if not terminal.is_terminal():
+      return []
+    totals = [float(value) for value in terminal.returns()]
+    final_scores = [float(value) for value in terminal.raw_round_scores()]
+    own_official = (totals[int(player)], final_scores[int(player)])
+    placement_points = sum(
+        1.0 if own_official > (totals[seat], final_scores[seat])
+        else 0.5 if own_official == (totals[seat], final_scores[seat])
+        else 0.0
+        for seat in range(int(state._num_players)) if seat != int(player)
+    )
+    rows.append({
+        "action": action,
+        "placement_points": float(placement_points),
+        "own_total": totals[int(player)],
+        "own_round_score": final_scores[int(player)],
+        "own_connected_bonus": float(
+            terminal._player_adjacency_bonus[int(player)]
+        ),
+    })
+  return rows
+
+
+class AZCompetitiveTacticsBot:
+  """Opt-in actor-relative tactics; never inspect opponents' private hands."""
+
+  def __init__(
+      self, model, name, device, model_args, *, phase_risk_model=None
+  ):
+    self.name = name
+    self.model = model
+    self.device = device
+    self.args = model_args
+    self.base_mode = str(
+        getattr(model_args, "competitive_tactics_base_mode", "policy") or "policy"
+    )
+    self.prediction_style = str(
+        getattr(model_args, "competitive_tactics_prediction_style", "shared")
+        or "shared"
+    ).strip().lower().replace("-", "_")
+    if self.prediction_style not in (
+        "shared", "conservative", "aggressive", "rank_mass", "one", "two"
+    ):
+      raise ValueError(
+          "Unsupported competitive_tactics_prediction_style: "
+          f"{self.prediction_style}"
+      )
+    if self.base_mode == "policy":
+      self.base_bot = AZPolicyBot(
+          model, f"{name}_base", device, model_args.value_scale,
+          use_shared_prediction=not _uses_neural_prediction(model_args),
+      )
+    elif self.base_mode == "q_policy":
+      self.base_bot = AZQPolicyBot(
+          model, f"{name}_base", device, model_args,
+          phase_risk_model=phase_risk_model,
+          phase_risk_phases=getattr(
+              model_args, "action_paradox_phase_risk_phases", ""
+          ),
+      )
+    elif self.base_mode == "liveness_shield":
+      self.base_bot = AZLivenessShieldPolicyBot(
+          model, f"{name}_base", device, model_args
+      )
+    else:
+      raise ValueError(
+          f"Unsupported competitive_tactics_base_mode: {self.base_mode}"
+      )
+    self.uses_neural_prediction = bool(
+        self.prediction_style != "shared"
+        or getattr(self.base_bot, "uses_neural_prediction", False)
+    )
+    self.last_tactical_override = False
+    self._decision_stats = _empty_decision_stats()
+    self._decision_stats.update({
+        "competitive_tactics_base_mode": self.base_mode,
+        "competitive_tactics_prediction_style": self.prediction_style,
+        "competitive_tactics_exact_terminal_considered": 0,
+        "competitive_tactics_exact_terminal_overrides": 0,
+        "competitive_tactics_round_terminal_overrides": 0,
+        "competitive_tactics_bid_play_considered": 0,
+        "competitive_tactics_needed_trick_overrides": 0,
+        "competitive_tactics_declined_excess_trick": 0,
+        "competitive_tactics_bid_regime_considered": 0,
+        "competitive_tactics_bid_regime_overrides": 0,
+        "competitive_tactics_bid_regime_overrides_by_regime": {},
+        "competitive_tactics_prediction_overrides": 0,
+        "competitive_tactics_public_weak_field_decisions": 0,
+    })
+
+  def _prediction_action(self, state, player, legal):
+    shared = shared_prediction_action(state, player, legal)
+    if self.prediction_style == "shared":
+      return None
+    if shared is None:
+      return None
+    shared_guess = int(shared) - 100
+    if self.prediction_style == "one":
+      guess = 1
+    elif self.prediction_style == "two":
+      guess = 2
+    elif self.prediction_style == "conservative":
+      guess = shared_guess - 1
+    elif self.prediction_style == "aggressive":
+      guess = shared_guess + 1
+    else:
+      own_hand = np.asarray(state._hands[int(player)], dtype=np.float64)
+      top = own_hand[::-1]
+      weights = np.asarray((1.0, 0.55, 0.25, 0.1), dtype=np.float64)
+      score = float(np.dot(top[:len(weights)], weights[:len(top)]))
+      if int(player) == int(getattr(state, "_round_start_player", -1)):
+        score += 0.2
+      guess = int(math.floor(score + 0.5))
+    guess = max(1, min(4, int(guess)))
+    predictions = [int(action) for action in legal if 101 <= int(action) <= 104]
+    if not predictions:
+      return None
+    selected = min(predictions, key=lambda action: abs(action - 100 - guess))
+    if int(selected) != int(shared):
+      self._decision_stats["competitive_tactics_prediction_overrides"] += 1
+    return int(selected)
+
+  def _terminal_action(self, state, player, legal, base_action):
+    is_final_match_round = (
+        int(getattr(state, "_match_round", -1))
+        == int(getattr(state, "_num_players", 0)) - 1
+    )
+    use_exact = bool(
+        getattr(self.args, "competitive_tactics_exact_terminal", True)
+    )
+    use_round = bool(
+        getattr(self.args, "competitive_tactics_round_terminal", False)
+    )
+    if not ((is_final_match_round and use_exact) or use_round):
+      return None
+    rows = _competitive_terminal_action_rows(state, player, legal)
+    if not rows:
+      return None
+    if is_final_match_round and use_exact:
+      self._decision_stats["competitive_tactics_exact_terminal_considered"] += 1
+      best = max(float(row["placement_points"]) for row in rows)
+      tied = [
+          row for row in rows if np.isclose(row["placement_points"], best)
+      ]
+      if any(int(row["action"]) == int(base_action) for row in tied):
+        return int(base_action)
+      selected = max(
+          tied,
+          key=lambda row: (
+              row["own_total"], row["own_round_score"],
+              row["own_connected_bonus"], -int(row["action"]),
+          ),
+      )
+      self._decision_stats["competitive_tactics_exact_terminal_overrides"] += 1
+      return int(selected["action"])
+    best_own_round = max(float(row["own_round_score"]) for row in rows)
+    tied = [
+        row for row in rows if np.isclose(row["own_round_score"], best_own_round)
+    ]
+    if any(int(row["action"]) == int(base_action) for row in tied):
+      return int(base_action)
+    selected = max(
+        tied,
+        key=lambda row: (
+            row["placement_points"], row["own_connected_bonus"],
+            -int(row["action"]),
+        ),
+    )
+    self._decision_stats["competitive_tactics_round_terminal_overrides"] += 1
+    return int(selected["action"])
+
+  def _safe_tactical_action(self, state, player, candidates, base_action):
+    candidates = sorted({int(action) for action in candidates if int(action) != 999})
+    if not candidates:
+      return int(base_action)
+    view = liveness_oracle.view_from_state(state, player)
+    base_margin = liveness_oracle.post_play_margin(view, int(base_action))
+    minimum_margin = max(
+        int(base_margin),
+        int(getattr(self.args, "competitive_tactics_min_own_margin", 0)),
+    )
+    scored = []
+    for action in candidates:
+      margin = liveness_oracle.post_play_margin(view, action)
+      if int(margin) < int(minimum_margin):
+        continue
+      after = state.clone()
+      after.apply_action(action)
+      cluster = int(after._largest_cluster_for_player(int(player)))
+      scored.append((cluster, int(margin), int(action == base_action), -action))
+    if not scored:
+      return int(base_action)
+    return int(-max(scored)[-1])
+
+  def _bid_regime_action(self, state, player, legal, base_action):
+    if not bool(getattr(self.args, "competitive_tactics_bid_regime", False)):
+      return None
+    if int(getattr(state, "_phase", -1)) != 3:
+      return None
+    if sum(card is not None for card in state._cards_played_this_trick) != (
+        int(state._num_players) - 1
+    ):
+      return None
+    player = int(player)
+    prediction = int(state._predictions[player])
+    if prediction < 0:
+      return None
+    won = int(state._tricks_won[player])
+    remaining = max(0, int(state._num_tricks) - int(state._trick_number))
+    if won == prediction:
+      regime = "exact"
+      wants_win = False
+    elif won > prediction:
+      regime = "above"
+      wants_win = True
+    elif won + remaining < prediction:
+      regime = "unreachable"
+      wants_win = True
+    else:
+      regime = "below"
+      wants_win = True
+    view = liveness_oracle.view_from_state(state, player)
+    rows = []
+    for raw_action in legal:
+      action = int(raw_action)
+      if action == 999:
+        continue
+      after = state.clone()
+      after.apply_action(action)
+      feasibility = own_hand_feasibility(after, player)
+      rows.append({
+          "action": action,
+          "wins": bool(_action_would_win_after_play(state, player, action)),
+          "feasible": bool(feasibility["feasible"])
+          and not bool(after._has_paradoxed[player]),
+          "margin": int(liveness_oracle.post_play_margin(view, action)),
+          "buffer": int(feasibility["buffer_deficit"]),
+          "tokens": int(np.sum(after._color_tokens[player])),
+          "cluster": int(after._largest_cluster_for_player(player)),
+      })
+    preferred = [row for row in rows if bool(row["wins"]) == wants_win]
+    opposite = [row for row in rows if bool(row["wins"]) != wants_win]
+    if not preferred or not opposite:
+      return None
+    self._decision_stats["competitive_tactics_bid_regime_considered"] += 1
+    reference = max(opposite, key=lambda row: (
+        int(row["feasible"]), row["margin"], -row["buffer"], row["tokens"]
+    ))
+    safe = [
+        row for row in preferred
+        if bool(row["feasible"])
+        and int(row["margin"]) >= int(reference["margin"])
+        and int(row["buffer"]) <= int(reference["buffer"])
+        and int(row["tokens"]) >= int(reference["tokens"])
+    ]
+    if not safe:
+      return None
+    if any(int(row["action"]) == int(base_action) for row in safe):
+      return int(base_action)
+    chosen = max(safe, key=lambda row: (
+        row["margin"], -row["buffer"], row["tokens"],
+        row["cluster"] if regime != "above" else 0,
+        -row["action"],
+    ))
+    self._decision_stats["competitive_tactics_bid_regime_overrides"] += 1
+    _inc_counter(
+        self._decision_stats["competitive_tactics_bid_regime_overrides_by_regime"],
+        regime,
+    )
+    return int(chosen["action"])
+
+  def _bid_aware_action(self, state, player, legal, base_action):
+    if not bool(getattr(self.args, "competitive_tactics_bid_play", False)):
+      return int(base_action)
+    public_weak_field = bool(
+        getattr(self.args, "competitive_tactics_adapt_negative_opponent", False)
+        and int(getattr(state, "_match_round", 0)) > 0
+        and any(
+            int(seat) != int(player) and float(total) < 0.0
+            for seat, total in enumerate(getattr(state, "_match_totals", []))
+        )
+    )
+    if public_weak_field:
+      self._decision_stats[
+          "competitive_tactics_public_weak_field_decisions"
+      ] += 1
+    trick_number = int(getattr(state, "_trick_number", -1))
+    min_trick = int(
+        getattr(self.args, "competitive_tactics_min_trick_number", -1)
+    )
+    max_trick = int(
+        getattr(self.args, "competitive_tactics_max_trick_number", -1)
+    )
+    if not public_weak_field and min_trick >= 0 and trick_number < min_trick:
+      return int(base_action)
+    if not public_weak_field and max_trick >= 0 and trick_number > max_trick:
+      return int(base_action)
+    led = getattr(state, "_led_color", None)
+    if (
+        not public_weak_field
+        and bool(getattr(self.args, "competitive_tactics_lead_only", False))
+        and led is not None
+    ):
+      return int(base_action)
+    prediction = int(state._predictions[int(player)])
+    if prediction < 0:
+      return int(base_action)
+    minimum_prediction = int(
+        getattr(self.args, "competitive_tactics_min_prediction", -1)
+    )
+    if not public_weak_field and prediction < minimum_prediction:
+      return int(base_action)
+    needed_tricks = prediction - int(state._tricks_won[int(player)])
+    # After overshooting, the prediction bonus is already impossible: do not
+    # reinterpret a useful additional trick as one that breaks an exact bid.
+    if needed_tricks < 0:
+      return int(base_action)
+    minimum_needed = int(
+        getattr(self.args, "competitive_tactics_min_needed_tricks", -1)
+    )
+    if not public_weak_field and needed_tricks < minimum_needed:
+      return int(base_action)
+    self._decision_stats["competitive_tactics_bid_play_considered"] += 1
+    needs_trick = needed_tricks > 0
+    playable = [int(action) for action in legal if int(action) != 999]
+    if not playable:
+      return int(base_action)
+    if needs_trick and led is None:
+      nontrump = [action for action in playable if _action_color(state, action) != "R"]
+      if not nontrump:
+        return int(base_action)
+      num_ranks = int(state._num_card_types)
+      highest = max(action % num_ranks for action in nontrump)
+      minimum_rank_gain = int(
+          getattr(self.args, "competitive_tactics_min_lead_rank_gain", 0)
+      )
+      if (
+          not public_weak_field
+          and highest - int(base_action) % num_ranks < minimum_rank_gain
+      ):
+        return int(base_action)
+      candidates = [action for action in nontrump if action % num_ranks == highest]
+      action = self._safe_tactical_action(state, player, candidates, base_action)
+      if action != int(base_action):
+        self._decision_stats["competitive_tactics_needed_trick_overrides"] += 1
+      return int(action)
+    if needs_trick:
+      follow_winners = [
+          action for action in playable
+          if _action_color(state, action) == led
+          and _competitive_provisional_winner(state, player, action) == int(player)
+      ]
+      unbeatable_red = [
+          action for action in playable
+          if _action_color(state, action) == "R"
+          and _competitive_publicly_unbeatable(state, player, action)
+      ]
+      candidates = follow_winners or unbeatable_red
+      if not candidates:
+        return int(base_action)
+      action = self._safe_tactical_action(state, player, candidates, base_action)
+      if action != int(base_action):
+        self._decision_stats["competitive_tactics_needed_trick_overrides"] += 1
+      return int(action)
+    if led is None:
+      return int(base_action)
+    if _competitive_provisional_winner(state, player, base_action) != int(player):
+      return int(base_action)
+    losers = [
+        action for action in playable
+        if _competitive_provisional_winner(state, player, action) != int(player)
+    ]
+    same_suit = [action for action in losers if _action_color(state, action) == led]
+    action = self._safe_tactical_action(
+        state, player, same_suit or losers, base_action
+    )
+    if action != int(base_action):
+      self._decision_stats["competitive_tactics_declined_excess_trick"] += 1
+    return int(action)
+
+  def step(self, state, player):
+    self.last_tactical_override = False
+    legal = list(state.legal_actions(player))
+    if not legal:
+      return None
+    if len(legal) == 1:
+      _record_decision(self._decision_stats, state, legal[0], len(legal))
+      return int(legal[0])
+    if int(getattr(state, "_phase", -1)) == 2:
+      selected = self._prediction_action(state, player, legal)
+      if selected is None:
+        selected = self.base_bot.step(state.clone(), player)
+      _record_decision(self._decision_stats, state, selected, len(legal))
+      return int(selected)
+    base_action = int(self.base_bot.step(state.clone(), player))
+    if int(getattr(state, "_phase", -1)) != 3 or base_action == 999:
+      _record_decision(self._decision_stats, state, base_action, len(legal))
+      return int(base_action)
+    selected = self._terminal_action(state, player, legal, base_action)
+    if selected is None:
+      selected = self._bid_regime_action(state, player, legal, base_action)
+    if selected is None:
+      selected = self._bid_aware_action(state, player, legal, base_action)
+    self.last_tactical_override = int(selected) != int(base_action)
+    _record_decision(self._decision_stats, state, selected, len(legal))
+    return int(selected)
+
+  def raw_decision_stats(self):
+    return json.loads(json.dumps(self._decision_stats))
+
+  def decision_stats(self):
+    stats = self.raw_decision_stats()
+    _decision_stats_rates(stats)
+    return stats
 
 
 def make_eval_bot(
@@ -5988,14 +12471,29 @@ def make_eval_bot(
     entry_model = entry["model"] if entry_model is None else entry_model
     entry_args = entry["args"] if entry_args is None else entry_args
     mode = str(entry.get("mode", "policy"))
+    entry_belief_samples = int(
+        getattr(entry_args, "belief_samples", 0) or belief_samples
+    )
+    entry_belief_sims = int(
+        getattr(entry_args, "belief_sims", 0) or belief_sims
+    )
+    if entry_belief_samples < 1:
+      raise ValueError("belief_samples must be at least 1")
+    if entry_belief_sims < 1:
+      raise ValueError("belief_sims must be at least 1")
     if mode == "belief_policy":
       return AZBeliefPolicyBot(
           entry_model, bot_name, device, entry_args.value_scale,
-          belief_samples, entry_args
+          entry_belief_samples, entry_args
       )
     if mode == "belief":
       return AZBeliefSearchBot(
-          entry_model, bot_name, device, entry_args, belief_samples, belief_sims
+          entry_model,
+          bot_name,
+          device,
+          entry_args,
+          entry_belief_samples,
+          entry_belief_sims,
       )
     if mode == "mcts":
       return AZSearchBot(entry_model, bot_name, device, entry_args, max(1, mcts_sims))
@@ -6020,6 +12518,17 @@ def make_eval_bot(
       )
     if mode == "liveness_shield":
       return AZLivenessShieldPolicyBot(entry_model, bot_name, device, entry_args)
+    if mode == "competitive_tactics":
+      return AZCompetitiveTacticsBot(
+          entry_model, bot_name, device, entry_args,
+          phase_risk_model=entry.get("phase_risk_model"),
+      )
+    if mode == "belief_table_liveness":
+      return AZBeliefTableLivenessPolicyBot(
+          entry_model, bot_name, device, entry_args
+      )
+    if mode == "oracle_shield":
+      return AZOracleShieldPolicyBot(entry_model, bot_name, device, entry_args)
     if mode == "residual_policy":
       return AZResidualPolicyBot(
           entry_model,
@@ -6065,7 +12574,46 @@ def make_eval_bot(
           device,
           entry_args,
       )
-    return AZPolicyBot(entry_model, bot_name, device, entry_args.value_scale)
+    if mode == "intralane_filter":
+      return AZIntraLaneRankFilterBot(
+          entry_model,
+          entry["intralane_filter"],
+          bot_name,
+          device,
+          entry_args,
+      )
+    if mode == "pairwise_boundary":
+      return AZPairwiseBoundaryBot(
+          entry_model,
+          entry["pairwise_boundary"],
+          bot_name,
+          device,
+          entry_args,
+      )
+    if mode == "action_set_transformer":
+      return AZActionSetTransformerBot(
+          entry_model,
+          entry["action_set_transformer"],
+          bot_name,
+          device,
+          entry_args,
+      )
+    if mode == "proposal_veto_top1":
+      return AZProposalVetoTop1Bot(
+          entry_model,
+          entry["action_set_transformer"],
+          entry["proposal_veto"],
+          bot_name,
+          device,
+          entry_args,
+      )
+    return AZPolicyBot(
+        entry_model,
+        bot_name,
+        device,
+        entry_args.value_scale,
+        use_shared_prediction=not _uses_neural_prediction(entry_args),
+    )
 
   if neural_bots and name in neural_bots:
     entry = neural_bots[name]
@@ -6092,7 +12640,13 @@ def make_eval_bot(
   if name == "az_policy":
     if model is None:
       raise ValueError("az_policy requires --checkpoint")
-    return AZPolicyBot(model, name, device, model_args.value_scale)
+    return AZPolicyBot(
+        model,
+        name,
+        device,
+        model_args.value_scale,
+        use_shared_prediction=not _uses_neural_prediction(model_args),
+    )
   if name == "az_belief_policy":
     if model is None:
       raise ValueError("az_belief_policy requires --checkpoint")
@@ -6135,13 +12689,20 @@ def make_eval_bot(
   return make_bot(name, seed=seed)
 
 
-def play_round(game, bots, seed, match_totals=None, round_index=0):
+def play_round(
+    game,
+    bots,
+    seed,
+    match_totals=None,
+    round_index=0,
+    first_paradox_trace_window=5,
+):
   if seed is not None:
     np.random.seed(seed)
   state = game.new_initial_state()
   if match_totals is not None:
     state.set_match_context(match_totals, round_index)
-  recent_decisions = deque(maxlen=5)
+  recent_decisions = deque(maxlen=max(1, int(first_paradox_trace_window)))
   first_paradox_trace = None
   while not state.is_terminal():
     decision_row = None
@@ -6153,7 +12714,12 @@ def play_round(game, bots, seed, match_totals=None, round_index=0):
     else:
       player = state.current_player()
       legal = state.legal_actions(player)
-      action = shared_prediction_action(state, player, legal)
+      action = shared_discard_action(state, player, legal)
+      if (
+          action is None
+          and not bool(getattr(bots[player], "uses_neural_prediction", False))
+      ):
+        action = shared_prediction_action(state, player, legal)
       if action is None:
         action = bots[player].step(state, player)
       decision_row = _compact_decision_row(state, player, action, len(legal))
@@ -6173,7 +12739,15 @@ def play_round(game, bots, seed, match_totals=None, round_index=0):
   return state.returns(), state
 
 
-def play_match(players, bot_names, bots, seed, initial_start=0, match_context=False):
+def play_match(
+    players,
+    bot_names,
+    bots,
+    seed,
+    initial_start=0,
+    match_context=False,
+    first_paradox_trace_window=5,
+):
   totals = np.zeros(players, dtype=np.float32)
   paradoxes = np.zeros(players, dtype=np.int32)
   rounds = []
@@ -6194,6 +12768,7 @@ def play_match(players, bot_names, bots, seed, initial_start=0, match_context=Fa
         seed=seed + round_idx * 9973,
         match_totals=prior_totals if match_context else None,
         round_index=round_idx,
+        first_paradox_trace_window=first_paradox_trace_window,
     )
     returns = np.array(returns, dtype=np.float32)
     if match_context:
@@ -6203,11 +12778,32 @@ def play_match(players, bot_names, bots, seed, initial_start=0, match_context=Fa
       totals += returns
       round_returns = returns
     paradoxes += np.array(state._has_paradoxed, dtype=np.int32)
+    predictions = [int(value) for value in getattr(state, "_predictions", [])]
+    tricks_won = [int(value) for value in getattr(state, "_tricks_won", [])]
+    adjacency_bonus = [
+        float(value) for value in getattr(state, "_player_adjacency_bonus", [])
+    ]
+    potential_prediction_bonus = list(adjacency_bonus)
+    for seat, paradoxed in enumerate(state._has_paradoxed):
+      if (
+          paradoxed
+          and seat < len(predictions)
+          and seat < len(tricks_won)
+          and predictions[seat] == tricks_won[seat]
+          and seat < len(potential_prediction_bonus)
+      ):
+        potential_prediction_bonus[seat] = float(
+            state._largest_cluster_for_player(seat)
+        )
     rounds.append({
         "start_player": start_player,
         "returns": [float(x) for x in round_returns],
         "totals_after_round": [float(x) for x in totals],
         "paradoxed": list(state._has_paradoxed),
+        "predictions": predictions,
+        "tricks_won": tricks_won,
+        "adjacency_bonus": adjacency_bonus,
+        "potential_prediction_bonus": potential_prediction_bonus,
         "first_paradox_trace": getattr(state, "_first_paradox_trace", None),
     })
   bot_decision_stats = {}
@@ -6297,6 +12893,7 @@ def _elo_worker_match(job):
       seed=args.seed + 100000 + seed_idx * 37,
       initial_start=initial_start,
       match_context=use_match_context,
+      first_paradox_trace_window=getattr(args, "first_paradox_trace_window", 5),
   )
   return match_idx, seated, match
 
@@ -6304,13 +12901,20 @@ def _elo_worker_match(job):
 def match_jobs(args, names, lineups, use_match_context):
   jobs = []
   paired_deals = int(getattr(args, "paired_deals", 0))
+  deal_offset = int(getattr(args, "deal_offset", 0))
+  if deal_offset < 0:
+    raise ValueError("--deal-offset cannot be negative")
+  if deal_offset and paired_deals <= 0:
+    raise ValueError("--deal-offset requires --paired-deals")
   if paired_deals > 0:
     if args.candidate:
       raise ValueError("--paired-deals is only supported in ladder mode")
-    if args.schedule != "permutations":
-      raise ValueError("--paired-deals requires --schedule=permutations")
+    if args.schedule not in ("permutations", "cyclic"):
+      raise ValueError(
+          "--paired-deals requires --schedule=permutations or --schedule=cyclic"
+      )
     match_idx = 0
-    for deal_idx in range(paired_deals):
+    for deal_idx in range(deal_offset, deal_offset + paired_deals):
       initial_start = deal_idx % args.players
       for lineup in lineups:
         jobs.append((
@@ -6379,6 +12983,7 @@ def run_match_jobs(args, jobs, model, model_args, neural_bots, device):
           seed=args.seed + 100000 + seed_idx * 37,
           initial_start=initial_start,
           match_context=use_match_context,
+          first_paradox_trace_window=getattr(args, "first_paradox_trace_window", 5),
       )
       results.append((match_idx, seated, match))
     return results, workers, time.perf_counter() - started
@@ -6428,6 +13033,12 @@ def ladder_lineups(args, names):
     raise ValueError("Need at least as many bot names as players")
   if args.schedule == "permutations":
     return list(itertools.permutations(names, args.players))
+  if args.schedule == "cyclic":
+    lineups = []
+    for combination in itertools.combinations(names, args.players):
+      for shift in range(args.players):
+        lineups.append(combination[shift:] + combination[:shift])
+    return lineups
   return list(itertools.combinations(names, args.players))
 
 
@@ -6566,6 +13177,442 @@ def _homogeneous_bot_spec(name, neural_bots):
   }
 
 
+def _wilson_score_interval(successes, trials, z=1.959963984540054):
+  """Returns a two-sided Wilson score interval for a binomial proportion."""
+  successes = int(successes)
+  trials = int(trials)
+  if trials <= 0:
+    return [0.0, 1.0]
+  proportion = successes / trials
+  z_squared = float(z) ** 2
+  denominator = 1.0 + z_squared / trials
+  center = (proportion + z_squared / (2.0 * trials)) / denominator
+  margin = (
+      float(z)
+      * math.sqrt(
+          proportion * (1.0 - proportion) / trials
+          + z_squared / (4.0 * trials * trials)
+      )
+      / denominator
+  )
+  return [max(0.0, center - margin), min(1.0, center + margin)]
+
+
+def _independent_block_mean_summary(
+    values, *, neutral=None, lower_bound=None, upper_bound=None
+):
+  """Summarizes block means without treating correlated seats as independent."""
+  values = [float(value) for value in values]
+  if not values:
+    return {
+        "mean": None,
+        "ci95": [None, None],
+        "independent_deal_blocks": 0,
+        "two_sided_p": None,
+    }
+  average = float(np.mean(values))
+  count = len(values)
+  if count < 2:
+    interval = [lower_bound, upper_bound]
+    p_value = None
+  else:
+    standard_error = float(np.std(values, ddof=1) / math.sqrt(count))
+    margin = float(scipy_stats.t.ppf(0.975, count - 1)) * standard_error
+    interval = [average - margin, average + margin]
+    if lower_bound is not None:
+      interval[0] = max(float(lower_bound), interval[0])
+    if upper_bound is not None:
+      interval[1] = min(float(upper_bound), interval[1])
+    if neutral is None:
+      p_value = None
+    elif standard_error > 0:
+      p_value = 2.0 * float(scipy_stats.t.sf(
+          abs(average - float(neutral)) / standard_error, count - 1
+      ))
+    else:
+      p_value = 1.0 if math.isclose(average, float(neutral)) else 0.0
+  return {
+      "mean": round(average, 6),
+      "ci95": [
+          None if value is None else round(float(value), 6)
+          for value in interval
+      ],
+      "independent_deal_blocks": count,
+      "two_sided_p": (
+          None if p_value is None else round(float(p_value), 6)
+      ),
+      "method": "independent_deal_block_student_t",
+  }
+
+
+def summarize_competitive_promotion_gate(
+    names,
+    players,
+    match_results,
+    candidate,
+    *,
+    reference_names=None,
+    deal_blocks_by_match=None,
+    min_independent_deals=30,
+    max_own_paradox_regression=0.0,
+):
+  """Gates official placement using common deals as the inference unit."""
+  candidate = str(candidate or "")
+  reference_names = (
+      list(reference_names)
+      if reference_names
+      else [name for name in names if name != candidate]
+  )
+  result = {
+      "kind": "competitive_promotion_gate_v1",
+      "eligible": False,
+      "passed": False,
+      "candidate": candidate,
+      "reference_opponents": reference_names,
+      "players": int(players),
+      "min_independent_deal_blocks": int(min_independent_deals),
+      "max_own_paradox_rate_regression": float(max_own_paradox_regression),
+      "table_paradox_is_promotion_veto": False,
+  }
+  if candidate not in names:
+    result["reason"] = "candidate_not_in_evaluation"
+    return result
+  if (
+      not reference_names
+      or candidate in reference_names
+      or any(name not in names for name in reference_names)
+  ):
+    result["reason"] = "invalid_reference_opponents"
+    return result
+
+  references = set(reference_names)
+  blocks = {}
+  seat_counts = {str(seat): 0 for seat in range(int(players))}
+  placement_counts = {}
+  first_place_share_sum = 0.0
+  pairwise_wins = 0
+  pairwise_losses = 0
+  pairwise_ties = 0
+  candidate_paradoxes = 0
+  candidate_round_opportunities = 0
+  opponent_paradoxes = 0
+  opponent_round_opportunities = 0
+  opponent_paradox_rounds = 0
+  table_paradox_rounds = 0
+  observed_rounds = 0
+  candidate_paradox_points_lost = 0.0
+  candidate_bid_hits = 0
+  candidate_scored_bid_hits = 0
+  candidate_bid_opportunities = 0
+  candidate_adjacency_bonus = 0.0
+
+  for match_idx, seated, match in sorted(
+      match_results, key=lambda item: int(item[0])
+  ):
+    if candidate not in seated:
+      continue
+    candidate_seat = seated.index(candidate)
+    opponent_seats = [
+        seat for seat, name in enumerate(seated) if name in references
+    ]
+    if not opponent_seats:
+      continue
+    totals = [float(value) for value in match.get("totals", [])]
+    final_returns = [
+        float(value) for value in match.get("final_round_returns", [])
+    ]
+    if len(totals) != int(players) or len(final_returns) != int(players):
+      result["reason"] = "missing_official_match_outcomes"
+      return result
+    outcome_scores = match_outcome_scores(totals, final_returns)
+    candidate_outcome = outcome_scores[candidate_seat]
+    better_seats = sum(
+        float(value) > candidate_outcome for value in outcome_scores
+    )
+    tied_other_seats = sum(
+        seat != candidate_seat and float(value) == candidate_outcome
+        for seat, value in enumerate(outcome_scores)
+    )
+    placement = 1.0 + better_seats + 0.5 * tied_other_seats
+    placement_key = str(int(placement)) if placement.is_integer() else str(placement)
+    placement_counts[placement_key] = (
+        int(placement_counts.get(placement_key, 0)) + 1
+    )
+    if better_seats == 0:
+      first_place_share_sum += 1.0 / (tied_other_seats + 1)
+
+    wins = sum(candidate_outcome > outcome_scores[seat] for seat in opponent_seats)
+    losses = sum(candidate_outcome < outcome_scores[seat] for seat in opponent_seats)
+    ties = len(opponent_seats) - wins - losses
+    pairwise_wins += int(wins)
+    pairwise_losses += int(losses)
+    pairwise_ties += int(ties)
+    score_rate = (wins + 0.5 * ties) / len(opponent_seats)
+    score_advantage = totals[candidate_seat] - float(np.mean([
+        totals[seat] for seat in opponent_seats
+    ]))
+
+    round_rows = match.get("rounds", [])
+    round_count = len(round_rows) if round_rows else int(players)
+    paradox_totals = [
+        int(value) for value in match.get("paradoxes", [0] * int(players))
+    ]
+    if len(paradox_totals) != int(players):
+      result["reason"] = "missing_player_paradox_outcomes"
+      return result
+    own_paradoxes = paradox_totals[candidate_seat]
+    other_paradoxes = sum(paradox_totals[seat] for seat in opponent_seats)
+    candidate_paradoxes += own_paradoxes
+    candidate_round_opportunities += round_count
+    opponent_paradoxes += other_paradoxes
+    opponent_round_opportunities += round_count * len(opponent_seats)
+    own_rate = own_paradoxes / round_count
+    opponent_rate = other_paradoxes / (round_count * len(opponent_seats))
+
+    for round_row in round_rows:
+      paradoxed = [
+          bool(value) for value in round_row.get("paradoxed", [])
+      ]
+      if len(paradoxed) == int(players):
+        observed_rounds += 1
+        table_paradox_rounds += int(any(paradoxed))
+        opponent_paradox_rounds += int(
+            any(paradoxed[seat] for seat in opponent_seats)
+        )
+      predictions = round_row.get("predictions", [])
+      tricks_won = round_row.get("tricks_won", [])
+      bonuses = round_row.get("adjacency_bonus", [])
+      potential_bonuses = round_row.get("potential_prediction_bonus", [])
+      if candidate_seat < len(bonuses):
+        candidate_adjacency_bonus += float(bonuses[candidate_seat])
+      if (
+          candidate_seat < len(predictions)
+          and candidate_seat < len(tricks_won)
+          and int(predictions[candidate_seat]) >= 0
+      ):
+        candidate_bid_opportunities += 1
+        bid_hit = (
+            int(predictions[candidate_seat])
+            == int(tricks_won[candidate_seat])
+        )
+        candidate_bid_hits += int(bid_hit)
+        personally_paradoxed = (
+            candidate_seat < len(paradoxed) and paradoxed[candidate_seat]
+        )
+        candidate_scored_bid_hits += int(bid_hit and not personally_paradoxed)
+        if personally_paradoxed:
+          candidate_paradox_points_lost += 2.0 * float(
+              tricks_won[candidate_seat]
+          )
+          if bid_hit and candidate_seat < len(potential_bonuses):
+            candidate_paradox_points_lost += float(
+                potential_bonuses[candidate_seat]
+            )
+
+    block_id = (
+        int(deal_blocks_by_match.get(int(match_idx), match_idx))
+        if deal_blocks_by_match is not None
+        else int(match_idx)
+    )
+    block = blocks.setdefault(block_id, {
+        "score_rates": [],
+        "score_advantages": [],
+        "own_paradox_rates": [],
+        "opponent_paradox_rates": [],
+        "placements": [],
+        "seat_counts": {str(seat): 0 for seat in range(int(players))},
+    })
+    block["score_rates"].append(float(score_rate))
+    block["score_advantages"].append(float(score_advantage))
+    block["own_paradox_rates"].append(float(own_rate))
+    block["opponent_paradox_rates"].append(float(opponent_rate))
+    block["placements"].append(float(placement))
+    block["seat_counts"][str(candidate_seat)] += 1
+    seat_counts[str(candidate_seat)] += 1
+
+  if not blocks:
+    result["reason"] = "no_candidate_reference_matches"
+    return result
+
+  block_summaries = []
+  for block_id, block in sorted(blocks.items()):
+    own_rate = float(np.mean(block["own_paradox_rates"]))
+    opponent_rate = float(np.mean(block["opponent_paradox_rates"]))
+    block_summaries.append({
+        "deal_block": int(block_id),
+        "matches": len(block["score_rates"]),
+        "candidate_seat_counts": block["seat_counts"],
+        "pairwise_score_rate": round(float(np.mean(block["score_rates"])), 6),
+        "official_score_advantage": round(
+            float(np.mean(block["score_advantages"])), 6
+        ),
+        "own_paradox_round_rate": round(own_rate, 6),
+        "opponent_personal_paradox_round_rate": round(opponent_rate, 6),
+        "own_paradox_rate_difference": round(own_rate - opponent_rate, 6),
+        "mean_official_placement": round(
+            float(np.mean(block["placements"])), 6
+        ),
+    })
+
+  ordered_blocks = [block for _block_id, block in sorted(blocks.items())]
+  block_score_rates = [
+      float(np.mean(block["score_rates"])) for block in ordered_blocks
+  ]
+  block_score_advantages = [
+      float(np.mean(block["score_advantages"])) for block in ordered_blocks
+  ]
+  block_own_rates = [
+      float(np.mean(block["own_paradox_rates"])) for block in ordered_blocks
+  ]
+  block_opponent_rates = [
+      float(np.mean(block["opponent_paradox_rates"])) for block in ordered_blocks
+  ]
+  block_paradox_differences = [
+      own_rate - opponent_rate
+      for own_rate, opponent_rate in zip(block_own_rates, block_opponent_rates)
+  ]
+  placement_summary = _independent_block_mean_summary(
+      block_score_rates, neutral=0.5, lower_bound=0.0, upper_bound=1.0
+  )
+  score_summary = _independent_block_mean_summary(
+      block_score_advantages, neutral=0.0
+  )
+  own_rate_summary = _independent_block_mean_summary(
+      block_own_rates, lower_bound=0.0, upper_bound=1.0
+  )
+  opponent_rate_summary = _independent_block_mean_summary(
+      block_opponent_rates, lower_bound=0.0, upper_bound=1.0
+  )
+  paradox_delta_summary = _independent_block_mean_summary(
+      block_paradox_differences, neutral=0.0,
+      lower_bound=-1.0, upper_bound=1.0,
+  )
+  block_seat_balance = all(
+      min(block["candidate_seat_counts"].values()) > 0
+      and (
+          max(block["candidate_seat_counts"].values())
+          == min(block["candidate_seat_counts"].values())
+      )
+      for block in block_summaries
+  )
+  deal_count = len(block_summaries)
+  match_count = sum(seat_counts.values())
+  placement_lower = placement_summary["ci95"][0]
+  score_upper = score_summary["ci95"][1]
+  paradox_lower = paradox_delta_summary["ci95"][0]
+  placement_passed = (
+      placement_lower is not None and float(placement_lower) > 0.5
+  )
+  score_guard_passed = score_upper is None or float(score_upper) >= 0.0
+  paradox_guard_passed = (
+      paradox_lower is None
+      or float(paradox_lower) <= float(max_own_paradox_regression)
+  )
+  errors = []
+  if not block_seat_balance:
+    errors.append("candidate seats are not balanced within each common deal")
+  if deal_count < int(min_independent_deals):
+    errors.append(
+        f"independent deal blocks {deal_count} < {int(min_independent_deals)}"
+    )
+  if not placement_passed:
+    errors.append(
+        "independent-deal placement score CI95 lower is not above 0.5"
+    )
+  if not score_guard_passed:
+    errors.append("official match score shows significant regression")
+  if not paradox_guard_passed:
+    errors.append("candidate personal paradox rate significantly regresses")
+  score_rate = float(np.mean(block_score_rates))
+  average_official_placement = float(np.mean([
+      block["mean_official_placement"] for block in block_summaries
+  ]))
+  clipped_score_rate = min(0.999, max(0.001, score_rate))
+  elo_difference = -400.0 * math.log10(
+      1.0 / clipped_score_rate - 1.0
+  )
+  result.update({
+      "eligible": bool(block_seat_balance),
+      "passed": not errors,
+      "reason": None if not errors else errors[0],
+      "errors": errors,
+      "inference_unit": "independent_common_deal_block",
+      "official_tiebreak": "total match score, then final-round score",
+      "independent_deal_blocks": deal_count,
+      "matches": match_count,
+      "candidate_seat_counts": seat_counts,
+      "seat_balanced_within_each_deal": block_seat_balance,
+      "placement_counts": placement_counts,
+      "mean_official_placement": round(average_official_placement, 6),
+      "first_place_share": round(
+          first_place_share_sum / match_count, 6
+      ),
+      "bga_style_rank_points": {
+          "per_match": round(
+              2.0 * (int(players) - average_official_placement), 6
+          ),
+          "neutral": int(players) - 1,
+          "maximum": 2 * (int(players) - 1),
+      },
+      "pairwise": {
+          "wins": pairwise_wins,
+          "losses": pairwise_losses,
+          "ties": pairwise_ties,
+          "score_rate": round(score_rate, 6),
+          "score_rate_ci95": placement_summary["ci95"],
+          "head_to_head_elo_difference": round(elo_difference, 2),
+          "two_sided_p": placement_summary["two_sided_p"],
+          "comparisons_are_correlated": True,
+      },
+      "placement_advantage": placement_summary,
+      "official_score_advantage": score_summary,
+      "candidate_own_paradox": {
+          "paradoxes": candidate_paradoxes,
+          "round_opportunities": candidate_round_opportunities,
+          "round_rate": round(
+              candidate_paradoxes / candidate_round_opportunities, 6
+          ) if candidate_round_opportunities else None,
+          "independent_block_summary": own_rate_summary,
+          "points_lost": round(candidate_paradox_points_lost, 6),
+      },
+      "reference_personal_paradox": {
+          "paradoxes": opponent_paradoxes,
+          "round_opportunities": opponent_round_opportunities,
+          "round_rate": round(
+              opponent_paradoxes / opponent_round_opportunities, 6
+          ) if opponent_round_opportunities else None,
+          "independent_block_summary": opponent_rate_summary,
+      },
+      "own_paradox_rate_difference": paradox_delta_summary,
+      "opponent_paradox_rounds": opponent_paradox_rounds,
+      "table_paradox": {
+          "rounds_with_any_paradox": table_paradox_rounds,
+          "hand_rounds": observed_rounds,
+          "any_paradox_round_rate": round(
+              table_paradox_rounds / observed_rounds, 6
+          ) if observed_rounds else None,
+          "diagnostic_only": True,
+      },
+      "candidate_prediction": {
+          "correct_predictions": candidate_scored_bid_hits,
+          "raw_prediction_matches": candidate_bid_hits,
+          "opportunities": candidate_bid_opportunities,
+          "hit_rate": round(
+              candidate_scored_bid_hits / candidate_bid_opportunities, 6
+          ) if candidate_bid_opportunities else None,
+          "raw_match_rate": round(
+              candidate_bid_hits / candidate_bid_opportunities, 6
+          ) if candidate_bid_opportunities else None,
+          "adjacency_bonus_points": round(candidate_adjacency_bonus, 6),
+      },
+      "placement_advantage_passed": placement_passed,
+      "official_score_guard_passed": score_guard_passed,
+      "own_paradox_guard_passed": paradox_guard_passed,
+      "deal_blocks": block_summaries,
+  })
+  return result
+
+
 def summarize_homogeneous_paradox_gate(
     names,
     players,
@@ -6607,16 +13654,28 @@ def summarize_homogeneous_paradox_gate(
       sum(int(paradoxes_by_bot.get(name, 0)) for name in names)
   )
   rounds_with_any_paradox = total_paradoxes
+  hand_round_keys = []
+  any_paradox_outcomes = []
+  paradox_seat_masks = []
   if match_results is not None:
     observed_hand_rounds = 0
     observed_any_paradox_rounds = 0
-    for _match_idx, _seated, match in match_results:
-      for round_row in match.get("rounds", []):
+    for match_idx, _seated, match in sorted(
+        match_results, key=lambda row: int(row[0])
+    ):
+      for round_idx, round_row in enumerate(match.get("rounds", [])):
         if "paradoxed" not in round_row:
           continue
+        paradoxed = [bool(value) for value in round_row.get("paradoxed", [])]
+        any_paradox = any(paradoxed)
         observed_hand_rounds += 1
-        if any(bool(value) for value in round_row.get("paradoxed", [])):
+        if any_paradox:
           observed_any_paradox_rounds += 1
+        hand_round_keys.append([int(match_idx), int(round_idx)])
+        any_paradox_outcomes.append(int(any_paradox))
+        paradox_seat_masks.append(int(sum(
+            (1 << seat) for seat, value in enumerate(paradoxed) if value
+        )))
     if observed_hand_rounds > 0:
       hand_rounds = observed_hand_rounds
       rounds_with_any_paradox = observed_any_paradox_rounds
@@ -6625,28 +13684,24 @@ def summarize_homogeneous_paradox_gate(
     return result
 
   bot_round_rate = total_paradoxes / bot_round_opportunities
-  bot_round_se = math.sqrt(
-      bot_round_rate * (1.0 - bot_round_rate) / bot_round_opportunities
+  bot_round_ci95 = _wilson_score_interval(
+      total_paradoxes, bot_round_opportunities
   )
-  bot_round_ci95 = [
-      max(0.0, bot_round_rate - 1.96 * bot_round_se),
-      min(1.0, bot_round_rate + 1.96 * bot_round_se),
-  ]
   hand_round_rate = (
       rounds_with_any_paradox / hand_rounds if hand_rounds > 0 else 0.0
   )
-  hand_round_se = math.sqrt(
-      hand_round_rate * (1.0 - hand_round_rate) / hand_rounds
-  ) if hand_rounds > 0 else 0.0
-  hand_round_ci95 = [
-      max(0.0, hand_round_rate - 1.96 * hand_round_se),
-      min(1.0, hand_round_rate + 1.96 * hand_round_se),
-  ]
+  hand_round_ci95 = _wilson_score_interval(
+      rounds_with_any_paradox, hand_rounds
+  )
+  ci95_upper_below_threshold = bool(hand_round_ci95[1] < threshold)
   return {
       "threshold": threshold,
       "eligible": True,
-      "passed": bool(hand_round_rate < threshold),
+      "passed": ci95_upper_below_threshold,
       "reason": None,
+      "gate_basis": "any_paradox_round_rate_ci95_upper",
+      "ci95_method": "wilson_score",
+      "point_estimate_below_threshold": bool(hand_round_rate < threshold),
       "bot_spec": first_spec,
       "checkpoint": first_spec.get("checkpoint") if first_spec else None,
       "mode": first_spec.get("mode") if first_spec else None,
@@ -6655,6 +13710,10 @@ def summarize_homogeneous_paradox_gate(
       "seat_match_appearances": seat_match_appearances,
       "hand_rounds": hand_rounds,
       "rounds_with_any_paradox": rounds_with_any_paradox,
+      "hand_round_outcome_order": "sorted_match_index_then_round_index",
+      "hand_round_keys": hand_round_keys,
+      "any_paradox_outcomes": any_paradox_outcomes,
+      "paradox_seat_masks": paradox_seat_masks,
       "bot_round_opportunities": bot_round_opportunities,
       "total_paradoxes": total_paradoxes,
       "same_policy_paradox_round_rate": round(hand_round_rate, 4),
@@ -6684,7 +13743,7 @@ def summarize_homogeneous_paradox_gate(
           round(bot_round_ci95[0], 4),
           round(bot_round_ci95[1], 4),
       ],
-      "ci95_upper_below_threshold": bool(hand_round_ci95[1] < threshold),
+      "ci95_upper_below_threshold": ci95_upper_below_threshold,
       "per_seat_ci95_upper_below_threshold": bool(bot_round_ci95[1] < threshold),
   }
 
@@ -6801,6 +13860,9 @@ def main():
   sample_matches = []
   lineups = ladder_lineups(args, names) if not args.candidate else None
   jobs = match_jobs(args, names, lineups, use_match_context)
+  deal_blocks_by_match = {
+      int(job[0]): int(_unpack_match_job(job)[3]) for job in jobs
+  }
   match_results, workers_used, simulation_elapsed_sec = run_match_jobs(
       args, jobs, model, model_args, neural_bots, device
   )
@@ -6821,7 +13883,7 @@ def main():
             decision_stats_by_bot.setdefault(name, {}),
             seat_stats.get("stats", {}),
         )
-    if len(sample_matches) < 3:
+    if len(sample_matches) < int(getattr(args, "sample_match_limit", 3)):
       sample_matches.append(match)
 
   for stats in decision_stats_by_bot.values():
@@ -6829,9 +13891,11 @@ def main():
 
   result = {
       "players": args.players,
+      "seed": int(args.seed),
       "matches": len(match_results),
       "requested_matches": args.matches,
       "paired_deals": args.paired_deals,
+      "deal_offset": int(getattr(args, "deal_offset", 0)),
       "rounds_per_match": args.players,
       "match_context": use_match_context,
       "schedule": args.schedule if not args.candidate else "candidate",
@@ -6890,7 +13954,10 @@ def main():
           for name, stats in decision_stats_by_bot.items()
           if stats.get("decisions", 0) > 0
       },
-      "first_paradox_summary": summarize_first_paradox_traces(match_results),
+      "first_paradox_summary": summarize_first_paradox_traces(
+          match_results,
+          sample_limit=int(getattr(args, "first_paradox_summary_sample_limit", 12)),
+      ),
       "pairwise": summarize_pairwise(pairwise),
       "sample_matches": sample_matches,
   }
@@ -6903,6 +13970,33 @@ def main():
         neural_bots,
         args.homogeneous_paradox_threshold,
         match_results=match_results,
+    )
+  competitive_candidate = str(
+      getattr(args, "competitive_gate_candidate", "") or ""
+  ).strip()
+  if competitive_candidate:
+    reference_names = [
+        name.strip()
+        for name in str(
+            getattr(args, "competitive_gate_opponents", "") or ""
+        ).split(",")
+        if name.strip()
+    ]
+    result["competitive_promotion_gate"] = (
+        summarize_competitive_promotion_gate(
+            names,
+            args.players,
+            match_results,
+            competitive_candidate,
+            reference_names=reference_names or None,
+            deal_blocks_by_match=deal_blocks_by_match,
+            min_independent_deals=int(
+                getattr(args, "competitive_min_independent_deals", 30)
+            ),
+            max_own_paradox_regression=float(
+                getattr(args, "competitive_max_own_paradox_regression", 0.0)
+            ),
+        )
     )
   out_path = Path(args.out)
   out_path.parent.mkdir(parents=True, exist_ok=True)

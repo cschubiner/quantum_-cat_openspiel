@@ -12,7 +12,10 @@ import random
 
 import numpy as np
 import torch
-from torch.utils.tensorboard import SummaryWriter
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ModuleNotFoundError:
+    SummaryWriter = None
 from absl import app, flags
 from tqdm import tqdm
 import pyspiel
@@ -27,14 +30,14 @@ from open_spiel.python.vector_env import SyncVectorEnv
 from open_spiel.python.pytorch.ppo import PPO, PPOAgent
 
 from open_spiel.python.games import quantum_cat
+from quantum_cat_ai import shared_discard_action
 
 def pick_opponent_type():
     """Randomly choose from PPO, random, or follow_suit."""
     return random.choice(["ppo", "random", "follow_suit"])
 
-def pick_follow_suit_action(legal_actions, info_state, num_card_types):
+def pick_follow_suit_action(legal_actions, info_state, num_card_types, num_players):
     """Tries to match the led color if possible."""
-    num_players = 3  # Hardcoded for now
     led_color_start = num_players + 5
     led_color = info_state[led_color_start:led_color_start + 5]
     led_color_idx = int(np.argmax(led_color))  # 0..3 => R,B,Y,G, 4 => None
@@ -55,20 +58,35 @@ def pick_follow_suit_action(legal_actions, info_state, num_card_types):
         return random.choice(follow_suit)
     return random.choice(legal_actions)
 
+
+def _shared_discard_from_vector_env(envs, env_index, player, legal_actions):
+    raw_envs = getattr(envs, "envs", None)
+    if raw_envs is None or env_index >= len(raw_envs):
+        return None
+    state = getattr(raw_envs[env_index], "_state", None)
+    if state is None:
+        return None
+    return shared_discard_action(state, player, legal_actions)
+
 # First evaluation at 1000 episodes, then every 20000 after that
 FIRST_EVAL_EPISODE = 1000
 EVALUATE_EVERY_X_EPISODES = 20000
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_integer("num_players", 3, "Number of players in Quantum Cat (3..5).")
-flags.DEFINE_integer("num_episodes", 250000000, "Number of full games to train for.")
+def _define_flag_once(define_fn, name, default, help_text):
+    if name not in FLAGS:
+        define_fn(name, default, help_text)
+
+
+_define_flag_once(flags.DEFINE_integer, "num_players", 3, "Number of players in Quantum Cat (3..5).")
+_define_flag_once(flags.DEFINE_integer, "num_episodes", 250000000, "Number of full games to train for.")
 # flags.DEFINE_integer("num_episodes", 3000, "Number of full games to train for.")
-flags.DEFINE_integer("steps_per_batch", 4096, "Environment steps per PPO update.")
-flags.DEFINE_integer("seed", 1234, "Random seed.")
-flags.DEFINE_integer("num_envs", 12, "Number of vectorized envs.")
-flags.DEFINE_string("save_path", "quantum_cat_agent_v2.pth", "Where to save the agent.")
-flags.DEFINE_bool("use_tensorboard", True, "Whether to log to TensorBoard.")
+_define_flag_once(flags.DEFINE_integer, "steps_per_batch", 4096, "Environment steps per PPO update.")
+_define_flag_once(flags.DEFINE_integer, "seed", 1234, "Random seed.")
+_define_flag_once(flags.DEFINE_integer, "num_envs", 12, "Number of vectorized envs.")
+_define_flag_once(flags.DEFINE_string, "save_path", "quantum_cat_agent_v2.pth", "Where to save the agent.")
+_define_flag_once(flags.DEFINE_bool, "use_tensorboard", True, "Whether to log to TensorBoard.")
 
 # If you want to run from CLI: python quantum_cat_ppo.py --num_players=3 --num_episodes=1000 ...
 # or just call main() programmatically.
@@ -140,11 +158,19 @@ def run_ppo_on_quantum_cat(
 
     # Setup tensorboard
     writer = None
-    if use_tensorboard:
+    if use_tensorboard and SummaryWriter is not None:
         writer = SummaryWriter()
         # Log git commit SHA
-        commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
+        try:
+            commit_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8").strip()
+        except (OSError, subprocess.CalledProcessError):
+            commit_sha = "unknown"
         writer.add_text("metadata/git_commit", commit_sha)
+    elif use_tensorboard:
+        print("TensorBoard is not installed; continuing without TensorBoard logging.")
 
     # Initialize main agent
     agent = PPO(
@@ -208,6 +234,13 @@ def run_ppo_on_quantum_cat(
                     if ts.last():
                         # If terminal, no action needed (use dummy 0)
                         env_actions.append(0)
+                    elif (discard_action := _shared_discard_from_vector_env(
+                        envs,
+                        i,
+                        current_p,
+                        ts.observations["legal_actions"][current_p],
+                    )) is not None:
+                        env_actions.append(int(discard_action))
                     elif current_p == player_id:
                         # main agent
                         agent_output = agent.step([ts], is_evaluation=False)
@@ -226,9 +259,14 @@ def run_ppo_on_quantum_cat(
                             # Follow suit opponent
                             legal_acts = ts.observations["legal_actions"][current_p]
                             info_st = ts.observations["info_state"][current_p]
-                            num_card_types = game.num_distinct_actions() // 4
+                            num_card_types = int(getattr(game, "num_card_types"))
                             env_actions.append(
-                                pick_follow_suit_action(legal_acts, info_st, num_card_types)
+                                pick_follow_suit_action(
+                                    legal_acts,
+                                    info_st,
+                                    num_card_types,
+                                    game.num_players(),
+                                )
                                 if legal_acts else 0
                             )
                         else:

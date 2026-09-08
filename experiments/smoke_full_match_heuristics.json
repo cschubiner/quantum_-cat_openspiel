@@ -1,0 +1,205 @@
+{
+  "players": 3,
+  "matches": 6,
+  "rounds_per_match": 3,
+  "checkpoint": null,
+  "candidate": null,
+  "ratings": {
+    "heuristic": 1026.84,
+    "heuristic_target2": 998.66,
+    "random": 974.5
+  },
+  "stats": {
+    "random": {
+      "matches": 6,
+      "avg_match_total": 1.1667,
+      "paradoxes_per_match": 1.3333
+    },
+    "heuristic": {
+      "matches": 6,
+      "avg_match_total": 5.0,
+      "paradoxes_per_match": 1.0
+    },
+    "heuristic_target2": {
+      "matches": 6,
+      "avg_match_total": 5.0,
+      "paradoxes_per_match": 0.6667
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "random",
+        "heuristic",
+        "heuristic_target2"
+      ],
+      "totals": [
+        -2.0,
+        3.0,
+        10.0
+      ],
+      "paradoxes": [
+        2,
+        1,
+        0
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            1.0,
+            -3.0,
+            2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            -1.0,
+            4.0,
+            6.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            -2.0,
+            2.0,
+            2.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "heuristic",
+        "heuristic_target2",
+        "random"
+      ],
+      "totals": [
+        2.0,
+        0.0,
+        -2.0
+      ],
+      "paradoxes": [
+        1,
+        1,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            -5.0,
+            0.0,
+            2.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            5.0,
+            0.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            2.0,
+            0.0,
+            -4.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "heuristic_target2",
+        "random",
+        "heuristic"
+      ],
+      "totals": [
+        -3.0,
+        1.0,
+        4.0
+      ],
+      "paradoxes": [
+        1,
+        1,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            2.0,
+            1.0,
+            -4.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            0.0,
+            0.0,
+            6.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            -5.0,
+            0.0,
+            2.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    }
+  ]
+}
