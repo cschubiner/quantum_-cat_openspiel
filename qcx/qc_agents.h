@@ -3,6 +3,7 @@
 // (opponents' hands/discards zeroed) plus the acting seat; nothing here can
 // read hidden information because it is never handed any.
 #pragma once
+#include <cstdio>
 #include "qc_core.h"
 
 namespace qc {
@@ -43,6 +44,71 @@ inline void sample_world(const Round& view, int me, Rng& rng, Round& out) {
     if (has_discarded(view, q)) out.discard[q] = (int8_t)pool[pos++];
     for (int k = 0; k < view.hsize[q]; ++k) out.hand[q][pool[pos++]]++;
   }
+}
+
+// ---------------------------------------------------------------- bid model
+// Multinomial logistic P(bid | hand at bid time, bid position, earlier bids),
+// fitted offline on self-play.  Feature layout must match fit_bidmodel.py.
+struct BidModel {
+  int P = 0, F = 0;
+  std::vector<double> W;  // 4 x F
+  bool ok() const { return F > 0; }
+  bool load(const char* path) {
+    FILE* f = std::fopen(path, "r");
+    if (!f) return false;
+    if (std::fscanf(f, "%d %d", &P, &F) != 2) { std::fclose(f); return false; }
+    W.resize(4 * F);
+    for (auto& w : W) if (std::fscanf(f, "%lf", &w) != 1) { std::fclose(f); F = 0; return false; }
+    std::fclose(f);
+    return true;
+  }
+};
+
+inline int bid_features(int P, int R, const int* hand, int pos, int nprev, int sumprev, double* x) {
+  int n = 0;
+  x[n++] = 1.0;
+  int cards = 0; double strength = 0;
+  for (int r = 0; r < R; ++r) { x[n++] = hand[r]; cards += hand[r]; strength += hand[r] * (r + 1.0) / R; }
+  for (int r = 0; r < R; ++r) x[n++] = hand[r] >= 2 ? 1.0 : 0.0;
+  // top-k counts
+  int top1 = hand[R - 1], top2 = top1 + hand[R - 2], top3 = top2 + hand[R - 3];
+  x[n++] = top1; x[n++] = top2; x[n++] = top3; x[n++] = strength; x[n++] = strength * strength / 10.0;
+  for (int k = 0; k < MAXP; ++k) x[n++] = (k == pos) ? 1.0 : 0.0;
+  x[n++] = nprev ? (double)sumprev / nprev : 0.0;
+  x[n++] = sumprev;
+  return n;
+}
+
+inline void bid_logprobs(const BidModel& m, int R, const int* hand, int pos, int nprev, int sumprev, double* lp) {
+  double x[64];
+  int F = bid_features(m.P, R, hand, pos, nprev, sumprev, x);
+  double mx = -1e300, z = 0;
+  for (int b = 0; b < 4; ++b) {
+    double v = 0;
+    for (int i = 0; i < F; ++i) v += m.W[b * m.F + i] * x[i];
+    lp[b] = v; mx = std::max(mx, v);
+  }
+  for (int b = 0; b < 4; ++b) z += std::exp(lp[b] - mx);
+  for (int b = 0; b < 4; ++b) lp[b] = lp[b] - mx - std::log(z);
+}
+
+// log-likelihood of all opponents' public bids under world `w` (alpha-tempered)
+inline double bid_loglik(const Round& w, int me, const BidModel& m) {
+  double ll = 0;
+  int hand[MAXR];
+  for (int q = 0; q < w.P; ++q) {
+    if (q == me || w.bid[q] < 1) continue;
+    for (int r = 0; r < w.R; ++r) hand[r] = w.hand[q][r];
+    for (int c = 0; c < NC; ++c)
+      for (int r = 0; r < w.R; ++r)
+        if (w.board[c][r] == q) hand[r]++;
+    int pos = (q - w.start + w.P) % w.P, sum = 0;
+    for (int k = 0; k < pos; ++k) sum += w.bid[(w.start + k) % w.P];
+    double lp[4];
+    bid_logprobs(m, w.R, hand, pos, pos, sum, lp);
+    ll += lp[w.bid[q] - 1];
+  }
+  return ll;
 }
 
 // ---------------------------------------------------------------- heuristic
@@ -180,6 +246,9 @@ inline void rollout(Round& s, Rng& rng, const HeurParams& hp) {
 // ---------------------------------------------------------------- search
 struct SearchParams {
   int worlds = 64;
+  const BidModel* bidmodel = nullptr;  // if set: bid-informed world resampling
+  int cand = 16;                       // candidates per world
+  double alpha = 1.0;                  // likelihood tempering
   int util = 0;  // 0: own - mean(others); 1: own score
   HeurParams rollout;
   // match context (optional): totals before this round, rounds remaining after this one
@@ -202,8 +271,28 @@ inline int pimc_decide(const Round& view, int me, const SearchParams& sp, Rng& r
   if (n == 1) return acts[0];
   double sum[NC * MAXR + 1] = {0};
   Round world, s;
+  bool use_bids = false;
+  if (sp.bidmodel && sp.bidmodel->ok())
+    for (int q = 0; q < view.P; ++q) use_bids |= (q != me && view.bid[q] >= 1);
+  Round cands[64];
+  double lw[64];
   for (int w = 0; w < sp.worlds; ++w) {
-    sample_world(view, me, rng, world);
+    if (use_bids) {
+      int K = std::min(sp.cand, 64);
+      double mx = -1e300;
+      for (int k = 0; k < K; ++k) {
+        sample_world(view, me, rng, cands[k]);
+        lw[k] = sp.alpha * bid_loglik(cands[k], me, *sp.bidmodel);
+        mx = std::max(mx, lw[k]);
+      }
+      double z = 0;
+      for (int k = 0; k < K; ++k) { lw[k] = std::exp(lw[k] - mx); z += lw[k]; }
+      double u = rng.uniform() * z; int pick = K - 1;
+      for (int k = 0; k < K; ++k) { u -= lw[k]; if (u <= 0) { pick = k; break; } }
+      world = cands[pick];
+    } else {
+      sample_world(view, me, rng, world);
+    }
     uint64_t seed = rng.next();
     for (int i = 0; i < n; ++i) {
       s = world;

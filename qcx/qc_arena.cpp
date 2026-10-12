@@ -40,6 +40,14 @@ Bot parse_bot(const std::string& spec) {
     int w = 64, u = 0;
     std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
     b.sp.worlds = w; b.sp.util = u;
+  } else if (spec.rfind("bpimc", 0) == 0) {  // bpimc:<worlds>:<cand>:<alpha>:<modelfile>
+    b.type = 2;
+    int w = 64, k = 16; double al = 1.0; char path[512] = {0};
+    std::sscanf(spec.c_str(), "bpimc:%d:%d:%lf:%511s", &w, &k, &al, path);
+    static BidModel models[8]; static int nm = 0;
+    BidModel* m = &models[nm++];
+    if (!m->load(path)) { std::fprintf(stderr, "cannot load %s\n", path); std::exit(2); }
+    b.sp.worlds = w; b.sp.cand = k; b.sp.alpha = al; b.sp.bidmodel = m;
   } else { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
   return b;
 }
