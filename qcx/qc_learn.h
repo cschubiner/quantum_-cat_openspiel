@@ -183,7 +183,10 @@ inline void play_features(const Round& s, const PlayCtx& x, int a, float* f) {
   // (same expressions / order => bit-identical; checked under QC_CHECK).
   double hs;
   {
-    const HeurParams hp;
+    // Pinned to the parameters the learned weights were trained with
+    // (rollout defaults at training time: w_token = 1.2).
+    HeurParams hp;
+    hp.w_token = 1.2;
     const bool want = x.t != x.b;
     hs = want ? hp.w_win * pwin : -hp.w_win * pwin;
     if (token_loss) hs -= hp.w_token;
@@ -197,7 +200,10 @@ inline void play_features(const Round& s, const PlayCtx& x, int a, float* f) {
     else hs += want ? -0.1 * rel0 : 0;
   }
 #ifdef QC_CHECK
-  if (hs != heuristic_move_score(s, a, HeurParams())) { std::fprintf(stderr, "inline hs mismatch\n"); std::abort(); }
+  {
+    HeurParams chk; chk.w_token = 1.2; HeurCtx cx; heur_ctx(s, cx);
+    if (hs != heuristic_move_score(s, cx, a, chk)) { std::fprintf(stderr, "inline hs mismatch\n"); std::abort(); }
+  }
 #endif
 
   int i = 0;
