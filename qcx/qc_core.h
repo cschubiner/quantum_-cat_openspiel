@@ -63,6 +63,9 @@ struct Round {
   int8_t tricks[MAXP];
   int8_t trank[MAXP], tcolor[MAXP];
   int8_t red_count;
+  // match context (public): totals before this round, rounds remaining after it
+  double mtot[MAXP];
+  int8_t rounds_after;
 
   void init(int P_, int start_) {
     Rules r = rules_for(P_);
@@ -75,6 +78,8 @@ struct Round {
       trank[p] = -1; tcolor[p] = -1;
     }
     std::memset(board, -1, sizeof(board));
+    for (int p = 0; p < MAXP; ++p) mtot[p] = 0;
+    rounds_after = 0;
   }
   // Uniform deal (equivalent in distribution to the Python chance process).
   void deal(Rng& rng) {

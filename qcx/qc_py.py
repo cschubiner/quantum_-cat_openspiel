@@ -6,9 +6,9 @@ _LIB = ctypes.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib
 _LIB.qc_replay_check.restype = ctypes.c_int
 _LIB.qc_decide.restype = ctypes.c_int
 _LIB.qc_decide.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int,
-                           ctypes.c_ulonglong, ctypes.POINTER(ctypes.c_double)]
+                           ctypes.c_ulonglong, ctypes.POINTER(ctypes.c_double), ctypes.c_double]
 COLORS = {"R": 0, "B": 1, "Y": 2, "G": 3}
-VIEW_LEN = 84
+VIEW_LEN = 90
 
 
 def build_view(state, me):
@@ -40,10 +40,15 @@ def build_view(state, me):
     played = int(np.sum(board == p))
     disc = 1 if (state._phase != 1 or state._has_discarded[p]) else 0
     v[79 + p] = state._cards_per_player_initial - disc - played
+  totals = getattr(state, "_match_totals", None)
+  if totals is not None and getattr(state, "_match_context_enabled", False):
+    for p in range(P):
+      v[84 + p] = int(round(float(totals[p]) * 100))
+    v[89] = P - 1 - int(getattr(state, "_match_round", 0))
   return v
 
 
-def decide(state, me, worlds=64, util=0, seed=0):
+def decide(state, me, worlds=64, util=0, seed=0, sigma=4.0):
   v = build_view(state, me)
   vals = (ctypes.c_double * 41)()
-  return _LIB.qc_decide(v.ctypes.data_as(ctypes.POINTER(ctypes.c_int)), worlds, util, seed, vals)
+  return _LIB.qc_decide(v.ctypes.data_as(ctypes.POINTER(ctypes.c_int)), worlds, util, seed, vals, sigma)

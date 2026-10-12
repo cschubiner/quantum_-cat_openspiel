@@ -38,8 +38,9 @@ Bot parse_bot(const std::string& spec) {
   else if (spec.rfind("pimc", 0) == 0) {
     b.type = 2;
     int w = 64, u = 0;
-    std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
-    b.sp.worlds = w; b.sp.util = u;
+    double sg = 4.0;
+    std::sscanf(spec.c_str(), "pimc:%d:%d:%lf", &w, &u, &sg);
+    b.sp.worlds = w; b.sp.util = u; b.sp.sigma = sg;
   } else { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
   return b;
 }
@@ -55,6 +56,8 @@ MatchResult play_match(int P, const Bot* seats[], uint64_t deal_seed, uint64_t p
   for (int rd = 0; rd < P; ++rd) {
     Round s;
     s.init(P, (initial_start + rd) % P);
+    for (int p = 0; p < P; ++p) s.mtot[p] = m.totals[p];
+    s.rounds_after = (int8_t)(P - 1 - rd);
     Rng drng(deal_seed * 1000003ULL + rd);
     s.deal(drng);
     while (!s.done()) s.apply(seats[s.cur]->act(s, prng));

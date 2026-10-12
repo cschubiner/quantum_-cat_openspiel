@@ -180,15 +180,31 @@ inline void rollout(Round& s, Rng& rng, const HeurParams& hp) {
 // ---------------------------------------------------------------- search
 struct SearchParams {
   int worlds = 64;
-  int util = 0;  // 0: own - mean(others); 1: own score
+  int util = 0;  // 0: own - mean(others); 1: own score; 2: match placement
+  double sigma = 4.0;  // per-round std of a pairwise score difference (util 2)
   HeurParams rollout;
   // match context (optional): totals before this round, rounds remaining after this one
 };
 
-inline double utility(const Round& s, int me, int mode) {
+inline double utility(const Round& s, int me, int mode, double sigma = 4.0) {
   double sc[MAXP];
   s.scores(sc);
   if (mode == 1) return sc[me];
+  if (mode == 2) {
+    // expected pairwise placement against every opponent given match totals
+    double u = 0;
+    for (int q = 0; q < s.P; ++q) {
+      if (q == me) continue;
+      double d = (s.mtot[me] + sc[me]) - (s.mtot[q] + sc[q]);
+      if (s.rounds_after == 0) {
+        if (d == 0) d = sc[me] - sc[q];  // official tiebreak: final-round score
+        u += d > 0 ? 1.0 : (d < 0 ? 0.0 : 0.5);
+      } else {
+        u += 0.5 * std::erfc(-d / (sigma * std::sqrt(2.0 * s.rounds_after)));
+      }
+    }
+    return u / (s.P - 1);
+  }
   double o = 0;
   for (int q = 0; q < s.P; ++q) if (q != me) o += sc[q];
   return sc[me] - o / (s.P - 1);
@@ -210,7 +226,7 @@ inline int pimc_decide(const Round& view, int me, const SearchParams& sp, Rng& r
       s.apply(acts[i]);
       Rng rr(seed);
       rollout(s, rr, sp.rollout);
-      sum[i] += utility(s, me, sp.util);
+      sum[i] += utility(s, me, sp.util, sp.sigma);
     }
   }
   int bi = 0;

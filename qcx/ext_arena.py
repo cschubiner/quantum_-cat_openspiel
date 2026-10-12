@@ -16,7 +16,7 @@ class QcxBot:
   uses_neural_prediction = True
 
   def __init__(self, name, seed):
-    _, worlds, util, disc = name.split("_")[:4]
+    parts = name.split("_"); worlds, util, disc = parts[1], parts[2], parts[3]; self.sigma = float(parts[4]) if len(parts) > 4 else 4.0
     self.name = name
     self.worlds = int(worlds); self.util = int(util)
     self.chooses_discard = disc == "own"
@@ -26,7 +26,7 @@ class QcxBot:
   def step(self, state, player):
     self.calls += 1
     return int(qc_py.decide(state, player, self.worlds, self.util,
-                            self.seed * 1000003 + self.calls))
+                            self.seed * 1000003 + self.calls, self.sigma))
 
 
 _orig_make = elo.make_eval_bot
