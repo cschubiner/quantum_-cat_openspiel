@@ -49,6 +49,7 @@ int main(int argc, char** argv) {
       s.apply(heuristic_action(s, rng, hp));
     }
   }
+  std::fflush(stdout);
   std::printf("information test OK: %ld decisions, %ld resampled-world checks\n", decisions, checks);
 
   // 2. pimc_decide_rp(heuristic) == pimc_decide
@@ -87,6 +88,7 @@ int main(int argc, char** argv) {
   for (auto& x : mlp.W1) x = (float)(rng.uniform() - 0.5);
   for (auto& x : mlp.b1) x = (float)(rng.uniform() - 0.5);
   for (auto& x : mlp.w2) x = (float)(rng.uniform() - 0.5);
+  mlp.finalize();
   const int N = 20000;
   for (int which = 0; which < 3; ++which) {
     RolloutPolicy rp;

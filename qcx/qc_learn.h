@@ -179,7 +179,26 @@ inline void play_features(const Round& s, const PlayCtx& x, int a, float* f) {
   }
   const int cgain = std::max(0, gain_sz - x.largest);
   const bool lastwin = wn && x.last;
-  const double hs = heuristic_move_score(s, a, HeurParams());
+  // heuristic_move_score(s, a, HeurParams()) recomputed from the shared pieces above
+  // (same expressions / order => bit-identical; checked under QC_CHECK).
+  double hs;
+  {
+    const HeurParams hp;
+    const bool want = x.t != x.b;
+    hs = want ? hp.w_win * pwin : -hp.w_win * pwin;
+    if (token_loss) hs -= hp.w_token;
+    if (pl > 0) {
+      if (liq == 0) hs -= hp.w_dead;
+      else hs += hp.w_liq * std::min(liq, 8);
+    }
+    if (!want || x.t < x.b) hs += hp.w_adj * adj;
+    const double rel0 = (double)r / s.R;
+    if (pwin == 0) hs += want ? -0.15 * rel0 : 0.25 * rel0;
+    else hs += want ? -0.1 * rel0 : 0;
+  }
+#ifdef QC_CHECK
+  if (hs != heuristic_move_score(s, a, HeurParams())) { std::fprintf(stderr, "inline hs mismatch\n"); std::abort(); }
+#endif
 
   int i = 0;
   // ---- base action features
@@ -244,7 +263,13 @@ struct LearnedPolicy {
   int kind = 0;  // 0 linear, 1 mlp
   int F = NFEAT, H = 0;
   std::vector<float> w;          // linear: F
-  std::vector<float> W1, b1, w2; // mlp: H*F, H, H
+  std::vector<float> W1, b1, w2; // mlp: H*F (row h = hidden unit), H, H
+  std::vector<float> W1T;        // F*H transpose (feature-major) for sparse accumulation
+  void finalize() {  // build the transposed MLP matrix (call after filling W1 by hand)
+    W1T.resize((size_t)NFEAT * H);
+    for (int h = 0; h < H; ++h)
+      for (int j = 0; j < NFEAT; ++j) W1T[(size_t)j * H + h] = W1[(size_t)h * NFEAT + j];
+  }
   bool load(const std::string& path) {
     FILE* fp = std::fopen(path.c_str(), "r");
     if (!fp) return false;
@@ -261,7 +286,8 @@ struct LearnedPolicy {
     if (k == "linear") { kind = 0; ok = rd(w, F); }
     else if (k == "mlp") {
       kind = 1;
-      ok = std::fscanf(fp, "%d", &H) == 1 && rd(W1, H * F) && rd(b1, H) && rd(w2, H);
+      ok = std::fscanf(fp, "%d", &H) == 1 && H > 0 && H <= 256 && rd(W1, H * F) && rd(b1, H) && rd(w2, H);
+      if (ok) finalize();
     } else ok = false;
     std::fclose(fp);
     return ok;
@@ -272,13 +298,18 @@ struct LearnedPolicy {
       for (int j = 0; j < NFEAT; ++j) z += w[j] * f[j];
       return z;
     }
-    float z = 0;
-    for (int h = 0; h < H; ++h) {
-      const float* row = &W1[h * NFEAT];
-      float a = b1[h];
-      for (int j = 0; j < NFEAT; ++j) a += row[j] * f[j];
-      z += w2[h] * (a > 0 ? a : 0);
+    // hidden = b1 + sum_j f_j * W1[:, j]; many features are exactly 0 (gates), skip them.
+    float a[256];
+    const int Hn = H;
+    for (int h = 0; h < Hn; ++h) a[h] = b1[h];
+    for (int j = 0; j < NFEAT; ++j) {
+      const float fj = f[j];
+      if (fj == 0.f) continue;
+      const float* col = &W1T[(size_t)j * Hn];
+      for (int h = 0; h < Hn; ++h) a[h] += col[h] * fj;  // independent lanes -> vectorizes
     }
+    float z = 0;
+    for (int h = 0; h < Hn; ++h) z += w2[h] * (a[h] > 0 ? a[h] : 0);
     return z;
   }
 };
