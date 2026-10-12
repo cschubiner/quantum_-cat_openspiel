@@ -12,6 +12,8 @@ All C++-arena rows are 5-player complete matches: one candidate seat against a f
 |---|---|---|---|---|---|---|---|
 | qcx PIMC 64 worlds | 4× Run1051 champion | 32 (160) | **87.1%** | **72.5%** (par 20%) | **+8.13** | 12.6% (champ 13.6%) | 51.8% |
 | qcx PIMC 128 worlds | 4× Run1052 champion | 16 (80) | *running* | | | | |
+| qcx PIMC 128 worlds (3p) | 2× Run604 3p champion (liveness shield) | 40 (120) | **80.0%** | **69.6%** (par 33%) | **+6.35** | 10.0% (champ 26.4%) | 36.7% |
+| qcx PIMC 128 worlds (4p) | 3× Run730 best 4p model (liveness shield) | 40 (160) | **84.6%** | **70.6%** (par 25%) | **+8.24** | 11.1% (champ 22.4%) | 45.0% |
 
 For reference, the lineage's entire confirmed improvement Run1051→Run1052 was 57.1% placement.
 
