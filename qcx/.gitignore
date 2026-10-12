@@ -3,3 +3,6 @@ qc_bench
 *.dylib
 results/
 __pycache__/
+qc_gen
+test_features
+qc_noise
