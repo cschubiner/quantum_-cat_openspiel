@@ -1,0 +1,21 @@
+{
+ "model": "mlp",
+ "tau": 0.0,
+ "val_agree": 0.5024021863937378,
+ "val_regret": 0.2737574279308319,
+ "heur_val_agree": 0.3954472541809082,
+ "heur_val_regret": 0.4672638177871704,
+ "rows": 989058,
+ "decisions": 87768,
+ "games": 3002,
+ "sweep": [
+  {
+   "tau": 0.0,
+   "val_agree": 0.5024021863937378,
+   "val_regret": 0.2737574279308319,
+   "train_agree": 0.508743941783905,
+   "train_regret": 0.27149075269699097
+  }
+ ],
+ "out": "results/g2_mlp.txt"
+}
