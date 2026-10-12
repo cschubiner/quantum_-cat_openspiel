@@ -6,8 +6,11 @@ REPO = "/Users/canal/quantum_-cat_openspiel"
 sys.path.insert(0, REPO)
 qdir, worlds, util = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 seeds = int(sys.argv[4]) if len(sys.argv) > 4 else 3
+learned = len(sys.argv) > 5 and sys.argv[5] == "learned"
 spec = importlib.util.spec_from_file_location("qc_py", f"{qdir}/qc_py.py")
 qc_py = importlib.util.module_from_spec(spec); spec.loader.exec_module(qc_py)
+if learned:
+  qc_py.load_policy(f"{qdir}/weights/g1_mlp.txt")
 import quantum_cat_curated_validation as tv
 import quantum_cat_curated_bidding_validation as bv
 
@@ -17,7 +20,8 @@ for mod, path in [(tv, f"{REPO}/experiments/quantum_cat_curated_tactical_validat
                   (bv, f"{REPO}/experiments/quantum_cat_curated_bidding_validation.json")]:
   validated = mod.validate_suite(mod.load_suite(path))
   for seed in range(seeds):
-    sel = lambda state, actor: qc_py.decide(state, actor, worlds, util, 1000 + seed)
+    fn = qc_py.decide_learned if learned else qc_py.decide
+    sel = lambda state, actor: fn(state, actor, worlds, util, 1000 + seed)
     rep = mod.evaluate_validated(validated, sel, "qcx")
     for r in rep["results"]:
       total += 1; passed += bool(r["passed"])
