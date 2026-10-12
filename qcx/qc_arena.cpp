@@ -17,8 +17,9 @@
 using namespace qc;
 
 struct Bot {
-  int type = 0;  // 0 random 1 heur 2 pimc
+  int type = 0;  // 0 random 1 heur 2 pimc 3 pimc2
   SearchParams sp;
+  int w1 = 32, k = 3, w2 = 96;
   int act(const Round& truth, Rng& rng) const {
     const int me = truth.cur;
     Round view = mask_for(truth, me);  // agent sees only its information
@@ -27,6 +28,7 @@ struct Bot {
     if (n == 1) return acts[0];
     if (type == 0) return acts[rng.below(n)];
     if (type == 1) return heuristic_action(view, rng, sp.rollout);
+    if (type == 3) return pimc2_decide(view, me, sp, w1, k, w2, rng);
     return pimc_decide(view, me, sp, rng);
   }
 };
@@ -35,11 +37,19 @@ Bot parse_bot(const std::string& spec) {
   Bot b;
   if (spec == "random") b.type = 0;
   else if (spec == "heur") b.type = 1;
-  else if (spec.rfind("pimc", 0) == 0) {
+  else if (spec.rfind("pimc:", 0) == 0) {
     b.type = 2;
     int w = 64, u = 0;
     std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
     b.sp.worlds = w; b.sp.util = u;
+  } else if (spec.rfind("pimcx", 0) == 0) {  // pimcx:worlds:w_token:w_dead:eps:w_win
+    b.type = 2;
+    double wt = 1.2, wd = 6.0, eps = 0.0, ww = 3.0; int w = 64;
+    std::sscanf(spec.c_str(), "pimcx:%d:%lf:%lf:%lf:%lf", &w, &wt, &wd, &eps, &ww);
+    b.sp.worlds = w; b.sp.rollout.w_token = wt; b.sp.rollout.w_dead = wd; b.sp.rollout.eps = eps; b.sp.rollout.w_win = ww;
+  } else if (spec.rfind("pimc2", 0) == 0) {  // pimc2:w1:k:w2
+    b.type = 3;
+    std::sscanf(spec.c_str(), "pimc2:%d:%d:%d", &b.w1, &b.k, &b.w2);
   } else { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
   return b;
 }

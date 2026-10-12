@@ -194,6 +194,52 @@ inline double utility(const Round& s, int me, int mode) {
   return sc[me] - o / (s.P - 1);
 }
 
+// global rollout counter (for compute accounting); relaxed, approximate
+inline long long& rollout_counter() { static thread_local long long n = 0; return n; }
+
+// Two-stage PIMC: all actions on w1 worlds, then the top-k (by mean) on w2
+// further worlds. Common random numbers: every action sees the same worlds.
+inline int pimc2_decide(const Round& view, int me, const SearchParams& sp, int w1, int k, int w2, Rng& rng) {
+  int acts[NC * MAXR + 1];
+  int n = view.legal(acts);
+  if (n == 1) return acts[0];
+  double sum[NC * MAXR + 1] = {0};
+  int cnt[NC * MAXR + 1] = {0};
+  Round world, s;
+  auto eval_on = [&](int nw, const bool* active) {
+    for (int w = 0; w < nw; ++w) {
+      sample_world(view, me, rng, world);
+      uint64_t seed = rng.next();
+      for (int i = 0; i < n; ++i) {
+        if (!active[i]) continue;
+        s = world; s.apply(acts[i]);
+        Rng rr(seed);
+        rollout(s, rr, sp.rollout);
+        ++rollout_counter();
+        sum[i] += utility(s, me, sp.util); cnt[i]++;
+      }
+    }
+  };
+  bool active[NC * MAXR + 1];
+  for (int i = 0; i < n; ++i) active[i] = true;
+  eval_on(w1, active);
+  if (n > k) {
+    int idx[NC * MAXR + 1];
+    for (int i = 0; i < n; ++i) idx[i] = i;
+    std::sort(idx, idx + n, [&](int a, int b) { return sum[a] > sum[b]; });
+    for (int i = 0; i < n; ++i) active[i] = false;
+    for (int j = 0; j < k; ++j) active[idx[j]] = true;
+  }
+  eval_on(w2, active);
+  int bi = -1; double bv = -1e300;
+  for (int i = 0; i < n; ++i) {
+    if (!active[i]) continue;
+    double m = sum[i] / cnt[i];
+    if (m > bv) { bv = m; bi = i; }
+  }
+  return acts[bi];
+}
+
 // PIMC with common random numbers across actions.
 inline int pimc_decide(const Round& view, int me, const SearchParams& sp, Rng& rng,
                        double* out_values = nullptr) {
@@ -210,6 +256,7 @@ inline int pimc_decide(const Round& view, int me, const SearchParams& sp, Rng& r
       s.apply(acts[i]);
       Rng rr(seed);
       rollout(s, rr, sp.rollout);
+      ++rollout_counter();
       sum[i] += utility(s, me, sp.util);
     }
   }
