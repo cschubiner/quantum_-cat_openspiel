@@ -290,6 +290,11 @@ struct SeededGenerator: Codable {
 @MainActor
 final class GameStore: ObservableObject {
     private static let savedStateKey = "quantum-cat.saved-state.v1"
+    /// Bumped whenever a new champion ships. Saved rosters that still name the
+    /// previous champion are moved to the new one once, so the app always
+    /// plays the latest champion; an explicit later pick of an older bot sticks.
+    static let championGenerationKey = "quantum-cat.champion-generation"
+    static let currentChampionGeneration = "qcx-pimc-v1"
     private static let telemetryFileName = "human_match_telemetry.jsonl"
     private struct PersistedState: Codable {
         var humanSeats: Int
@@ -309,7 +314,7 @@ final class GameStore: ObservableObject {
     @Published var botSeats: Int = 2 {
         didSet { normalizeSetup() }
     }
-    @Published var botKinds: [BotKind] = [.championBeliefPolicy, .championBeliefPolicy, .heuristicTarget, .heuristicAdjacency, .random] {
+    @Published var botKinds: [BotKind] = Array(repeating: .qcxChampion, count: 5) {
         didSet { normalizeSetup() }
     }
     @Published var botOnlyRunMode: BotOnlyRunMode = .watch
@@ -371,13 +376,20 @@ final class GameStore: ObservableObject {
             humanSeats = state.humanSeats
             humanParticipantIDs = state.humanParticipantIDs ?? (1...5).map { "player-\($0)" }
             botSeats = state.botSeats
-            botKinds = state.botKinds
-            game = state.game
+            var savedKinds = state.botKinds
+            var savedGame = state.game
+            if UserDefaults.standard.string(forKey: Self.championGenerationKey) != Self.currentChampionGeneration {
+                savedKinds = savedKinds.map { $0 == .championBeliefPolicy ? .qcxChampion : $0 }
+                savedGame.replaceBotKind(.championBeliefPolicy, with: .qcxChampion)
+            }
+            botKinds = savedKinds
+            game = savedGame
             humanMatchTelemetry = state.humanMatchTelemetry
             normalizeSetup()
         } else {
-            game = QuantumCatGame(seats: [.human, .bot(.championBeliefPolicy), .bot(.championBeliefPolicy)], seed: 20260606, autoAdvanceBots: false)
+            game = QuantumCatGame(seats: [.human, .bot(.qcxChampion), .bot(.qcxChampion)], seed: 20260606, autoAdvanceBots: false)
         }
+        UserDefaults.standard.set(Self.currentChampionGeneration, forKey: Self.championGenerationKey)
         prepareTelemetryForCurrentGameIfNeeded(startingNewRound: false)
         triggerBotAdvance()
     }
@@ -465,7 +477,7 @@ final class GameStore: ObservableObject {
         if humanSeats != normalizedHumans { humanSeats = normalizedHumans }
         if botSeats != normalizedBots { botSeats = normalizedBots }
         while botKinds.count < normalizedBots {
-            botKinds.append(.championBeliefPolicy)
+            botKinds.append(.qcxChampion)
         }
         while humanParticipantIDs.count < 5 {
             humanParticipantIDs.append("player-\(humanParticipantIDs.count + 1)")
@@ -755,6 +767,19 @@ final class GameStore: ObservableObject {
                     modelCheckpointSHA256: nil,
                     liveInputContract: nil
                 )
+            case .bot(let kind) where kind == .qcxChampion && QCXChampion.supports(players: seats.count):
+                let config = QCXChampion.config
+                let version = config.sourceSHA256.map { String($0.prefix(16)) } ?? "unknown"
+                let inputContract = "qcx-view\(config.viewLen)-worlds\(config.worlds)-util\(config.util)"
+                return HumanMatchTelemetry.Seat(
+                    index: index,
+                    participantID: "bot:\(kind.rawValue):\(version):\(inputContract)",
+                    actor: "bot",
+                    botKind: kind.rawValue,
+                    modelResource: "qcx_champion",
+                    modelCheckpointSHA256: config.sourceSHA256,
+                    liveInputContract: inputContract
+                )
             case .bot(let kind):
                 let provenance = QuantumCatMLPolicy.shared.provenance(
                     for: kind,
@@ -949,6 +974,16 @@ struct QuantumCatGame: Codable {
         }
     }
 
+    /// Swap one bot kind for another in this game's seats (champion upgrades).
+    mutating func replaceBotKind(_ old: BotKind, with new: BotKind) {
+        for index in seats.indices where seats[index] == .bot(old) {
+            seats[index] = .bot(new)
+        }
+        for index in players.indices where players[index].seatKind == .bot(old) {
+            players[index].seatKind = .bot(new)
+        }
+    }
+
     mutating func setMatchContext(totals: [Double], roundIndex: Int) {
         matchTotals = players.indices.map { totals.indices.contains($0) ? totals[$0] : 0.0 }
         matchRound = max(0, roundIndex)
@@ -995,10 +1030,36 @@ struct QuantumCatGame: Codable {
         }
     }
 
-    func botRecommendationForCurrentHuman(kind: BotKind = .championBeliefPolicy) -> BotRecommendation? {
+    func botRecommendationForCurrentHuman(kind requestedKind: BotKind = .qcxChampion) -> BotRecommendation? {
         guard activeHuman != nil, seats.indices.contains(currentPlayer) else { return nil }
         let legal = legalMoves
         guard !legal.isEmpty else { return nil }
+
+        if requestedKind == .qcxChampion,
+           let decision = QCXChampion.decide(game: self, player: currentPlayer),
+           legal.contains(decision.move) {
+            // Coach percentages come straight from the search's mean utility
+            // per legal move (the human's own information only).
+            let values = legal.map { move -> Double in
+                if let value = decision.values[QCXChampion.action(for: move, rankCount: rankCount)] {
+                    return value
+                }
+                return move == decision.move ? 0.0 : -Double.infinity
+            }
+            return BotRecommendation(
+                player: currentPlayer,
+                botKind: .qcxChampion,
+                move: decision.move,
+                legalMoveCount: legal.count,
+                rankedMoves: Self.normalizedMovePreferences(
+                    legalMoves: legal,
+                    preferenceValues: values,
+                    preferredMove: decision.move
+                )
+            )
+        }
+        // Two-player tables (or a rejected view) use the previous champion.
+        let kind = requestedKind == .qcxChampion ? BotKind.championBeliefPolicy : requestedKind
 
         var copy = self
         copy.seats[currentPlayer] = .bot(kind)
@@ -1379,9 +1440,20 @@ struct QuantumCatGame: Codable {
     }
 
     mutating private func botMove(for player: Int) -> Move {
-        guard case .bot(let kind) = players[player].seatKind else { return legalMoves.first ?? .paradox }
+        guard case .bot(var kind) = players[player].seatKind else { return legalMoves.first ?? .paradox }
         let legal = legalMoves
         guard !legal.isEmpty else { return .paradox }
+        if kind == .qcxChampion {
+            // The qcx champion decides discard, bid and every play itself from
+            // this seat's information only. Two-player tables (unsupported by
+            // the C++ engine) or a rejected view fall back to the previous
+            // champion so a bot never stalls.
+            if let decision = QCXChampion.decide(game: self, player: player),
+               legal.contains(decision.move) {
+                return decision.move
+            }
+            kind = .championBeliefPolicy
+        }
         if phase == .discard, let sharedDiscard = sharedDiscardMove(for: player, legal: legal) {
             return sharedDiscard
         }
@@ -2382,5 +2454,32 @@ struct QuantumCatGame: Codable {
 private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
+    }
+}
+
+// MARK: - Parity and test support (qcx champion)
+
+extension QuantumCatGame {
+    /// A fresh 3-5 player round with explicitly dealt hands (per-rank counts),
+    /// used to replay Python-generated parity fixtures in the Swift engine.
+    static func withDealtHands(seats: [SeatKind], hands: [[Int]], startingPlayer: Int) -> QuantumCatGame? {
+        var game = QuantumCatGame(seats: seats, seed: 1, startingPlayer: startingPlayer, autoAdvanceBots: false)
+        guard (3...5).contains(game.players.count),
+              hands.count == game.players.count,
+              hands.allSatisfy({ $0.count == game.rankCount }),
+              hands.allSatisfy({ $0.reduce(0, +) == cardsPerPlayer(for: game.players.count) }) else { return nil }
+        for index in game.players.indices {
+            game.players[index].hand = hands[index]
+        }
+        return game
+    }
+
+    /// Replace one seat's hidden cards (hand counts and face-down discard).
+    /// Only the information-safety tests use this, to prove a decision does
+    /// not depend on opponents' hidden cards.
+    mutating func overrideHiddenCards(for player: Int, hand: [Int], discardedRank: Int?) {
+        guard players.indices.contains(player), hand.count == rankCount else { return }
+        players[player].hand = hand
+        players[player].discardedRank = discardedRank
     }
 }

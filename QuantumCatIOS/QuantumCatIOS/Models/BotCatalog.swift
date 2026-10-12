@@ -1,6 +1,10 @@
 import Foundation
 
 enum BotKind: String, CaseIterable, Identifiable, Codable {
+    /// The current champion: the qcx C++ information-set search (synced from
+    /// qcx/ by qcx/sync_ios.sh). Used for 3-5 players; two-player tables fall
+    /// back to `championBeliefPolicy`.
+    case qcxChampion
     case championBeliefPolicy
     case setPoolDistill
     case rawPolicyLeague
@@ -13,7 +17,8 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var name: String {
         switch self {
-        case .championBeliefPolicy: "Champion ML"
+        case .qcxChampion: QCXChampionConfig.bundled.displayName
+        case .championBeliefPolicy: "Run1052 ML (previous champion)"
         case .setPoolDistill: "SetPool Distill"
         case .rawPolicyLeague: "Raw Policy League"
         case .strictQHead: "Strict Q Head"
@@ -25,6 +30,8 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var subtitle: String {
         switch self {
+        case .qcxChampion:
+            "Information-set search at every decision: discard, bid and each play are chosen by \(QCXChampionConfig.bundled.worlds) sampled hypothetical deals consistent with only this seat's hand and public information. Beat four copies of the Run1051 champion with 87% pairwise placement (32 five-player deals)."
         case .championBeliefPolicy:
             "Run1052: full-size neural bidding and actor-information-only rollout search in the final three tricks of every five-player round. Three-player champion preserved."
         case .setPoolDistill:
@@ -44,6 +51,10 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var mobileStatus: String {
         switch self {
+        case .qcxChampion:
+            QCXChampion.supports(players: 3)
+                ? "Native C++ search active for 3, 4 and 5 players (\(QCXChampionConfig.bundled.worlds) worlds per decision, source \(QCXChampionConfig.bundled.sourceCommit ?? "unknown")). Uses only this seat's hand and public information. Two-player tables use the Run1052 ML bot."
+                : "qcx champion parameters do not match the bundled engine; Run1052 ML fallback active."
         case .championBeliefPolicy:
             if ChampionInference.verified,
                ModelArtifactStatus.isBundled(resource: "champion_1052_search", extension: "mlmodelc") {
@@ -87,7 +98,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var weights: BotWeights {
         switch self {
-        case .championBeliefPolicy:
+        case .qcxChampion, .championBeliefPolicy:
             BotWeights(adjacency: 1.45, target: 2.35, winner: 1.35, highCard: 0.95, noise: 0.02)
         case .setPoolDistill:
             BotWeights(adjacency: 1.20, target: 1.95, winner: 1.15, highCard: 0.85, noise: 0.04)
@@ -208,8 +219,22 @@ struct ModelArtifactStatus: Identifiable {
 
     static let bundledArtifacts: [ModelArtifactStatus] = [
         ModelArtifactStatus(
+            id: "qcx-champion",
+            title: "Champion (qcx PIMC search)",
+            detail: "Native C++ search parameters (qcx_champion.json)",
+            resource: "qcx_champion",
+            fileExtension: "json"
+        ),
+        ModelArtifactStatus(
+            id: "qcx-parity",
+            title: "qcx parity fixtures",
+            detail: "Python-generated cross-language decisions",
+            resource: "qcx_parity_fixtures",
+            fileExtension: "json"
+        ),
+        ModelArtifactStatus(
             id: "champion-coreml",
-            title: "Champion ML",
+            title: "Run1052 ML (previous champion)",
             detail: "Run604 raw policy plus liveness shield",
             resource: "champion_belief_policy",
             fileExtension: "mlmodelc"

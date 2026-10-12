@@ -118,7 +118,7 @@ final class QuantumCatGameTests: XCTestCase {
                     legalMoves: game.legalMoves
                 ))
                 let recommended = try XCTUnwrap(
-                    game.botRecommendationForCurrentHuman()
+                    game.botRecommendationForCurrentHuman(kind: .championBeliefPolicy)
                 )
                 XCTAssertEqual(recommended.move, expected)
                 guard case .prediction(let value) = expected else {
@@ -265,12 +265,12 @@ final class QuantumCatGameTests: XCTestCase {
 
     func testBotRecommendationForHumanUsesChampionSnapshotWithoutMutating() throws {
         let humanGame = QuantumCatGame(
-            seats: [.human, .bot(.championBeliefPolicy), .bot(.setPoolDistill)],
+            seats: [.human, .bot(.qcxChampion), .bot(.setPoolDistill)],
             seed: 20260618,
             autoAdvanceBots: false
         )
         var championSeatGame = QuantumCatGame(
-            seats: [.bot(.championBeliefPolicy), .bot(.championBeliefPolicy), .bot(.setPoolDistill)],
+            seats: [.bot(.qcxChampion), .bot(.qcxChampion), .bot(.setPoolDistill)],
             seed: 20260618,
             autoAdvanceBots: false
         )
@@ -280,7 +280,7 @@ final class QuantumCatGameTests: XCTestCase {
         let championMove = try XCTUnwrap(championSeatGame.applyBotMoveForCurrentPlayer())
 
         XCTAssertEqual(recommendation.player, 0)
-        XCTAssertEqual(recommendation.botKind, .championBeliefPolicy)
+        XCTAssertEqual(recommendation.botKind, .qcxChampion)
         XCTAssertEqual(recommendation.move, championMove)
         XCTAssertTrue(humanGame.legalMoves.contains(recommendation.move))
         XCTAssertEqual(recommendation.legalMoveCount, humanGame.legalMoves.count)
@@ -744,7 +744,7 @@ final class QuantumCatGameTests: XCTestCase {
         XCTAssertEqual(store.botSeats, 4)
         XCTAssertEqual(store.botKinds.count, store.botSeats)
         XCTAssertEqual(store.botKinds[0], .random)
-        XCTAssertTrue(store.botKinds.dropFirst().allSatisfy { $0 == .championBeliefPolicy })
+        XCTAssertTrue(store.botKinds.dropFirst().allSatisfy { $0 == .qcxChampion })
 
         store.botSeats = 2
         XCTAssertGreaterThanOrEqual(store.botKinds.count, 2)

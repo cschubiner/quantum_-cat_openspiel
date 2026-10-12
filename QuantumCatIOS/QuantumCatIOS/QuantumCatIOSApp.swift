@@ -9,6 +9,7 @@ struct QuantumCatIOSApp: App {
     init() {
         Self.runDeviceChampionSearchParityIfRequested()
         Self.runDeviceModelMoveParityIfRequested()
+        Self.runDeviceQCXBenchmarkIfRequested()
         ChampionInference.queue.async {
             Self.runDeviceParadoxBenchmarkIfRequested()
         }
@@ -266,6 +267,80 @@ struct QuantumCatIOSApp: App {
             bidOK = false
         }
         return (bidOK, discardOK)
+    }
+
+    /// `-qcxBenchmark [-qcxBenchmarkGames N] [-qcxBenchmarkWorlds 64,128,256]`:
+    /// runs the Python cross-language parity fixtures on this device, then
+    /// plays full bot-only rounds for 3, 4 and 5 players with the qcx champion
+    /// and prints per-decision latency. Writes Documents/qcx_benchmark.txt.
+    private static func runDeviceQCXBenchmarkIfRequested() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("-qcxBenchmark") else { return }
+        let games = integerArgument(named: "-qcxBenchmarkGames", in: arguments) ?? 2
+        var worldsList = [QCXChampion.config.worlds]
+        if let index = arguments.firstIndex(of: "-qcxBenchmarkWorlds"), arguments.indices.contains(index + 1) {
+            let parsed = arguments[index + 1].split(separator: ",").compactMap { Int($0) }.filter { $0 > 0 }
+            if !parsed.isEmpty { worldsList = parsed }
+        }
+        ChampionInference.queue.async {
+            var report: [String] = []
+            let parity = (try? QCXParity.loadBundled()).map(QCXParity.run)
+            let parityLine = "QCX_PARITY " + (parity?.summary ?? "fixtures=0 passed=false error=missing")
+            print(parityLine)
+            for failure in parity?.failures.prefix(5) ?? [] { print("QCX_PARITY_FAILURE \(failure)") }
+            report.append(parityLine)
+            var illegal = 0
+            for worlds in worldsList {
+                QCXChampion.worldsOverride = worlds
+                for players in 3...5 {
+                    var seconds: [Double] = []
+                    var phaseMax: [String: Double] = [:]
+                    for game in 0..<games {
+                        var state = QuantumCatGame(
+                            seats: Array(repeating: .bot(.qcxChampion), count: players),
+                            seed: 20_261_012 + 101 * game + players,
+                            startingPlayer: game % players,
+                            autoAdvanceBots: false
+                        )
+                        while !state.isTerminal {
+                            let phase = state.phase.rawValue
+                            let started = DispatchTime.now().uptimeNanoseconds
+                            guard state.applyBotMoveForCurrentPlayer() != nil else {
+                                illegal += 1
+                                break
+                            }
+                            let elapsed = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e9
+                            seconds.append(elapsed)
+                            phaseMax[phase] = max(phaseMax[phase] ?? 0, elapsed)
+                        }
+                    }
+                    let sorted = seconds.sorted()
+                    let mean = seconds.reduce(0, +) / Double(max(1, seconds.count))
+                    let p90 = sorted.isEmpty ? 0 : sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.9))]
+                    let perPhase = phaseMax.keys.sorted().map { "\($0)_max=\(String(format: "%.3f", phaseMax[$0] ?? 0))" }
+                    let line = "QCX_BENCH players=\(players) worlds=\(worlds) games=\(games) decisions=\(seconds.count) " +
+                        "mean=\(String(format: "%.3f", mean)) p90=\(String(format: "%.3f", p90)) " +
+                        "max=\(String(format: "%.3f", sorted.last ?? 0)) " + perPhase.joined(separator: " ")
+                    print(line)
+                    fflush(stdout)
+                    report.append(line)
+                }
+            }
+            QCXChampion.worldsOverride = nil
+            let usage = QCXChampion.usage
+            let summary = "QCX_BENCHMARK source=\(QCXChampion.config.sourceCommit ?? "unknown") bundled_worlds=\(QCXChampion.config.worlds) " +
+                "decisions=\(usage.decisions) failures=\(usage.failures) illegal=\(illegal) parity_passed=\(parity?.passed ?? false)"
+            print(summary)
+            report.append(summary)
+            if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? report.joined(separator: "\n").write(
+                    to: documents.appendingPathComponent("qcx_benchmark.txt"), atomically: true, encoding: .utf8
+                )
+            }
+            fflush(stdout)
+            sleep(1)
+            exit((parity?.passed ?? false) && usage.failures == 0 && illegal == 0 ? 0 : 3)
+        }
     }
 
     private static func integerArgument(named name: String, in arguments: [String]) -> Int? {

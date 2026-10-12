@@ -1,12 +1,22 @@
 [
   {
+    "id": "qcx_pimc",
+    "name": "Champion (qcx PIMC search)",
+    "approach": "Native C++ information-set determinized search (PIMC) at every decision: discard, bid and each play are evaluated over sampled hypothetical deals consistent with only the acting seat's hand and public information",
+    "artifact": "Native/qc_agents.h",
+    "parameters": "Native/qcx_champion.json",
+    "bestFor": "Default bot for 3, 4 and 5 players; two-player tables fall back to Run1052 ML",
+    "rating": "production-best",
+    "status": "Beat four copies of the Run1051 champion in 5-player full matches: 87% pairwise placement, 72.5% first place (32 deals, 64 worlds). The app uses 256 worlds. Synced from qcx/ by qcx/sync_ios.sh; Python cross-language parity fixtures verified in unit tests and on device"
+  },
+  {
     "id": "champion_belief_policy",
-    "name": "Direct AlphaZero Core ML Champion",
+    "name": "Run1052 ML (previous champion)",
     "approach": "Runs the real full-size AlphaZero neural network directly on iPhone, preserving the verified three-player champion while the five-player champion performs independently trained neural bidding, policy, action-value, feasibility, calibrated personal-risk, and public tactical inference",
     "artifact": "champion_belief_policy.pt",
     "coreMLArtifact": "champion_belief_policy.mlpackage",
     "bestFor": "Exact three-player champion parity plus direct five-player learned bidding and verified official-match card play; unsupported player counts remain fail-closed",
-    "rating": "production-best",
+    "rating": "previous-champion",
     "status": "The real 1.27-million-parameter five-player network is exported directly with no student model; learned bids and all four neural outputs pass acting-information-only parity, locked tactical scenarios, and protected full-match nonregression; three-player legacy remains exact and four-player inference stays fail-closed"
   },
   {

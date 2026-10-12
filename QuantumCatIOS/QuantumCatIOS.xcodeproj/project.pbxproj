@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0C0000000000000000000101 /* QCXChampion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C0000000000000000000201 /* QCXChampion.swift */; };
+		0C0000000000000000000104 /* qc_capi.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 0C0000000000000000000204 /* qc_capi.cpp */; settings = {COMPILER_FLAGS = "-O3 -DNDEBUG -std=c++17 -include qcx_capi.h"; }; };
+		0C0000000000000000000107 /* qcx_champion.json in Resources */ = {isa = PBXBuildFile; fileRef = 0C0000000000000000000207 /* qcx_champion.json */; };
+		0C0000000000000000000108 /* qcx_parity_fixtures.json in Resources */ = {isa = PBXBuildFile; fileRef = 0C0000000000000000000208 /* qcx_parity_fixtures.json */; };
+		0C0000000000000000000109 /* QCXChampionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C0000000000000000000209 /* QCXChampionTests.swift */; };
 		105200000000000000000103 /* ChampionSearchParity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 105200000000000000000203; };
 		105200000000000000000104 /* champion_1052_search_parity.json in Resources */ = {isa = PBXBuildFile; fileRef = 105200000000000000000204; };
 		105200000000000000000101 /* QuantumCatChampionSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 105200000000000000000201; };
@@ -56,6 +61,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0C0000000000000000000201 /* QCXChampion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QCXChampion.swift; sourceTree = "<group>"; };
+		0C0000000000000000000202 /* qc_core.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qc_core.h; sourceTree = "<group>"; };
+		0C0000000000000000000203 /* qc_agents.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qc_agents.h; sourceTree = "<group>"; };
+		0C0000000000000000000204 /* qc_capi.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = qc_capi.cpp; sourceTree = "<group>"; };
+		0C0000000000000000000205 /* qcx_capi.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = qcx_capi.h; sourceTree = "<group>"; };
+		0C0000000000000000000206 /* module.modulemap */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.module-map"; path = module.modulemap; sourceTree = "<group>"; };
+		0C0000000000000000000207 /* qcx_champion.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = qcx_champion.json; sourceTree = "<group>"; };
+		0C0000000000000000000208 /* qcx_parity_fixtures.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = qcx_parity_fixtures.json; sourceTree = "<group>"; };
+		0C0000000000000000000209 /* QCXChampionTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QCXChampionTests.swift; sourceTree = "<group>"; };
 		105200000000000000000203 /* ChampionSearchParity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChampionSearchParity.swift; sourceTree = "<group>"; };
 		105200000000000000000204 /* champion_1052_search_parity.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = champion_1052_search_parity.json; sourceTree = "<group>"; };
 		105200000000000000000201 /* QuantumCatChampionSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuantumCatChampionSearch.swift; sourceTree = "<group>"; };
@@ -117,6 +131,20 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0C0000000000000000000401 /* Native */ = {
+			isa = PBXGroup;
+			children = (
+				0C0000000000000000000202 /* qc_core.h */,
+				0C0000000000000000000203 /* qc_agents.h */,
+				0C0000000000000000000204 /* qc_capi.cpp */,
+				0C0000000000000000000205 /* qcx_capi.h */,
+				0C0000000000000000000206 /* module.modulemap */,
+				0C0000000000000000000207 /* qcx_champion.json */,
+				0C0000000000000000000208 /* qcx_parity_fixtures.json */,
+			);
+			path = Native;
+			sourceTree = "<group>";
+		};
 		0B4DA91BB51434E8C494280E /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -143,6 +171,7 @@
 				100000000000000000000202 /* ContentView.swift */,
 				100000000000000000000208 /* Info.plist */,
 				100000000000000000000404 /* Models */,
+				0C0000000000000000000401 /* Native */,
 				100000000000000000000405 /* Views */,
 				100000000000000000000406 /* Resources */,
 			);
@@ -168,6 +197,7 @@
 				100000000000000000000220 /* QuantumCatMLFeatureEncoder.swift */,
 				105200000000000000000201 /* QuantumCatChampionSearch.swift */,
 				105200000000000000000203 /* ChampionSearchParity.swift */,
+				0C0000000000000000000201 /* QCXChampion.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -215,6 +245,7 @@
 			isa = PBXGroup;
 			children = (
 				7D29E2F0EECE8BD2DA853A01 /* QuantumCatGameTests.swift */,
+				0C0000000000000000000209 /* QCXChampionTests.swift */,
 			);
 			name = QuantumCatIOSTests;
 			path = QuantumCatIOSTests;
@@ -334,6 +365,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				100000000000000000000107 /* BotModels.json in Resources */,
+				0C0000000000000000000107 /* qcx_champion.json in Resources */,
+				0C0000000000000000000108 /* qcx_parity_fixtures.json in Resources */,
 				100000000000000000000112 /* champion_move_parity.json in Resources */,
 				100000000000000000000115 /* champion_5p_move_parity.json in Resources */,
 				105200000000000000000102 /* champion_1052_search.mlpackage in Resources */,
@@ -380,6 +413,8 @@
 				100000000000000000000113 /* QuantumCatMLFeatureEncoder.swift in Sources */,
 				105200000000000000000101 /* QuantumCatChampionSearch.swift in Sources */,
 				105200000000000000000103 /* ChampionSearchParity.swift in Sources */,
+				0C0000000000000000000101 /* QCXChampion.swift in Sources */,
+				0C0000000000000000000104 /* qc_capi.cpp in Sources */,
 				100000000000000000000105 /* GameSetupView.swift in Sources */,
 				100000000000000000000106 /* GameTableView.swift in Sources */,
 			);
@@ -390,6 +425,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6B034B0CC166CC52549D55CF /* QuantumCatGameTests.swift in Sources */,
+				0C0000000000000000000109 /* QCXChampionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -501,6 +537,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/QuantumCatIOS/Native";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
@@ -555,6 +592,7 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/QuantumCatIOS/Native";
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				VALIDATE_PRODUCT = YES;
 			};

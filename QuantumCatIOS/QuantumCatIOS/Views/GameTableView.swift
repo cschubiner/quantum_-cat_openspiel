@@ -396,7 +396,7 @@ struct GameTableView: View {
             let score = botRecommendation.rankedMoves.first?.score ?? 100
             return "\(botRecommendation.botKind.name): \(recommendationMoveTitle(botRecommendation.move)) · \(score)/100"
         }
-        return "Ask Champion ML what it would do here."
+        return "Ask the champion what it would do here."
     }
 
     private func recommendationOptionRow(
@@ -482,7 +482,7 @@ struct GameTableView: View {
         recommendationPending = true
         let snapshot = store.game
         ChampionInference.queue.async {
-            let recommendation = snapshot.botRecommendationForCurrentHuman(kind: .championBeliefPolicy)
+            let recommendation = snapshot.botRecommendationForCurrentHuman(kind: .qcxChampion)
             DispatchQueue.main.async {
                 guard botRecommendationStateKey == key, botRecommendationInputKey == key else { return }
                 botRecommendation = recommendation

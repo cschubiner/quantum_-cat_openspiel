@@ -154,7 +154,7 @@ final class QuantumCatIOSUITests: XCTestCase {
             XCTAssertTrue(label.exists)
         }
 
-        revealSelectedBot("Champion ML")
+        revealSelectedBot("Run1052 ML (previous champion)")
         revealSelectedBot("SetPool Distill")
         revealSelectedBot("Strict Q Head")
         app.buttons["Done"].tap()
