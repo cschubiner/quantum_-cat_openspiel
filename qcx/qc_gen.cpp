@@ -2,6 +2,7 @@
 //
 // usage: qc_gen P rounds threads seed worlds rollout out.bin [rollout_temp]
 //   rollout: "heur" or a weights file (learned play in rollouts for all seats)
+//   Creating the file <out.bin>.stop makes workers finish their current round and exit.
 // Every seat is the same PIMC bot (all phases).  At each PLAY decision with >=2
 // legal actions we record, for every legal action, one float32 row:
 //   [game_id, decision_id, q (PIMC mean utility), heur_score, phi_0..phi_{F-1}]
@@ -14,6 +15,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unistd.h>
 
 #include "qc_learn.h"
 
@@ -46,9 +48,12 @@ int main(int argc, char** argv) {
   std::atomic<int> next{0};
   std::atomic<long> ndec{0}, nrows{0};
   auto t0 = std::chrono::steady_clock::now();
+  const std::string stopf = std::string(outp) + ".stop";
+  std::atomic<int> done_rounds{0};
   auto worker = [&]() {
     std::vector<float> buf;
     for (;;) {
+      if (access(stopf.c_str(), F_OK) == 0) break;
       int g = next++;
       if (g >= rounds) break;
       Rng rng(seed * 1000003ULL + g);
@@ -87,9 +92,10 @@ int main(int argc, char** argv) {
         std::fwrite(buf.data(), sizeof(float), buf.size(), fp);
         buf.clear();
       }
-      if ((g + 1) % 200 == 0) {
+      int dr = ++done_rounds;
+      if (dr % 200 == 0) {
         double dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-        std::fprintf(stderr, "rounds %d decisions %ld rows %ld  %.0fs\n", g + 1, ndec.load(), nrows.load(), dt);
+        std::fprintf(stderr, "rounds %d decisions %ld rows %ld  %.0fs\n", dr, ndec.load(), nrows.load(), dt);
       }
     }
     std::lock_guard<std::mutex> lk(mu);
@@ -101,6 +107,6 @@ int main(int argc, char** argv) {
   std::fclose(fp);
   double dt = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   std::printf("{\"rounds\":%d,\"decisions\":%ld,\"rows\":%ld,\"seconds\":%.1f,\"worlds\":%d,\"rollout\":\"%s\",\"rollout_temp\":%.3f}\n",
-              rounds, ndec.load(), nrows.load(), dt, worlds, rspec.c_str(), rtemp);
+              done_rounds.load(), ndec.load(), nrows.load(), dt, worlds, rspec.c_str(), rtemp);
   return 0;
 }

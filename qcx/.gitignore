@@ -6,3 +6,4 @@ __pycache__/
 qc_gen
 test_features
 qc_noise
+bench_pimcl

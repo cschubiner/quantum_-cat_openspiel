@@ -44,12 +44,7 @@ Bot parse_bot(const std::string& spec) {
   Bot b;
   if (spec == "random") b.type = 0;
   else if (spec == "heur") b.type = 1;
-  else if (spec.rfind("pimc", 0) == 0) {
-    b.type = 2;
-    int w = 64, u = 0;
-    std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
-    b.sp.worlds = w; b.sp.util = u;
-  } else if (spec.rfind("lin:", 0) == 0 || spec.rfind("pimcl:", 0) == 0) {
+  else if (spec.rfind("lin:", 0) == 0 || spec.rfind("pimcl:", 0) == 0) {
     std::vector<std::string> parts;
     size_t st = 0;
     for (;;) {
@@ -66,7 +61,14 @@ Bot parse_bot(const std::string& spec) {
     if (!b.pol->load(parts[wi])) { std::fprintf(stderr, "cannot load weights %s\n", parts[wi].c_str()); std::exit(2); }
     b.rp.pol = b.pol.get();
     b.rp.temp = parts.size() > wi + 1 ? std::atof(parts[wi + 1].c_str()) : 0.0;
+  } else if (spec.rfind("pimc:", 0) == 0 || spec == "pimc") {
+    b.type = 2;
+    int w = 64, u = 0;
+    std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
+    b.sp.worlds = w; b.sp.util = u;
   } else { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
+  std::fprintf(stderr, "bot %s -> type %d worlds %d util %d temp %.3f weights %s\n", spec.c_str(), b.type,
+               b.sp.worlds, b.sp.util, b.rp.temp, b.pol ? (b.pol->kind ? "mlp" : "linear") : "-");
   return b;
 }
 
