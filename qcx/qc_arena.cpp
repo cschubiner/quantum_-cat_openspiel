@@ -42,11 +42,12 @@ Bot parse_bot(const std::string& spec) {
     int w = 64, u = 0;
     std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
     b.sp.worlds = w; b.sp.util = u;
-  } else if (spec.rfind("pimcx", 0) == 0) {  // pimcx:worlds:w_token:w_dead:eps:w_win
+  } else if (spec.rfind("pimcx", 0) == 0) {  // pimcx:worlds:w_token:w_dead:eps:w_win:w_adj:w_liq
     b.type = 2;
-    double wt = 1.2, wd = 6.0, eps = 0.0, ww = 3.0; int w = 64;
-    std::sscanf(spec.c_str(), "pimcx:%d:%lf:%lf:%lf:%lf", &w, &wt, &wd, &eps, &ww);
+    double wt = 1.2, wd = 6.0, eps = 0.0, ww = 3.0, wa = 0.35, wl = 0.08; int w = 64;
+    std::sscanf(spec.c_str(), "pimcx:%d:%lf:%lf:%lf:%lf:%lf:%lf", &w, &wt, &wd, &eps, &ww, &wa, &wl);
     b.sp.worlds = w; b.sp.rollout.w_token = wt; b.sp.rollout.w_dead = wd; b.sp.rollout.eps = eps; b.sp.rollout.w_win = ww;
+    b.sp.rollout.w_adj = wa; b.sp.rollout.w_liq = wl;
   } else if (spec.rfind("pimc2", 0) == 0) {  // pimc2:w1:k:w2
     b.type = 3;
     std::sscanf(spec.c_str(), "pimc2:%d:%d:%d", &b.w1, &b.k, &b.w2);
