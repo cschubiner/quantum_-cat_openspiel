@@ -49,7 +49,7 @@ inline void sample_world(const Round& view, int me, Rng& rng, Round& out) {
 struct HeurParams {
   double eps = 0.0;        // probability of uniformly random legal action
   double temp = 0.0;       // softmax temperature (0 => argmax)
-  double w_win = 3.0, w_token = 1.2, w_dead = 6.0, w_liq = 0.08, w_adj = 0.35;
+  double w_win = 3.0, w_token = 0.6, w_dead = 6.0, w_liq = 0.08, w_adj = 0.35;
 };
 
 inline double bid_scale(const Round& s) {
