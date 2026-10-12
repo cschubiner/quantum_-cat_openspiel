@@ -1,5 +1,9 @@
 qc_arena
+qc_arena_x
 qc_bench
+qc_biddata
+dbg_hand
+dbg_trace
 *.dylib
 results/
 __pycache__/
