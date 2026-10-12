@@ -3,9 +3,13 @@
   "name": "qcx PIMC search",
   "display_name": "Champion (qcx PIMC search)",
   "engine": "qc_agents.h pimc_decide via qc_capi.cpp qc_decide",
-  "worlds": 256,
+  "worlds": 1024,
   "util": 0,
   "view_len": 84,
-  "players": [3, 4, 5],
-  "evidence": "qcx_64_0_own beat four Run1051 champion copies in 5-player full matches: 87% pairwise placement, 72.5% first place (32 deals). 128 worlds beat 32 worlds by +12.6pp placement (60 deals), so the app uses 256 worlds."
+  "players": [
+    3,
+    4,
+    5
+  ],
+  "evidence": "qcx PIMC beat four Run1051 champion copies: 87% pairwise placement, 72.5% first place (32 deals). Search scales: 128>32 worlds +12.6pp, 512>128 +4.4pp. Rollout token penalty 0.6 confirmed +3.6pp on 100 fresh deals. On-device 256 worlds took 22 ms mean / 91 ms max (5p), so the app uses 1024 worlds."
 }
