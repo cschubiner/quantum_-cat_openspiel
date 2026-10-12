@@ -20,18 +20,25 @@ class QcxBot:
     self.name = name
     self.worlds = int(worlds); self.util = int(util)
     self.chooses_discard = disc == "own"
+    # qcxl_<worlds>_<util>_<disc>: learned rollout policy (champion v3)
+    self.learned = name.startswith("qcxl_")
+    if self.learned and not qc_py._LIB.qc_policy_loaded():
+      qc_py.load_policy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "g1_mlp.txt"))
     self.seed = int(seed) & 0xFFFFFFFF
     self.calls = 0
 
   def step(self, state, player):
     self.calls += 1
+    if self.learned:
+      return int(qc_py.decide_learned(state, player, self.worlds, self.util,
+                                      self.seed * 1000003 + self.calls))
     return int(qc_py.decide(state, player, self.worlds, self.util,
                             self.seed * 1000003 + self.calls))
 
 
 _orig_make = elo.make_eval_bot
 def _make(name, seed, *a, **kw):
-  if str(name).startswith("qcx_"):
+  if str(name).startswith(("qcx_", "qcxl_")):
     return QcxBot(name, seed)
   return _orig_make(name, seed, *a, **kw)
 elo.make_eval_bot = _make

@@ -47,3 +47,20 @@ def decide(state, me, worlds=64, util=0, seed=0):
   v = build_view(state, me)
   vals = (ctypes.c_double * 41)()
   return _LIB.qc_decide(v.ctypes.data_as(ctypes.POINTER(ctypes.c_int)), worlds, util, seed, vals)
+
+
+_LIB.qc_load_policy.restype = ctypes.c_int
+_LIB.qc_load_policy.argtypes = [ctypes.c_char_p]
+_LIB.qc_decide_learned.restype = ctypes.c_int
+_LIB.qc_decide_learned.argtypes = _LIB.qc_decide.argtypes
+
+
+def load_policy(path):
+  if not _LIB.qc_load_policy(str(path).encode()):
+    raise RuntimeError(f"cannot load rollout policy {path}")
+
+
+def decide_learned(state, me, worlds=64, util=0, seed=0):
+  v = build_view(state, me)
+  vals = (ctypes.c_double * 41)()
+  return _LIB.qc_decide_learned(v.ctypes.data_as(ctypes.POINTER(ctypes.c_int)), worlds, util, seed, vals)

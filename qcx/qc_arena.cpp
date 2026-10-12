@@ -6,19 +6,26 @@
 //   P times (candidate at each seat) and the reference lineup (all botB) is
 //   played on the same deals so the paired placement difference is reported.
 // bot spec: random | heur | pimc:<worlds>[:util]
+//   | lin:<weights>[:temp]           learned PLAY policy (greedy unless temp>0); heuristic discard/bid
+//   | pimcl:<worlds>:<weights>[:temp] PIMC whose rollouts use the learned play policy for all seats
 #include <atomic>
+#include <chrono>
+#include <ctime>
+#include <memory>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <thread>
 
-#include "qc_agents.h"
+#include "qc_learn.h"
 
 using namespace qc;
 
 struct Bot {
-  int type = 0;  // 0 random 1 heur 2 pimc
+  int type = 0;  // 0 random 1 heur 2 pimc 3 lin 4 pimcl
   SearchParams sp;
+  std::shared_ptr<LearnedPolicy> pol;
+  RolloutPolicy rp;
   int act(const Round& truth, Rng& rng) const {
     const int me = truth.cur;
     Round view = mask_for(truth, me);  // agent sees only its information
@@ -27,6 +34,8 @@ struct Bot {
     if (n == 1) return acts[0];
     if (type == 0) return acts[rng.below(n)];
     if (type == 1) return heuristic_action(view, rng, sp.rollout);
+    if (type == 3) return rp.act(view, rng);
+    if (type == 4) return pimc_decide_rp(view, me, sp.worlds, sp.util, rp, rng);
     return pimc_decide(view, me, sp, rng);
   }
 };
@@ -35,12 +44,31 @@ Bot parse_bot(const std::string& spec) {
   Bot b;
   if (spec == "random") b.type = 0;
   else if (spec == "heur") b.type = 1;
-  else if (spec.rfind("pimc", 0) == 0) {
+  else if (spec.rfind("lin:", 0) == 0 || spec.rfind("pimcl:", 0) == 0) {
+    std::vector<std::string> parts;
+    size_t st = 0;
+    for (;;) {
+      size_t e = spec.find(':', st);
+      parts.push_back(spec.substr(st, e == std::string::npos ? std::string::npos : e - st));
+      if (e == std::string::npos) break;
+      st = e + 1;
+    }
+    size_t wi;
+    if (parts[0] == "lin") { b.type = 3; wi = 1; }
+    else { b.type = 4; wi = 2; if (parts.size() < 3) { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
+           b.sp.worlds = std::atoi(parts[1].c_str()); }
+    b.pol = std::make_shared<LearnedPolicy>();
+    if (!b.pol->load(parts[wi])) { std::fprintf(stderr, "cannot load weights %s\n", parts[wi].c_str()); std::exit(2); }
+    b.rp.pol = b.pol.get();
+    b.rp.temp = parts.size() > wi + 1 ? std::atof(parts[wi + 1].c_str()) : 0.0;
+  } else if (spec.rfind("pimc:", 0) == 0 || spec == "pimc") {
     b.type = 2;
     int w = 64, u = 0;
     std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
     b.sp.worlds = w; b.sp.util = u;
   } else { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
+  std::fprintf(stderr, "bot %s -> type %d worlds %d util %d temp %.3f weights %s\n", spec.c_str(), b.type,
+               b.sp.worlds, b.sp.util, b.rp.temp, b.pol ? (b.pol->kind ? "mlp" : "linear") : "-");
   return b;
 }
 
@@ -90,6 +118,8 @@ int main(int argc, char** argv) {
   std::vector<double> cand(deals), ref(deals), cscore(deals), rscore(deals);
   std::vector<int> cpar(deals), rpar(deals), chit(deals), rhit(deals), cwin(deals), rwin(deals);
   std::atomic<int> next{0};
+  auto wall0 = std::chrono::steady_clock::now();
+  std::clock_t cpu0 = std::clock();
   auto worker = [&]() {
     for (;;) {
       int d = next++;
@@ -122,6 +152,8 @@ int main(int argc, char** argv) {
   std::vector<std::thread> pool;
   for (int t = 0; t < threads; ++t) pool.emplace_back(worker);
   for (auto& t : pool) t.join();
+  double wall = std::chrono::duration<double>(std::chrono::steady_clock::now() - wall0).count();
+  double cpu = (double)(std::clock() - cpu0) / CLOCKS_PER_SEC;
   double mc = 0, mr = 0, md = 0, sd = 0, sc = 0, sr = 0;
   long tp = 0, rp = 0, th = 0, rh = 0, tw = 0, rw = 0;
   for (int d = 0; d < deals; ++d) {
@@ -136,9 +168,9 @@ int main(int argc, char** argv) {
   std::printf("{\"P\":%d,\"deals\":%d,\"A\":\"%s\",\"B\":\"%s\",\"placement\":%.4f,\"ref_placement\":%.4f,"
               "\"diff\":%.4f,\"diff_ci95\":[%.4f,%.4f],\"score\":%.3f,\"ref_score\":%.3f,"
               "\"paradox_rate\":%.4f,\"ref_paradox_rate\":%.4f,\"bidhit_rate\":%.4f,\"ref_bidhit_rate\":%.4f,"
-              "\"first_place\":%.4f,\"ref_first_place\":%.4f}\n",
+              "\"first_place\":%.4f,\"ref_first_place\":%.4f,\"wall_s\":%.1f,\"cpu_s\":%.1f}\n",
               P, deals, argv[5], argv[6], mc, mr, md, md - 1.96 * se, md + 1.96 * se, sc / deals, sr / deals,
               (double)tp / rounds, (double)rp / rounds, (double)th / rounds, (double)rh / rounds,
-              (double)tw / (deals * P), (double)rw / (deals * P));
+              (double)tw / (deals * P), (double)rw / (deals * P), wall, cpu);
   return 0;
 }
