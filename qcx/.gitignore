@@ -15,3 +15,7 @@ bid_truth
 *_chk
 dbg_nb
 qcx_arena3
+qcx_arena_i*
+test_infer
+qcx_test_infer*
+qcx_bench_infer*

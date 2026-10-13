@@ -8,6 +8,8 @@
 // bot spec: random | heur | pimc:<worlds>[:util]
 //   | lin:<weights>[:temp]           learned PLAY policy (greedy unless temp>0); heuristic discard/bid
 //   | pimcl:<worlds>:<weights>[:temp] PIMC whose rollouts use the learned play policy for all seats
+//   | pimcli:<worlds>:<weights>:<pool>:<alpha>:<eps>[:<T>]  pimcl over worlds importance-resampled from
+//       <pool> uniform candidates by the opponents' past plays this round (policy-based inference)
 #include <atomic>
 #include <chrono>
 #include <ctime>
@@ -17,16 +19,18 @@
 #include <string>
 #include <thread>
 
-#include "qc_learn.h"
+#include "qc_infer.h"
 
 using namespace qc;
 
 struct Bot {
-  int type = 0;  // 0 random 1 heur 2 pimc 3 lin 4 pimcl
+  int type = 0;  // 0 random 1 heur 2 pimc 3 lin 4 pimcl 5 pimcli
   SearchParams sp;
+  InferParams ip;
   std::shared_ptr<LearnedPolicy> pol;
   RolloutPolicy rp;
-  int act(const Round& truth, Rng& rng) const {
+  // The agent receives only its masked view plus the public bid/play history.
+  int act(const Round& truth, const PubHist& hist, Rng& rng) const {
     const int me = truth.cur;
     Round view = mask_for(truth, me);  // agent sees only its information
     int acts[NC * MAXR + 1];
@@ -36,6 +40,7 @@ struct Bot {
     if (type == 1) return heuristic_action(view, rng, sp.rollout);
     if (type == 3) return rp.act(view, rng);
     if (type == 4) return pimc_decide_rp(view, me, sp.worlds, sp.util, rp, rng);
+    if (type == 5) return pimci_decide(view, me, hist, sp.worlds, sp.util, rp, ip, rng);
     return pimc_decide(view, me, sp, rng);
   }
 };
@@ -44,7 +49,7 @@ Bot parse_bot(const std::string& spec) {
   Bot b;
   if (spec == "random") b.type = 0;
   else if (spec == "heur") b.type = 1;
-  else if (spec.rfind("lin:", 0) == 0 || spec.rfind("pimcl:", 0) == 0) {
+  else if (spec.rfind("lin:", 0) == 0 || spec.rfind("pimcl:", 0) == 0 || spec.rfind("pimcli:", 0) == 0) {
     std::vector<std::string> parts;
     size_t st = 0;
     for (;;) {
@@ -55,6 +60,16 @@ Bot parse_bot(const std::string& spec) {
     }
     size_t wi;
     if (parts[0] == "lin") { b.type = 3; wi = 1; }
+    else if (parts[0] == "pimcli") {
+      if (parts.size() < 6) { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
+      b.type = 5; wi = 2;
+      b.sp.worlds = std::atoi(parts[1].c_str());
+      b.ip.pool = std::atoi(parts[3].c_str());
+      b.ip.alpha = std::atof(parts[4].c_str());
+      b.ip.eps = std::atof(parts[5].c_str());
+      if (parts.size() > 6) b.ip.temp = std::atof(parts[6].c_str());
+      parts.resize(3);  // rollouts stay greedy (temp 0) as in the champion
+    }
     else { b.type = 4; wi = 2; if (parts.size() < 3) { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
            b.sp.worlds = std::atoi(parts[1].c_str()); }
     b.pol = std::make_shared<LearnedPolicy>();
@@ -67,8 +82,10 @@ Bot parse_bot(const std::string& spec) {
     std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
     b.sp.worlds = w; b.sp.util = u;
   } else { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
-  std::fprintf(stderr, "bot %s -> type %d worlds %d util %d temp %.3f weights %s\n", spec.c_str(), b.type,
+  std::fprintf(stderr, "bot %s -> type %d worlds %d util %d temp %.3f weights %s", spec.c_str(), b.type,
                b.sp.worlds, b.sp.util, b.rp.temp, b.pol ? (b.pol->kind ? "mlp" : "linear") : "-");
+  if (b.type == 5) std::fprintf(stderr, " pool %d alpha %.3f eps %.3f T %.3f", b.ip.pool, b.ip.alpha, b.ip.eps, b.ip.temp);
+  std::fprintf(stderr, "\n");
   return b;
 }
 
@@ -85,7 +102,12 @@ MatchResult play_match(int P, const Bot* seats[], uint64_t deal_seed, uint64_t p
     s.init(P, (initial_start + rd) % P);
     Rng drng(deal_seed * 1000003ULL + rd);
     s.deal(drng);
-    while (!s.done()) s.apply(seats[s.cur]->act(s, prng));
+    PubHist hist;  // public bids/plays of this round (discards are hidden, never recorded)
+    while (!s.done()) {
+      const int a = seats[s.cur]->act(s, hist, prng);
+      record_public(hist, s, a);
+      s.apply(a);
+    }
     double sc[MAXP];
     s.scores(sc);
     for (int p = 0; p < P; ++p) {
