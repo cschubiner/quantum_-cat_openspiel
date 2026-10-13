@@ -76,44 +76,58 @@ class NetworkTest(absltest.TestCase):
       self.network.get_road_section_from_action_id(0)
 
   def test_num_links_method(self):
-    # Write.
-    pass
+    self.assertEqual(self.network.num_links(), 2)
 
   def test_num_actions_method(self):
-    # Write.
-    pass
+    self.assertEqual(self.network.num_actions(), 3)
 
   def test_links(self):
-    # Write.
-    pass
+    self.assertEqual(set(self.network.links()), {"A->D", "O->A"})
 
   def test_check_list_of_vehicles_is_correct_method(self):
-    # Write.
-    pass
+    self.network.check_list_of_vehicles_is_correct(
+        [utils.Vehicle("O->A", "A->D")])
+    with self.assertRaises(ValueError):
+      self.network.check_list_of_vehicles_is_correct(
+          [utils.Vehicle("O->A", "O->D")])
 
   def test_check_list_of_od_demand_is_correct_method(self):
-    # Write.
-    pass
+    self.network.check_list_of_od_demand_is_correct(
+        [utils.OriginDestinationDemand("O->A", "A->D", 0, 1)])
+    with self.assertRaises(ValueError):
+      self.network.check_list_of_od_demand_is_correct(
+          [utils.OriginDestinationDemand("O->D", "A->D", 0, 1)])
 
   def test_str_method(self):
-    # Write.
-    pass
+    self.assertEqual(str(self.network), "{'O': ['A'], 'A': ['D'], 'D': []}")
 
   def test_get_travel_time_methods(self):
-    # Write.
-    pass
+    self.assertEqual(self.network.get_travel_time("O->A", 0), 1)
+    self.assertEqual(self.network.get_travel_time("A->D", 3), 1)
 
   def test_assert_valid_action_methods(self):
-    # Write.
-    pass
+    self.network.assert_valid_action(
+        self.network.get_action_id_from_movement("A", "D"), "O->A")
+    with self.assertRaises(AssertionError):
+      self.network.assert_valid_action(0)
+    with self.assertRaises(AssertionError):
+      self.network.assert_valid_action(
+          self.network.get_action_id_from_movement("O", "A"), "A->D")
 
   def test_default_travel_time_methods(self):
-    # Write.
-    pass
+    default_network = utils.Network({"O": ["A"], "A": []})
+    self.assertEqual(default_network.get_travel_time("O->A", 0), 1)
+    self.assertEqual(default_network.get_travel_time("O->A", 10), 1)
 
   def test_customable_travel_time_methods(self):
-    # Write.
-    pass
+    network = utils.Network(
+        {"O": ["A"], "A": []},
+        bpr_a_coefficient={"O->A": 2},
+        bpr_b_coefficient={"O->A": 2},
+        capacity={"O->A": 4},
+        free_flow_travel_time={"O->A": 3},
+    )
+    self.assertEqual(network.get_travel_time("O->A", 4), 9)
 
 
 class VehicleTest(absltest.TestCase):

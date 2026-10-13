@@ -72,10 +72,24 @@ class LiarsPoker(pyspiel.Game):
   """A Python version of Liar's poker."""
 
   def __init__(self, params=None):
-    super().__init__(_GAME_TYPE, _GAME_INFO, params or dict())
+    params = params or dict()
+    players = int(params.get("players", _MIN_NUM_PLAYERS))
+    hand_length = int(params.get("hand_length", _HAND_LENGTH))
+    num_digits = int(params.get("num_digits", _NUM_DIGITS))
+    game_info = pyspiel.GameInfo(
+        num_distinct_actions=hand_length * num_digits * players
+        + BID_ACTION_OFFSET,
+        max_chance_outcomes=num_digits,
+        num_players=players,
+        min_utility=-(players - 1),
+        max_utility=players - 1,
+        utility_sum=0.0,
+        max_game_length=hand_length * num_digits * players**2,
+    )
+    super().__init__(_GAME_TYPE, game_info, params)
     game_parameters = self.get_parameters()
-    self.hand_length = game_parameters.get("hand_length", _HAND_LENGTH)
-    self.num_digits = game_parameters.get("num_digits", _NUM_DIGITS)
+    self.hand_length = int(game_parameters.get("hand_length", _HAND_LENGTH))
+    self.num_digits = int(game_parameters.get("num_digits", _NUM_DIGITS))
     self.deck = _FULL_DECK[: self.num_digits]
 
   def new_initial_state(self):
@@ -207,7 +221,7 @@ class LiarsPokerState(pyspiel.State):
     Returns:
       A tuple of (count, number). For example, (1, 2) represents one 2's.
     """
-    number = bid % self._num_digits + 1
+    number = self._deck[bid % self._num_digits]
     count = bid // self._num_digits + 1
     return (count, number)
 
@@ -230,7 +244,9 @@ class LiarsPokerState(pyspiel.State):
     Returns:
       A single bid ID.
     """
-    return (count - 1) * self._num_digits + number - 1
+    if number not in self._deck:
+      raise ValueError(f"Number {number} is not in the deck")
+    return (count - 1) * self._num_digits + self._deck.index(number)
 
   def _counts(self):
     """Determines if the bid originator wins or loses."""
@@ -417,15 +433,15 @@ class LiarsPokerObserver:
         "private_hand" in self.dict
         and len(state.hands[player]) == self.hand_length
     ):
-      self.dict["private_hand"] = np.asarray(state.hands[player])
+      self.dict["private_hand"][:] = np.asarray(state.hands[player])
     if "rebid_state" in self.dict:
       self.dict["rebid_state"][0] = int(state.is_rebid)
     if "counts_state" in self.dict:
       self.dict["counts_state"][0] = int(state.is_terminal())
     if "bid_history" in self.dict:
-      self.dict["bid_history"] = state.bid_history
+      self.dict["bid_history"][:] = state.bid_history
     if "challenge_history" in self.dict:
-      self.dict["challenge_history"] = state.challenge_history
+      self.dict["challenge_history"][:] = state.challenge_history
 
   def string_from(self, state, player):
     """Observation of `state` from the PoV of `player`, as a string."""

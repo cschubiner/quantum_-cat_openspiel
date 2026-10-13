@@ -138,7 +138,7 @@ int main(int argc, char** argv) {
       auto player = state->CurrentPlayer();
       if (show_infostate) {
         if (game->GetType().provides_information_state_tensor) {
-          std::vector<float> infostate;
+          std::vector<float> infostate(game->InformationStateTensorSize());
           state->InformationStateTensor(player, absl::MakeSpan(infostate));
           std::cerr << "player " << player << ": "
                     << absl::StrJoin(infostate, " ") << std::endl;

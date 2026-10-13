@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
           0, col_actions.size() - 1)(rng)];
 
   std::cerr << "Joint action is: (" << state->ActionToString(0, row_action)
-            << "," << state->ActionToString(1, row_action) << ")" << std::endl;
+            << "," << state->ActionToString(1, col_action) << ")" << std::endl;
 
   state->ApplyActions({row_action, col_action});
 

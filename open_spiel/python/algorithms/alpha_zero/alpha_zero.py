@@ -60,6 +60,17 @@ from open_spiel.python.utils import stats
 JOIN_WAIT_DELAY = 0.001
 
 
+def _game_params_for_config(game_name):
+  return {"players": 2} if game_name == "python_quantum_cat" else {}
+
+
+def _load_configured_game(game_name, game_params=None):
+  if game_name == "python_quantum_cat":
+    # Import registers the Python game with pyspiel in worker processes.
+    from open_spiel.python.games import quantum_cat  # pylint: disable=unused-import,g-import-not-at-top
+  return pyspiel.load_game(game_name, game_params or {})
+
+
 class TrajectoryState(object):
   """A particular point along a trajectory."""
 
@@ -270,9 +281,7 @@ def update_checkpoint(logger, queue, model, az_evaluator):
 @watcher
 def actor(*, config, game_name, game_params, logger, queue):
   """An actor process runner that generates games and returns trajectories."""
-  game = pyspiel.load_game(game_name, game_params)
-  from open_spiel.python.games.quantum_cat import QuantumCatGame
-  game = QuantumCatGame(params=game_params)
+  game = _load_configured_game(game_name, game_params)
   logger.print("Initializing model")
   model = _init_model_from_config(config)
   logger.print("Initializing bots")
@@ -291,10 +300,7 @@ def actor(*, config, game_name, game_params, logger, queue):
 @watcher
 def evaluator(*, game_name, game_params, config, logger, queue):
   """A process that plays the latest checkpoint vs standard MCTS."""
-  game = pyspiel.load_game(game_name, game_params)
-  # reinitialize the game
-  from open_spiel.python.games.quantum_cat import QuantumCatGame
-  game = QuantumCatGame(params=game_params)
+  game = _load_configured_game(game_name, game_params)
   results = Buffer(config.evaluation_window)
   logger.print("Initializing model")
   model = _init_model_from_config(config)
@@ -397,7 +403,8 @@ def learner(*, game, config, actors, evaluators, broadcast_fn, logger):
 
       replay_buffer.extend(
           model_lib.TrainInput(
-              s.observation, s.legals_mask, s.policy, p1_outcome)
+              s.observation, s.legals_mask, s.policy,
+              trajectory.returns[s.current_player])
           for s in trajectory.states)
 
       for stage in range(stage_count):
@@ -523,7 +530,8 @@ def learner(*, game, config, actors, evaluators, broadcast_fn, logger):
 
 def alpha_zero(config: Config):
   """Start all the worker processes for a full alphazero setup."""
-  game = pyspiel.load_game(config.game)
+  game_params = _game_params_for_config(config.game)
+  game = _load_configured_game(config.game, game_params)
   config = config._replace(
       observation_shape=game.observation_tensor_shape(),
       output_size=game.num_distinct_actions())
@@ -554,7 +562,6 @@ def alpha_zero(config: Config):
   with open(os.path.join(config.path, "config.json"), "w") as fp:
     fp.write(json.dumps(config._asdict(), indent=2, sort_keys=True) + "\n")
 
-  game_params = {"players": 2} if config.game == "python_quantum_cat" else {}
   actors = [spawn.Process(actor, kwargs={"game_name": config.game,
                                        "game_params": game_params,
                                        "config": config,

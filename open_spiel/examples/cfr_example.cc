@@ -28,6 +28,7 @@ ABSL_FLAG(int, report_every, 100, "How often to report exploitability.");
 // Example code for using CFR+ to solve Kuhn Poker.
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
+  SPIEL_CHECK_GT(absl::GetFlag(FLAGS_report_every), 0);
   std::shared_ptr<const open_spiel::Game> game =
       open_spiel::LoadGame(absl::GetFlag(FLAGS_game_name));
   open_spiel::algorithms::CFRSolver solver(*game);

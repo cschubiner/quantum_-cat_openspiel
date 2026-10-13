@@ -34,6 +34,35 @@ _NUM_ITERATION_CFR_TEST = 1
 
 class DynamicRoutingGameTest(absltest.TestCase):
 
+  def _small_network_game(self, departure_time=0):
+    network = dynamic_routing_utils.Network(
+        {"O": ["A", "B"], "A": ["D"], "B": ["D"], "D": []})
+    vehicles = [
+        dynamic_routing_utils.Vehicle(
+            "O->A", "A->D", departure_time=departure_time)
+    ]
+    return dynamic_routing.DynamicRoutingGame(
+        {
+            "max_num_time_step": 10,
+            "time_step_length": 0.5,
+            "players": -1
+        },
+        network=network,
+        vehicles=vehicles)
+
+  def _horizon_terminal_game(self):
+    network = dynamic_routing_utils.Network(
+        {"O": ["A"], "A": ["D"], "B": ["D"], "D": []})
+    vehicles = [dynamic_routing_utils.Vehicle("O->A", "B->D")]
+    return dynamic_routing.DynamicRoutingGame(
+        {
+            "max_num_time_step": 1,
+            "time_step_length": 0.5,
+            "players": -1
+        },
+        network=network,
+        vehicles=vehicles)
+
   def test_random_game(self):
     """Tests basic API functions with the standard game tests."""
     game = pyspiel.load_game("python_dynamic_routing")
@@ -152,24 +181,88 @@ class DynamicRoutingGameTest(absltest.TestCase):
 
   def test_game_evolution_first_action_policy(self):
     """Check game deterministic evolution under first action policy."""
-    # Test evolution of the game as expected (test value of the state).
-    # test legal_actions().
+    game = self._small_network_game()
+    state = game.new_initial_state()
+    first_action = game.network.get_action_id_from_movement("A", "D")
+
+    self.assertEqual(state.current_time_step, 0)
+    self.assertEqual(state.get_current_vehicle_locations(), ["O->A"])
+    self.assertEqual(state.legal_actions(0), [first_action])
+
+    state.apply_actions([first_action])
+
+    self.assertTrue(state.is_terminal())
+    self.assertEqual(state.current_time_step, 1)
+    self.assertEqual(state.get_current_vehicle_locations(), ["A->D"])
+    self.assertEqual(state.returns(), [0.0])
 
   def test_observer_correct(self):
     """Check that the observer is correclty updated."""
-    # Add test about observer and tensor being updated.
+    game = self._small_network_game()
+    state = game.new_initial_state()
+    observer = game.make_py_observer()
+    origin_action = game.network.get_action_id_from_movement("O", "A")
+    destination_action = game.network.get_action_id_from_movement("A", "D")
+
+    observer.set_from(state, 0)
+    self.assertEqual(
+        observer.dict["observation"][0].tolist(),
+        [origin_action, origin_action])
+    self.assertEqual(observer.string_from(state, 0), "0: ")
+
+    state.apply_actions([destination_action])
+    observer.set_from(state, 0)
+
+    self.assertEqual(
+        observer.dict["observation"][1].tolist(),
+        [destination_action, destination_action])
+    self.assertEqual(observer.string_from(state, 0), "0: 1")
 
   def test_apply_actions_error_no_movement_with_negative_waiting_time(self):
     """Check that a vehicle cannot choose to not move if it has to move."""
-    # Test apply_actions().
+    game = self._small_network_game()
+    state = game.new_initial_state()
+
+    with self.assertRaises(AssertionError):
+      state.apply_actions([dynamic_routing_utils.NO_POSSIBLE_ACTION])
 
   def test_apply_actions_error_wrong_movement_with_negative_waiting_time(self):
     """Check that a vehicle cannot choose to move to a not successor link."""
-    # Test apply_actions().
+    game = self._small_network_game()
+    state = game.new_initial_state()
+    wrong_action = game.network.get_action_id_from_movement("O", "B")
+
+    with self.assertRaises(AssertionError):
+      state.apply_actions([wrong_action])
 
   def test_apply_actions_error_movement_with_positive_waiting_time(self):
     """Check that a vehicle cannot choose to move if it cannot move yet."""
-    # Test apply_actions().
+    game = self._small_network_game(departure_time=1.0)
+    state = game.new_initial_state()
+    move_action = game.network.get_action_id_from_movement("A", "D")
+
+    self.assertEqual(
+        state.legal_actions(0), [dynamic_routing_utils.NO_POSSIBLE_ACTION])
+    with self.assertRaises(AssertionError):
+      state.apply_actions([move_action])
+
+  def test_terminal_horizon_rewards_match_returns_delta(self):
+    """Check terminal transitions preserve the final step reward."""
+    game = self._horizon_terminal_game()
+    state = game.new_initial_state()
+    before_returns = state.returns()
+    action = game.network.get_action_id_from_movement("A", "D")
+
+    state.apply_actions([action])
+
+    self.assertTrue(state.is_terminal())
+    self.assertEqual(state.returns(), [-0.5])
+    self.assertEqual(
+        state.rewards(),
+        [
+            new_return - old_return
+            for new_return, old_return in zip(state.returns(), before_returns)
+        ])
 
   def test_braess_paradox(self):
     """Test that Braess paradox can be reproduced with the mean field game."""

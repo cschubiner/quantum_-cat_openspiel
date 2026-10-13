@@ -28,6 +28,38 @@ class DominoesTest(absltest.TestCase):
     game = pyspiel.load_game("python_team_dominoes")
     pyspiel.random_sim_test(game, num_sims=100, serialize=False, verbose=True)
 
+  def test_metadata_includes_deal_and_play_actions(self):
+    game = pyspiel.load_game("python_team_dominoes")
+    self.assertEqual(game.max_game_length(), 56)
+
+  def test_observer_reports_all_hand_sizes(self):
+    game = pyspiel.load_game("python_team_dominoes")
+    state = game.new_initial_state()
+    state.hands = [
+        [(0.0, 0.0)],
+        [(0.0, 0.0), (0.0, 1.0)],
+        [(0.0, 0.0), (0.0, 1.0), (0.0, 2.0)],
+        [(0.0, 0.0), (0.0, 1.0), (0.0, 2.0), (0.0, 3.0)],
+    ]
+    observer = game.make_py_observer(
+        pyspiel.IIGObservationType(perfect_recall=False)
+    )
+    observer.set_from(state, 3)
+    self.assertEqual(observer.dict["hand_sizes"].tolist(), [1.0, 2.0, 3.0, 4.0])
+
+  def test_perfect_recall_observer_fits_full_play_history(self):
+    game = pyspiel.load_game("python_team_dominoes")
+    state = game.new_initial_state()
+    state.actions_history = [
+        team_dominoes.Action(i % 4, (0.0, 0.0), 0.0) for i in range(28)
+    ]
+    observer = game.make_py_observer(
+        pyspiel.IIGObservationType(perfect_recall=True)
+    )
+    observer.set_from(state, 0)
+    self.assertEqual(observer.dict["actions_history"].shape, (28, 5))
+    self.assertEqual(observer.dict["actions_history"][:, 4].sum(), 28)
+
   def test_single_deterministic_game_1(self):
     """Runs a single game where tiles and actions chose deterministically."""
     game = pyspiel.load_game("python_team_dominoes")

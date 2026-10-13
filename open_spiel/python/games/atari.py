@@ -102,7 +102,8 @@ class AtariGame(pyspiel.Game):
   """An OpenSpiel wrapper for the OpenAI Gym Atari games."""
 
   def __init__(self, params=None):
-    super().__init__(_GAME_TYPE, _GAME_INFO, params or dict())
+    params = params or dict()
+    super().__init__(_GAME_TYPE, _GAME_INFO, params)
     self.gym_id = params.get('gym_id', 'BreakoutNoFrameskip-v4')
     self.seed = params.get('seed', 1)
     self.idx = params.get('idx', 0)
@@ -163,7 +164,7 @@ class AtariState(pyspiel.State):
     self.tracked_rewards = 0
     self.env = game.env
     self.observation = self.env.reset()
-    self.last_reward = None
+    self.last_reward = 0.0
     self.last_info = dict()
 
   def current_player(self):

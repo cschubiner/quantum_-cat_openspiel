@@ -212,6 +212,7 @@ class DynamicRoutingGameState(pyspiel.State):
     self._waiting_times = [
         int(veh._departure_time / self._time_step_length) for veh in vehicles
     ]
+    self._last_rewards = [0.0 for _ in vehicles]
     self.running_cost = [0 for vehicle in vehicles]
 
   @property
@@ -292,6 +293,7 @@ class DynamicRoutingGameState(pyspiel.State):
     """
     if self.get_game().perform_sanity_checks:
       assert not self._is_terminal
+    previous_returns = self.returns()
     if self.get_game().perform_sanity_checks:
       assert isinstance(actions, Iterable)
       assert len(actions) == self.get_game().num_players(), (
@@ -307,6 +309,10 @@ class DynamicRoutingGameState(pyspiel.State):
               f"{action} should be {dynamic_routing_utils.NO_POSSIBLE_ACTION}.")
         continue
       if self._waiting_times[vehicle_id] > 0:
+        if self.get_game().perform_sanity_checks:
+          assert action == dynamic_routing_utils.NO_POSSIBLE_ACTION, (
+              f"{action} should be {dynamic_routing_utils.NO_POSSIBLE_ACTION} "
+              f"while vehicle {vehicle_id} is waiting.")
         continue
       if self.get_game().perform_sanity_checks:
         self.get_game().network.assert_valid_action(
@@ -348,6 +354,10 @@ class DynamicRoutingGameState(pyspiel.State):
         if vehicle_id not in self._vehicle_at_destination:
           self._vehicle_final_arrival_times[vehicle_id] = (
               self._current_time_step)
+    self._last_rewards = [
+        new_return - old_return
+        for new_return, old_return in zip(self.returns(), previous_returns)
+    ]
 
   def _action_to_string(self, player, action) -> str:
     """Action -> string."""
@@ -367,12 +377,7 @@ class DynamicRoutingGameState(pyspiel.State):
 
   def rewards(self):
     """Reward at the previous step."""
-    if self._is_terminal or self._current_time_step == 0:
-      return [0 for _ in self._vehicle_locations]
-    reward = [-self._time_step_length for _ in self._vehicle_locations]
-    for vehicle in self._vehicle_at_destination:
-      reward[vehicle] = 0
-    return reward
+    return list(self._last_rewards)
 
   def returns(self) -> List[float]:
     """Total reward for each player over the course of the game so far."""

@@ -60,5 +60,6 @@ void ImperfectRecallMCCFR() {
 
 int main(int argc, char** argv) {
   absl::ParseCommandLine(argc, argv);
+  SPIEL_CHECK_GT(absl::GetFlag(FLAGS_report_every), 0);
   open_spiel::ImperfectRecallMCCFR();
 }

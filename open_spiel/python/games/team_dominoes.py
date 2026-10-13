@@ -62,7 +62,7 @@ _ACTIONS_STR = [str(action) for action in _ACTIONS]
 
 _HAND_SIZE = 7
 
-_MAX_GAME_LENGTH = 28
+_MAX_GAME_LENGTH = 56
 
 _GAME_TYPE = pyspiel.GameType(
     short_name="python_team_dominoes",
@@ -329,7 +329,7 @@ class DominoesObserver:
         # 1 for which player (0,1,3,4),
         # 1 to distinguish between actual move and empty slot for a move (0/1).
         # the None (play on an empty board) edge represented using 0.
-        pieces.append(("actions_history", 125, (25, 5)))
+        pieces.append(("actions_history", 140, (28, 5)))
       else:
         # last action, represented in the same way as in "actions_history"
         # but without the last integer.
@@ -358,13 +358,9 @@ class DominoesObserver:
 
     if "player" in self.dict:
       self.dict["player"][player] = 1
-      self.dict["player"][1 - player] = 0
 
     if "hand_sizes" in self.dict:
-      my_hand_size = len(state.hands[player])
-      opp_hand_size = len(state.hands[1 - player])
-      self.dict["hand_sizes"][0] = my_hand_size
-      self.dict["hand_sizes"][1] = opp_hand_size
+      self.dict["hand_sizes"][:] = [len(hand) for hand in state.hands]
 
     if "edges" in self.dict:
       if state.open_edges:

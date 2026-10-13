@@ -245,6 +245,37 @@ class LiarsPokerTest(absltest.TestCase):
     game = pyspiel.load_game("python_liars_poker", {"players": 2})
     pyspiel.random_sim_test(game, num_sims=10, serialize=False, verbose=True)
 
+  def test_non_default_player_count(self):
+    game = pyspiel.load_game("python_liars_poker", {"players": 3})
+    self.assertEqual(game.num_players(), 3)
+    state = game.new_initial_state()
+    self.assertEqual(state.num_players(), 3)
+    self.assertEqual(state.total_possible_bids, 300)
+
+  def test_default_deck_can_bid_zero(self):
+    game = pyspiel.load_game("python_liars_poker")
+    state = game.new_initial_state()
+    state.hands = [[0] * game.hand_length, [1] * game.hand_length]
+    bid = state.encode_bid(1, 0)
+    self.assertEqual(state._decode_bid(bid), (1, 0))
+    state._current_action = bid + liars_poker.BID_ACTION_OFFSET
+    state._bid_originator = 0
+    state._counts()
+    self.assertEqual(state.winner(), 0)
+
+  def test_observer_writes_into_tensor_views(self):
+    game = pyspiel.load_game("python_liars_poker")
+    state = game.new_initial_state()
+    state.hands = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 0], [1] * game.hand_length]
+    observer = game.make_py_observer(
+        pyspiel.IIGObservationType(perfect_recall=True)
+    )
+    observer.set_from(state, 0)
+    self.assertGreater(observer.tensor.sum(), observer.dict["player"].sum())
+    np.testing.assert_array_equal(
+        observer.dict["private_hand"], np.asarray(state.hands[0])
+    )
+
   def test_pickle(self):
     """Checks pickling and unpickling of game and state."""
     game = pyspiel.load_game("python_liars_poker")

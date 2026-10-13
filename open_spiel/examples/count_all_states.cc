@@ -61,7 +61,8 @@ int main(int argc, char** argv) {
             GameType::Information::kPerfectInformation) {
           nonterminal_states.insert(state->ToString());
         } else {
-          nonterminal_states.insert(state->InformationStateString());
+          nonterminal_states.insert(std::to_string(state->CurrentPlayer()) + "|" +
+                                    state->InformationStateString());
         }
         break;
       case StateType::kTerminal:

@@ -105,7 +105,11 @@ def _get_requirements(requirements_file):  # pylint: disable=g-doc-args
   source of truth.
   """
   with open(requirements_file) as f:
-    return [_parse_line(line) for line in f if line]
+    return [
+        requirement
+        for requirement in (_parse_line(line) for line in f)
+        if requirement
+    ]
 
 
 def _parse_line(s):
