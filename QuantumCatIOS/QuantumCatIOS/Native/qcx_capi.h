@@ -24,6 +24,17 @@ extern "C" {
 /// action is legal).
 int qc_decide(const int *view, int worlds, int util, unsigned long long seed, double *values_out);
 
+/// Load the learned rollout policy from the text of a weights file
+/// (qcx/weights/*.txt). Returns 1 on success. Call once before deciding.
+int qc_load_policy_text(const char *text);
+/// Load the learned rollout policy from a weights file path. Returns 1 on success.
+int qc_load_policy(const char *path);
+/// 1 when a learned rollout policy is loaded.
+int qc_policy_loaded(void);
+/// Same as qc_decide, but rollouts use the loaded learned play policy
+/// (falls back to qc_decide when none is loaded).
+int qc_decide_learned(const int *view, int worlds, int util, unsigned long long seed, double *values_out);
+
 /// Legal action ids for the acting player of `view`, written to `out`.
 /// Returns the count.
 int qc_legal_from_view(const int *view, int *out);

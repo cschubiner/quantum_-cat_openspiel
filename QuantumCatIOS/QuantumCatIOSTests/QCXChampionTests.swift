@@ -38,6 +38,15 @@ final class QCXChampionTests: XCTestCase {
 
     // MARK: (a) legal-action parity, Swift engine vs C++ view
 
+    func testBundledChampionLoadsLearnedRolloutsWhenConfigured() {
+        let config = QCXChampion.config
+        if let text = config.rolloutPolicyText, !text.isEmpty {
+            XCTAssertTrue(QCXChampion.learnedRolloutsLoaded, "bundled rollout policy failed to load")
+        } else {
+            XCTAssertFalse(QCXChampion.learnedRolloutsLoaded)
+        }
+    }
+
     func testNativeLegalActionsMatchSwiftEngineAcrossRandomRounds() throws {
         var checked = 0
         var phasesSeen = Set<String>()

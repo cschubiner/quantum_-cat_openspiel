@@ -16,9 +16,13 @@ struct QCXChampionConfig: Decodable {
     var sourceCommit: String?
     var sourceSHA256: String?
     var evidence: String?
+    /// Text of the learned rollout-policy weights file (champion v3+), embedded
+    /// by qcx/sync_ios.sh. nil => plain heuristic rollouts.
+    var rolloutPolicyText: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, name, worlds, util, players, evidence
+        case rolloutPolicyText = "rollout_policy_text"
         case displayName = "display_name"
         case viewLen = "view_len"
         case sourceCommit = "source_commit"
@@ -40,6 +44,7 @@ struct QCXChampionConfig: Decodable {
         sourceCommit = try? c.decode(String.self, forKey: .sourceCommit)
         sourceSHA256 = try? c.decode(String.self, forKey: .sourceSHA256)
         evidence = try? c.decode(String.self, forKey: .evidence)
+        rolloutPolicyText = try? c.decode(String.self, forKey: .rolloutPolicyText)
     }
 
     static let bundled: QCXChampionConfig = {
@@ -251,14 +256,26 @@ enum QCXChampion {
         return out.prefix(Int(max(0, n))).map(Int.init)
     }
 
-    /// Raw qc_decide with explicit parameters (used by parity fixtures).
+    /// Loads the bundled learned rollout policy into the native engine exactly
+    /// once (thread-safe via Swift's lazy static initialisation). true when the
+    /// champion uses learned rollouts and they loaded.
+    static let learnedRolloutsLoaded: Bool = {
+        guard let text = config.rolloutPolicyText, !text.isEmpty else { return false }
+        return text.withCString { qc_load_policy_text($0) } == 1
+    }()
+
+    /// Raw champion decision with explicit parameters (used by parity fixtures):
+    /// learned rollouts when the bundled champion has them, else qc_decide.
     static func decide(view: [Int32], worlds: Int, util: Int, seed: UInt64) -> (action: Int, values: [Int: Double]) {
         precondition(view.count == QCXView.length)
         let legal = legalActions(view: view)
         var values = [Double](repeating: .nan, count: Int(QCX_MAX_ACTIONS))
+        let learned = learnedRolloutsLoaded
         let action = view.withUnsafeBufferPointer { v in
             values.withUnsafeMutableBufferPointer { o in
-                qc_decide(v.baseAddress, Int32(worlds), Int32(util), seed, o.baseAddress)
+                learned
+                    ? qc_decide_learned(v.baseAddress, Int32(worlds), Int32(util), seed, o.baseAddress)
+                    : qc_decide(v.baseAddress, Int32(worlds), Int32(util), seed, o.baseAddress)
             }
         }
         var byAction: [Int: Double] = [:]

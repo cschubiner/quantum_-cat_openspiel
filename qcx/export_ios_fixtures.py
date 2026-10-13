@@ -26,6 +26,13 @@ sys.path.insert(0, HERE)
 import pyspiel  # noqa: E402
 from open_spiel.python.games import quantum_cat  # noqa: E402,F401
 import qc_py  # noqa: E402
+import json as _json
+_CHAMP = _json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "qcx_champion.json")))
+if _CHAMP.get("rollout_policy"):
+  qc_py.load_policy(os.path.join(os.path.dirname(os.path.abspath(__file__)), _CHAMP["rollout_policy"]))
+  _DECIDE = qc_py.decide_learned
+else:
+  _DECIDE = qc_py.decide
 
 FIXTURE_WORLDS = 64
 FIXTURE_UTIL = 0
@@ -78,7 +85,7 @@ def main():
       for state, me, history in pick(decisions, rng):
         view = [int(x) for x in qc_py.build_view(state, me)]
         seed = (game_seed * 1_000_003 + len(history) * 97 + 12345) & 0x7FFFFFFFFFFFFFFF
-        action = int(qc_py.decide(state, me, FIXTURE_WORLDS, FIXTURE_UTIL, seed))
+        action = int(_DECIDE(state, me, FIXTURE_WORLDS, FIXTURE_UTIL, seed))
         fixtures.append({
             "players": P,
             "start": start,

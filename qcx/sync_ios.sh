@@ -23,7 +23,7 @@ set -euo pipefail
 QCX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$QCX_DIR/.." && pwd)"
 NATIVE_DIR="$ROOT_DIR/QuantumCatIOS/QuantumCatIOS/Native"
-SOURCES=(qc_core.h qc_agents.h qc_capi.cpp)
+SOURCES=(qc_core.h qc_agents.h qc_learn.h qc_capi.cpp)
 
 DO_TEST=0; DO_INSTALL=0; DO_FIXTURES=1; CHECK_ONLY=0
 for arg in "$@"; do
@@ -49,7 +49,9 @@ if [[ "$py_view_len" != "$hdr_view_len" || "$py_view_len" != "$json_view_len" ]]
 Update QCX_VIEW_LEN, qcx_champion.json and QCXView.build (QuantumCatIOS/QuantumCatIOS/Models/QCXChampion.swift) to mirror qc_py.build_view, then re-run."
 fi
 for fn in "int qc_decide(const int\* view, int worlds, int util, unsigned long long seed, double\* values_out)" \
-          "int qc_legal_from_view(const int\* view, int\* out)"; do
+          "int qc_legal_from_view(const int\* view, int\* out)" \
+          "int qc_decide_learned(const int\* view, int worlds, int util, unsigned long long seed, double\* values_out)" \
+          "int qc_load_policy_text(const char\* text)"; do
   grep -q "$fn" "$QCX_DIR/qc_capi.cpp" || die "qc_capi.cpp no longer defines: ${fn//\\/} -- update Native/qcx_capi.h and the Swift bridge"
 done
 
@@ -79,8 +81,15 @@ import hashlib, json, os, sys
 qcx, native, commit = sys.argv[1:4]
 doc = json.load(open(os.path.join(qcx, "qcx_champion.json")))
 h = hashlib.sha256()
-for f in ("qc_core.h", "qc_agents.h", "qc_capi.cpp"):
+for f in ("qc_core.h", "qc_agents.h", "qc_learn.h", "qc_capi.cpp"):
   h.update(open(os.path.join(qcx, f), "rb").read())
+# Embed the learned rollout policy weights (if any) so the app needs no extra resource.
+rp = doc.get("rollout_policy")
+if rp:
+  text = open(os.path.join(qcx, rp)).read()
+  doc["rollout_policy_text"] = text
+  doc["rollout_policy_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+  h.update(text.encode())
 doc["source_commit"] = commit
 doc["source_sha256"] = h.hexdigest()
 out = os.path.join(native, "qcx_champion.json")

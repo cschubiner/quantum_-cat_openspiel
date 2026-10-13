@@ -278,6 +278,15 @@ struct LearnedPolicy {
   }
   bool load(const std::string& path) {
     FILE* fp = std::fopen(path.c_str(), "r");
+    return load_file(fp);
+  }
+  // Parse weights from an in-memory copy of the weights file.
+  bool load_text(const char* text) {
+    if (!text) return false;
+    FILE* fp = fmemopen((void*)text, std::strlen(text), "r");
+    return load_file(fp);
+  }
+  bool load_file(FILE* fp) {
     if (!fp) return false;
     char kindbuf[16];
     if (std::fscanf(fp, "%15s %d", kindbuf, &F) != 2) { std::fclose(fp); return false; }

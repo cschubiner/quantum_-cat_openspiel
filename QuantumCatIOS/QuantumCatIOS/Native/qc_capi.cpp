@@ -1,5 +1,6 @@
 // C ABI for Python (ctypes): rules-parity replay and information-set decisions.
 #include "qc_agents.h"
+#include "qc_learn.h"
 
 using namespace qc;
 
@@ -65,6 +66,40 @@ int qc_decide(const int* view, int worlds, int util, unsigned long long seed, do
   sp.worlds = worlds; sp.util = util;
   Rng rng(seed);
   return pimc_decide(s, s.cur, sp, rng, values_out);
+}
+
+// Learned rollout policy (champion v3). Load once before deciding; a policy
+// whose file fails to load leaves the previous one (or none) in place.
+static LearnedPolicy g_policy;
+static bool g_policy_ok = false;
+
+int qc_load_policy(const char* path) {
+  LearnedPolicy p;
+  if (!p.load(path)) return 0;
+  g_policy = p;
+  g_policy_ok = true;
+  return 1;
+}
+
+int qc_load_policy_text(const char* text) {
+  LearnedPolicy p;
+  if (!p.load_text(text)) return 0;
+  g_policy = p;
+  g_policy_ok = true;
+  return 1;
+}
+
+int qc_policy_loaded(void) { return g_policy_ok ? 1 : 0; }
+
+// Like qc_decide, but rollouts use the learned play policy when loaded.
+int qc_decide_learned(const int* view, int worlds, int util, unsigned long long seed, double* values_out) {
+  if (!g_policy_ok) return qc_decide(view, worlds, util, seed, values_out);
+  Round s;
+  view_to_round(view, s);
+  RolloutPolicy rp;
+  rp.pol = &g_policy;
+  Rng rng(seed);
+  return pimc_decide_rp(s, s.cur, worlds, util, rp, rng, values_out);
 }
 
 int qc_legal_from_view(const int* view, int* out) {

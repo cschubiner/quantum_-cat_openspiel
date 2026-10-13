@@ -1,9 +1,9 @@
 {
-  "id": "qcx_pimc",
-  "name": "qcx PIMC search",
+  "id": "qcx_pimc_learned",
+  "name": "qcx PIMC search + learned rollouts",
   "display_name": "Champion (qcx PIMC search)",
   "engine": "qc_agents.h pimc_decide via qc_capi.cpp qc_decide",
-  "worlds": 1024,
+  "worlds": 512,
   "util": 0,
   "view_len": 84,
   "players": [
@@ -11,5 +11,6 @@
     4,
     5
   ],
-  "evidence": "qcx PIMC beat four Run1051 champion copies: 87% pairwise placement, 72.5% first place (32 deals). Search scales: 128>32 worlds +12.6pp, 512>128 +4.4pp. Rollout token penalty 0.6 confirmed +3.6pp on 100 fresh deals. On-device 256 worlds took 22 ms mean / 91 ms max (5p), so the app uses 1024 worlds."
+  "evidence": "v3: PIMC whose rollouts use a learned MLP play policy (expert iteration on PIMC decisions). At equal worlds it beats the v2 recipe by +11.5pp (5p), +8.1pp (3p), +19.1pp (4p) pairwise placement; with 1/4 the worlds it still beats v2 by +6.5pp (5p). v2 beat the prior Python champions: 87% (5p vs Run1051), 80% (3p vs Run604), 84.6% (4p vs Run730).",
+  "rollout_policy": "weights/g1_mlp.txt"
 }

@@ -81,6 +81,14 @@ int qc_load_policy(const char* path) {
   return 1;
 }
 
+int qc_load_policy_text(const char* text) {
+  LearnedPolicy p;
+  if (!p.load_text(text)) return 0;
+  g_policy = p;
+  g_policy_ok = true;
+  return 1;
+}
+
 int qc_policy_loaded(void) { return g_policy_ok ? 1 : 0; }
 
 // Like qc_decide, but rollouts use the learned play policy when loaded.
