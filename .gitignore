@@ -65,3 +65,10 @@ open_spiel/.vs
 quantum_cat_ppo/
 quantum_checkpoints/
 quantum_cat_agent*.pth
+
+# Local data / tool state (not source)
+az_runs/
+qcx_runs/
+.clawpatch/
+.codex_sidecar/
+.claude-wt/

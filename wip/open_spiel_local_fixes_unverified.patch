@@ -1,0 +1,747 @@
+diff --git a/open_spiel/examples/cfr_example.cc b/open_spiel/examples/cfr_example.cc
+index 924ae942..5fe21bab 100644
+--- a/open_spiel/examples/cfr_example.cc
++++ b/open_spiel/examples/cfr_example.cc
+@@ -28,6 +28,7 @@ ABSL_FLAG(int, report_every, 100, "How often to report exploitability.");
+ // Example code for using CFR+ to solve Kuhn Poker.
+ int main(int argc, char** argv) {
+   absl::ParseCommandLine(argc, argv);
++  SPIEL_CHECK_GT(absl::GetFlag(FLAGS_report_every), 0);
+   std::shared_ptr<const open_spiel::Game> game =
+       open_spiel::LoadGame(absl::GetFlag(FLAGS_game_name));
+   open_spiel::algorithms::CFRSolver solver(*game);
+diff --git a/open_spiel/examples/count_all_states.cc b/open_spiel/examples/count_all_states.cc
+index 7ed49a47..d40144ff 100644
+--- a/open_spiel/examples/count_all_states.cc
++++ b/open_spiel/examples/count_all_states.cc
+@@ -61,7 +61,8 @@ int main(int argc, char** argv) {
+             GameType::Information::kPerfectInformation) {
+           nonterminal_states.insert(state->ToString());
+         } else {
+-          nonterminal_states.insert(state->InformationStateString());
++          nonterminal_states.insert(std::to_string(state->CurrentPlayer()) + "|" +
++                                    state->InformationStateString());
+         }
+         break;
+       case StateType::kTerminal:
+diff --git a/open_spiel/examples/example.cc b/open_spiel/examples/example.cc
+index 0eb977a0..83217b8f 100644
+--- a/open_spiel/examples/example.cc
++++ b/open_spiel/examples/example.cc
+@@ -138,7 +138,7 @@ int main(int argc, char** argv) {
+       auto player = state->CurrentPlayer();
+       if (show_infostate) {
+         if (game->GetType().provides_information_state_tensor) {
+-          std::vector<float> infostate;
++          std::vector<float> infostate(game->InformationStateTensorSize());
+           state->InformationStateTensor(player, absl::MakeSpan(infostate));
+           std::cerr << "player " << player << ": "
+                     << absl::StrJoin(infostate, " ") << std::endl;
+diff --git a/open_spiel/examples/imperfect_recall_mccfr.cc b/open_spiel/examples/imperfect_recall_mccfr.cc
+index 8ea5b485..30128265 100644
+--- a/open_spiel/examples/imperfect_recall_mccfr.cc
++++ b/open_spiel/examples/imperfect_recall_mccfr.cc
+@@ -60,5 +60,6 @@ void ImperfectRecallMCCFR() {
+ 
+ int main(int argc, char** argv) {
+   absl::ParseCommandLine(argc, argv);
++  SPIEL_CHECK_GT(absl::GetFlag(FLAGS_report_every), 0);
+   open_spiel::ImperfectRecallMCCFR();
+ }
+diff --git a/open_spiel/examples/matrix_example.cc b/open_spiel/examples/matrix_example.cc
+index 1d1b5c22..b0c1bd0f 100644
+--- a/open_spiel/examples/matrix_example.cc
++++ b/open_spiel/examples/matrix_example.cc
+@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
+           0, col_actions.size() - 1)(rng)];
+ 
+   std::cerr << "Joint action is: (" << state->ActionToString(0, row_action)
+-            << "," << state->ActionToString(1, row_action) << ")" << std::endl;
++            << "," << state->ActionToString(1, col_action) << ")" << std::endl;
+ 
+   state->ApplyActions({row_action, col_action});
+ 
+diff --git a/open_spiel/python/algorithms/alpha_zero/alpha_zero.py b/open_spiel/python/algorithms/alpha_zero/alpha_zero.py
+index aacab4fe..1d1af864 100644
+--- a/open_spiel/python/algorithms/alpha_zero/alpha_zero.py
++++ b/open_spiel/python/algorithms/alpha_zero/alpha_zero.py
+@@ -60,6 +60,17 @@ from open_spiel.python.utils import stats
+ JOIN_WAIT_DELAY = 0.001
+ 
+ 
++def _game_params_for_config(game_name):
++  return {"players": 2} if game_name == "python_quantum_cat" else {}
++
++
++def _load_configured_game(game_name, game_params=None):
++  if game_name == "python_quantum_cat":
++    # Import registers the Python game with pyspiel in worker processes.
++    from open_spiel.python.games import quantum_cat  # pylint: disable=unused-import,g-import-not-at-top
++  return pyspiel.load_game(game_name, game_params or {})
++
++
+ class TrajectoryState(object):
+   """A particular point along a trajectory."""
+ 
+@@ -270,9 +281,7 @@ def update_checkpoint(logger, queue, model, az_evaluator):
+ @watcher
+ def actor(*, config, game_name, game_params, logger, queue):
+   """An actor process runner that generates games and returns trajectories."""
+-  game = pyspiel.load_game(game_name, game_params)
+-  from open_spiel.python.games.quantum_cat import QuantumCatGame
+-  game = QuantumCatGame(params=game_params)
++  game = _load_configured_game(game_name, game_params)
+   logger.print("Initializing model")
+   model = _init_model_from_config(config)
+   logger.print("Initializing bots")
+@@ -291,10 +300,7 @@ def actor(*, config, game_name, game_params, logger, queue):
+ @watcher
+ def evaluator(*, game_name, game_params, config, logger, queue):
+   """A process that plays the latest checkpoint vs standard MCTS."""
+-  game = pyspiel.load_game(game_name, game_params)
+-  # reinitialize the game
+-  from open_spiel.python.games.quantum_cat import QuantumCatGame
+-  game = QuantumCatGame(params=game_params)
++  game = _load_configured_game(game_name, game_params)
+   results = Buffer(config.evaluation_window)
+   logger.print("Initializing model")
+   model = _init_model_from_config(config)
+@@ -397,7 +403,8 @@ def learner(*, game, config, actors, evaluators, broadcast_fn, logger):
+ 
+       replay_buffer.extend(
+           model_lib.TrainInput(
+-              s.observation, s.legals_mask, s.policy, p1_outcome)
++              s.observation, s.legals_mask, s.policy,
++              trajectory.returns[s.current_player])
+           for s in trajectory.states)
+ 
+       for stage in range(stage_count):
+@@ -523,7 +530,8 @@ def learner(*, game, config, actors, evaluators, broadcast_fn, logger):
+ 
+ def alpha_zero(config: Config):
+   """Start all the worker processes for a full alphazero setup."""
+-  game = pyspiel.load_game(config.game)
++  game_params = _game_params_for_config(config.game)
++  game = _load_configured_game(config.game, game_params)
+   config = config._replace(
+       observation_shape=game.observation_tensor_shape(),
+       output_size=game.num_distinct_actions())
+@@ -554,7 +562,6 @@ def alpha_zero(config: Config):
+   with open(os.path.join(config.path, "config.json"), "w") as fp:
+     fp.write(json.dumps(config._asdict(), indent=2, sort_keys=True) + "\n")
+ 
+-  game_params = {"players": 2} if config.game == "python_quantum_cat" else {}
+   actors = [spawn.Process(actor, kwargs={"game_name": config.game,
+                                        "game_params": game_params,
+                                        "config": config,
+diff --git a/open_spiel/python/games/atari.py b/open_spiel/python/games/atari.py
+index c195d8c3..87ed5bec 100644
+--- a/open_spiel/python/games/atari.py
++++ b/open_spiel/python/games/atari.py
+@@ -102,7 +102,8 @@ class AtariGame(pyspiel.Game):
+   """An OpenSpiel wrapper for the OpenAI Gym Atari games."""
+ 
+   def __init__(self, params=None):
+-    super().__init__(_GAME_TYPE, _GAME_INFO, params or dict())
++    params = params or dict()
++    super().__init__(_GAME_TYPE, _GAME_INFO, params)
+     self.gym_id = params.get('gym_id', 'BreakoutNoFrameskip-v4')
+     self.seed = params.get('seed', 1)
+     self.idx = params.get('idx', 0)
+@@ -163,7 +164,7 @@ class AtariState(pyspiel.State):
+     self.tracked_rewards = 0
+     self.env = game.env
+     self.observation = self.env.reset()
+-    self.last_reward = None
++    self.last_reward = 0.0
+     self.last_info = dict()
+ 
+   def current_player(self):
+diff --git a/open_spiel/python/games/dynamic_routing.py b/open_spiel/python/games/dynamic_routing.py
+index 4633a943..c1835693 100644
+--- a/open_spiel/python/games/dynamic_routing.py
++++ b/open_spiel/python/games/dynamic_routing.py
+@@ -212,6 +212,7 @@ class DynamicRoutingGameState(pyspiel.State):
+     self._waiting_times = [
+         int(veh._departure_time / self._time_step_length) for veh in vehicles
+     ]
++    self._last_rewards = [0.0 for _ in vehicles]
+     self.running_cost = [0 for vehicle in vehicles]
+ 
+   @property
+@@ -292,6 +293,7 @@ class DynamicRoutingGameState(pyspiel.State):
+     """
+     if self.get_game().perform_sanity_checks:
+       assert not self._is_terminal
++    previous_returns = self.returns()
+     if self.get_game().perform_sanity_checks:
+       assert isinstance(actions, Iterable)
+       assert len(actions) == self.get_game().num_players(), (
+@@ -307,6 +309,10 @@ class DynamicRoutingGameState(pyspiel.State):
+               f"{action} should be {dynamic_routing_utils.NO_POSSIBLE_ACTION}.")
+         continue
+       if self._waiting_times[vehicle_id] > 0:
++        if self.get_game().perform_sanity_checks:
++          assert action == dynamic_routing_utils.NO_POSSIBLE_ACTION, (
++              f"{action} should be {dynamic_routing_utils.NO_POSSIBLE_ACTION} "
++              f"while vehicle {vehicle_id} is waiting.")
+         continue
+       if self.get_game().perform_sanity_checks:
+         self.get_game().network.assert_valid_action(
+@@ -348,6 +354,10 @@ class DynamicRoutingGameState(pyspiel.State):
+         if vehicle_id not in self._vehicle_at_destination:
+           self._vehicle_final_arrival_times[vehicle_id] = (
+               self._current_time_step)
++    self._last_rewards = [
++        new_return - old_return
++        for new_return, old_return in zip(self.returns(), previous_returns)
++    ]
+ 
+   def _action_to_string(self, player, action) -> str:
+     """Action -> string."""
+@@ -367,12 +377,7 @@ class DynamicRoutingGameState(pyspiel.State):
+ 
+   def rewards(self):
+     """Reward at the previous step."""
+-    if self._is_terminal or self._current_time_step == 0:
+-      return [0 for _ in self._vehicle_locations]
+-    reward = [-self._time_step_length for _ in self._vehicle_locations]
+-    for vehicle in self._vehicle_at_destination:
+-      reward[vehicle] = 0
+-    return reward
++    return list(self._last_rewards)
+ 
+   def returns(self) -> List[float]:
+     """Total reward for each player over the course of the game so far."""
+diff --git a/open_spiel/python/games/dynamic_routing_test.py b/open_spiel/python/games/dynamic_routing_test.py
+index 547a7858..b0c3b6ba 100644
+--- a/open_spiel/python/games/dynamic_routing_test.py
++++ b/open_spiel/python/games/dynamic_routing_test.py
+@@ -34,6 +34,35 @@ _NUM_ITERATION_CFR_TEST = 1
+ 
+ class DynamicRoutingGameTest(absltest.TestCase):
+ 
++  def _small_network_game(self, departure_time=0):
++    network = dynamic_routing_utils.Network(
++        {"O": ["A", "B"], "A": ["D"], "B": ["D"], "D": []})
++    vehicles = [
++        dynamic_routing_utils.Vehicle(
++            "O->A", "A->D", departure_time=departure_time)
++    ]
++    return dynamic_routing.DynamicRoutingGame(
++        {
++            "max_num_time_step": 10,
++            "time_step_length": 0.5,
++            "players": -1
++        },
++        network=network,
++        vehicles=vehicles)
++
++  def _horizon_terminal_game(self):
++    network = dynamic_routing_utils.Network(
++        {"O": ["A"], "A": ["D"], "B": ["D"], "D": []})
++    vehicles = [dynamic_routing_utils.Vehicle("O->A", "B->D")]
++    return dynamic_routing.DynamicRoutingGame(
++        {
++            "max_num_time_step": 1,
++            "time_step_length": 0.5,
++            "players": -1
++        },
++        network=network,
++        vehicles=vehicles)
++
+   def test_random_game(self):
+     """Tests basic API functions with the standard game tests."""
+     game = pyspiel.load_game("python_dynamic_routing")
+@@ -152,24 +181,88 @@ class DynamicRoutingGameTest(absltest.TestCase):
+ 
+   def test_game_evolution_first_action_policy(self):
+     """Check game deterministic evolution under first action policy."""
+-    # Test evolution of the game as expected (test value of the state).
+-    # test legal_actions().
++    game = self._small_network_game()
++    state = game.new_initial_state()
++    first_action = game.network.get_action_id_from_movement("A", "D")
++
++    self.assertEqual(state.current_time_step, 0)
++    self.assertEqual(state.get_current_vehicle_locations(), ["O->A"])
++    self.assertEqual(state.legal_actions(0), [first_action])
++
++    state.apply_actions([first_action])
++
++    self.assertTrue(state.is_terminal())
++    self.assertEqual(state.current_time_step, 1)
++    self.assertEqual(state.get_current_vehicle_locations(), ["A->D"])
++    self.assertEqual(state.returns(), [0.0])
+ 
+   def test_observer_correct(self):
+     """Check that the observer is correclty updated."""
+-    # Add test about observer and tensor being updated.
++    game = self._small_network_game()
++    state = game.new_initial_state()
++    observer = game.make_py_observer()
++    origin_action = game.network.get_action_id_from_movement("O", "A")
++    destination_action = game.network.get_action_id_from_movement("A", "D")
++
++    observer.set_from(state, 0)
++    self.assertEqual(
++        observer.dict["observation"][0].tolist(),
++        [origin_action, origin_action])
++    self.assertEqual(observer.string_from(state, 0), "0: ")
++
++    state.apply_actions([destination_action])
++    observer.set_from(state, 0)
++
++    self.assertEqual(
++        observer.dict["observation"][1].tolist(),
++        [destination_action, destination_action])
++    self.assertEqual(observer.string_from(state, 0), "0: 1")
+ 
+   def test_apply_actions_error_no_movement_with_negative_waiting_time(self):
+     """Check that a vehicle cannot choose to not move if it has to move."""
+-    # Test apply_actions().
++    game = self._small_network_game()
++    state = game.new_initial_state()
++
++    with self.assertRaises(AssertionError):
++      state.apply_actions([dynamic_routing_utils.NO_POSSIBLE_ACTION])
+ 
+   def test_apply_actions_error_wrong_movement_with_negative_waiting_time(self):
+     """Check that a vehicle cannot choose to move to a not successor link."""
+-    # Test apply_actions().
++    game = self._small_network_game()
++    state = game.new_initial_state()
++    wrong_action = game.network.get_action_id_from_movement("O", "B")
++
++    with self.assertRaises(AssertionError):
++      state.apply_actions([wrong_action])
+ 
+   def test_apply_actions_error_movement_with_positive_waiting_time(self):
+     """Check that a vehicle cannot choose to move if it cannot move yet."""
+-    # Test apply_actions().
++    game = self._small_network_game(departure_time=1.0)
++    state = game.new_initial_state()
++    move_action = game.network.get_action_id_from_movement("A", "D")
++
++    self.assertEqual(
++        state.legal_actions(0), [dynamic_routing_utils.NO_POSSIBLE_ACTION])
++    with self.assertRaises(AssertionError):
++      state.apply_actions([move_action])
++
++  def test_terminal_horizon_rewards_match_returns_delta(self):
++    """Check terminal transitions preserve the final step reward."""
++    game = self._horizon_terminal_game()
++    state = game.new_initial_state()
++    before_returns = state.returns()
++    action = game.network.get_action_id_from_movement("A", "D")
++
++    state.apply_actions([action])
++
++    self.assertTrue(state.is_terminal())
++    self.assertEqual(state.returns(), [-0.5])
++    self.assertEqual(
++        state.rewards(),
++        [
++            new_return - old_return
++            for new_return, old_return in zip(state.returns(), before_returns)
++        ])
+ 
+   def test_braess_paradox(self):
+     """Test that Braess paradox can be reproduced with the mean field game."""
+diff --git a/open_spiel/python/games/dynamic_routing_to_mean_field_game_test.py b/open_spiel/python/games/dynamic_routing_to_mean_field_game_test.py
+index d3c934c7..5517625b 100644
+--- a/open_spiel/python/games/dynamic_routing_to_mean_field_game_test.py
++++ b/open_spiel/python/games/dynamic_routing_to_mean_field_game_test.py
+@@ -18,7 +18,9 @@ from absl.testing import absltest
+ from open_spiel.python import games  # pylint:disable=unused-import
+ from open_spiel.python import policy
+ from open_spiel.python.algorithms import expected_game_score
++from open_spiel.python.games import dynamic_routing
+ from open_spiel.python.games import dynamic_routing_to_mean_field_game
++from open_spiel.python.games import dynamic_routing_utils
+ from open_spiel.python.mfg import games as mfg_games  # pylint:disable=unused-import
+ from open_spiel.python.mfg.algorithms import mirror_descent
+ import pyspiel
+@@ -26,9 +28,57 @@ import pyspiel
+ 
+ class DerivedNPlayerPolicyFromMeanFieldPolicyTest(absltest.TestCase):
+ 
++  def _small_two_player_game(self):
++    network = dynamic_routing_utils.Network({
++        "O": ["A", "B"],
++        "A": ["C"],
++        "B": ["C"],
++        "C": ["D"],
++        "D": [],
++    })
++    vehicles = [
++        dynamic_routing_utils.Vehicle("O->A", "C->D"),
++        dynamic_routing_utils.Vehicle("O->B", "C->D"),
++    ]
++    return dynamic_routing.DynamicRoutingGame(
++        {
++            "max_num_time_step": 10,
++            "time_step_length": 0.5,
++            "players": -1
++        },
++        network=network,
++        vehicles=vehicles)
++
+   def test_state_conversion_method(self):
+     """Test N player game state to mean field game state conversion."""
+-    # Test state conversion.
++    n_player_game = self._small_two_player_game()
++    mfg_empty_state = dynamic_routing_to_mean_field_game._create_empty_mfg_state(  # pylint:disable=protected-access
++        n_player_game)
++    derived_policy = (
++        dynamic_routing_to_mean_field_game
++        .DerivedNPlayerPolicyFromMeanFieldPolicy(
++            n_player_game, policy.UniformRandomPolicy(
++                mfg_empty_state.get_game())))
++
++    state = n_player_game.new_initial_state()
++    state.apply_actions([
++        n_player_game.network.get_action_id_from_movement("A", "C"),
++        n_player_game.network.get_action_id_from_movement("B", "C"),
++    ])
++
++    converted = derived_policy._convert_state_to_mean_field_state(state, 1)  # pylint:disable=protected-access
++
++    self.assertEqual(converted.current_player(),
++                     pyspiel.PlayerId.DEFAULT_PLAYER_ID)
++    self.assertEqual(converted.current_time_step, state.current_time_step)
++    self.assertFalse(converted.is_terminal())
++    self.assertEqual(str(converted),
++                     "Location=B->C, waiting_time=1, t=1, destination='C->D'")
++    self.assertEqual(converted.legal_actions(),
++                     [dynamic_routing_utils.NO_POSSIBLE_ACTION])
++    self.assertEqual(
++        converted,
++        derived_policy._convert_state_to_mean_field_state(state, 1))  # pylint:disable=protected-access
+ 
+   def test_uniform_mfg_policy_conversion_to_n_player_uniform_policy(self):
+     """Test conversion of uniform to uniform policy."""
+@@ -53,8 +103,28 @@ class DerivedNPlayerPolicyFromMeanFieldPolicyTest(absltest.TestCase):
+ 
+   def test_pigou_network_game_outcome_optimal_mfg_policy_in_n_player_game(self):
+     """Test MFG Nash equilibrium policy for the Pigou network."""
+-    # Test policy.
+-    # Test game outcome.
++    mfg_game = pyspiel.load_game("python_mfg_dynamic_routing", {
++        "time_step_length": 0.05,
++        "max_num_time_step": 100
++    })
++    omd = mirror_descent.MirrorDescent(mfg_game, lr=1)
++    for _ in range(10):
++      omd.iteration()
++    n_player_game = pyspiel.load_game("python_dynamic_routing", {
++        "time_step_length": 0.05,
++        "max_num_time_step": 100
++    })
++
++    mfg_derived_policy = (
++        dynamic_routing_to_mean_field_game
++        .DerivedNPlayerPolicyFromMeanFieldPolicy(n_player_game,
++                                                 omd.get_policy()))
++    derived_policy_value = expected_game_score.policy_value(
++        n_player_game.new_initial_state(), mfg_derived_policy)
++
++    self.assertLen(derived_policy_value, n_player_game.num_players())
++    self.assertSequenceAlmostEqual(
++        derived_policy_value, [-3.69785841] * n_player_game.num_players())
+ 
+   def test_learning_and_applying_mfg_policy_in_n_player_game(self):
+     """Test converting learnt MFG policy default game."""
+diff --git a/open_spiel/python/games/dynamic_routing_utils_test.py b/open_spiel/python/games/dynamic_routing_utils_test.py
+index 7e8c4e86..6a35abb0 100644
+--- a/open_spiel/python/games/dynamic_routing_utils_test.py
++++ b/open_spiel/python/games/dynamic_routing_utils_test.py
+@@ -76,44 +76,58 @@ class NetworkTest(absltest.TestCase):
+       self.network.get_road_section_from_action_id(0)
+ 
+   def test_num_links_method(self):
+-    # Write.
+-    pass
++    self.assertEqual(self.network.num_links(), 2)
+ 
+   def test_num_actions_method(self):
+-    # Write.
+-    pass
++    self.assertEqual(self.network.num_actions(), 3)
+ 
+   def test_links(self):
+-    # Write.
+-    pass
++    self.assertEqual(set(self.network.links()), {"A->D", "O->A"})
+ 
+   def test_check_list_of_vehicles_is_correct_method(self):
+-    # Write.
+-    pass
++    self.network.check_list_of_vehicles_is_correct(
++        [utils.Vehicle("O->A", "A->D")])
++    with self.assertRaises(ValueError):
++      self.network.check_list_of_vehicles_is_correct(
++          [utils.Vehicle("O->A", "O->D")])
+ 
+   def test_check_list_of_od_demand_is_correct_method(self):
+-    # Write.
+-    pass
++    self.network.check_list_of_od_demand_is_correct(
++        [utils.OriginDestinationDemand("O->A", "A->D", 0, 1)])
++    with self.assertRaises(ValueError):
++      self.network.check_list_of_od_demand_is_correct(
++          [utils.OriginDestinationDemand("O->D", "A->D", 0, 1)])
+ 
+   def test_str_method(self):
+-    # Write.
+-    pass
++    self.assertEqual(str(self.network), "{'O': ['A'], 'A': ['D'], 'D': []}")
+ 
+   def test_get_travel_time_methods(self):
+-    # Write.
+-    pass
++    self.assertEqual(self.network.get_travel_time("O->A", 0), 1)
++    self.assertEqual(self.network.get_travel_time("A->D", 3), 1)
+ 
+   def test_assert_valid_action_methods(self):
+-    # Write.
+-    pass
++    self.network.assert_valid_action(
++        self.network.get_action_id_from_movement("A", "D"), "O->A")
++    with self.assertRaises(AssertionError):
++      self.network.assert_valid_action(0)
++    with self.assertRaises(AssertionError):
++      self.network.assert_valid_action(
++          self.network.get_action_id_from_movement("O", "A"), "A->D")
+ 
+   def test_default_travel_time_methods(self):
+-    # Write.
+-    pass
++    default_network = utils.Network({"O": ["A"], "A": []})
++    self.assertEqual(default_network.get_travel_time("O->A", 0), 1)
++    self.assertEqual(default_network.get_travel_time("O->A", 10), 1)
+ 
+   def test_customable_travel_time_methods(self):
+-    # Write.
+-    pass
++    network = utils.Network(
++        {"O": ["A"], "A": []},
++        bpr_a_coefficient={"O->A": 2},
++        bpr_b_coefficient={"O->A": 2},
++        capacity={"O->A": 4},
++        free_flow_travel_time={"O->A": 3},
++    )
++    self.assertEqual(network.get_travel_time("O->A", 4), 9)
+ 
+ 
+ class VehicleTest(absltest.TestCase):
+diff --git a/open_spiel/python/games/liars_poker.py b/open_spiel/python/games/liars_poker.py
+index b3d2e22e..680dbc70 100644
+--- a/open_spiel/python/games/liars_poker.py
++++ b/open_spiel/python/games/liars_poker.py
+@@ -72,10 +72,24 @@ class LiarsPoker(pyspiel.Game):
+   """A Python version of Liar's poker."""
+ 
+   def __init__(self, params=None):
+-    super().__init__(_GAME_TYPE, _GAME_INFO, params or dict())
++    params = params or dict()
++    players = int(params.get("players", _MIN_NUM_PLAYERS))
++    hand_length = int(params.get("hand_length", _HAND_LENGTH))
++    num_digits = int(params.get("num_digits", _NUM_DIGITS))
++    game_info = pyspiel.GameInfo(
++        num_distinct_actions=hand_length * num_digits * players
++        + BID_ACTION_OFFSET,
++        max_chance_outcomes=num_digits,
++        num_players=players,
++        min_utility=-(players - 1),
++        max_utility=players - 1,
++        utility_sum=0.0,
++        max_game_length=hand_length * num_digits * players**2,
++    )
++    super().__init__(_GAME_TYPE, game_info, params)
+     game_parameters = self.get_parameters()
+-    self.hand_length = game_parameters.get("hand_length", _HAND_LENGTH)
+-    self.num_digits = game_parameters.get("num_digits", _NUM_DIGITS)
++    self.hand_length = int(game_parameters.get("hand_length", _HAND_LENGTH))
++    self.num_digits = int(game_parameters.get("num_digits", _NUM_DIGITS))
+     self.deck = _FULL_DECK[: self.num_digits]
+ 
+   def new_initial_state(self):
+@@ -207,7 +221,7 @@ class LiarsPokerState(pyspiel.State):
+     Returns:
+       A tuple of (count, number). For example, (1, 2) represents one 2's.
+     """
+-    number = bid % self._num_digits + 1
++    number = self._deck[bid % self._num_digits]
+     count = bid // self._num_digits + 1
+     return (count, number)
+ 
+@@ -230,7 +244,9 @@ class LiarsPokerState(pyspiel.State):
+     Returns:
+       A single bid ID.
+     """
+-    return (count - 1) * self._num_digits + number - 1
++    if number not in self._deck:
++      raise ValueError(f"Number {number} is not in the deck")
++    return (count - 1) * self._num_digits + self._deck.index(number)
+ 
+   def _counts(self):
+     """Determines if the bid originator wins or loses."""
+@@ -417,15 +433,15 @@ class LiarsPokerObserver:
+         "private_hand" in self.dict
+         and len(state.hands[player]) == self.hand_length
+     ):
+-      self.dict["private_hand"] = np.asarray(state.hands[player])
++      self.dict["private_hand"][:] = np.asarray(state.hands[player])
+     if "rebid_state" in self.dict:
+       self.dict["rebid_state"][0] = int(state.is_rebid)
+     if "counts_state" in self.dict:
+       self.dict["counts_state"][0] = int(state.is_terminal())
+     if "bid_history" in self.dict:
+-      self.dict["bid_history"] = state.bid_history
++      self.dict["bid_history"][:] = state.bid_history
+     if "challenge_history" in self.dict:
+-      self.dict["challenge_history"] = state.challenge_history
++      self.dict["challenge_history"][:] = state.challenge_history
+ 
+   def string_from(self, state, player):
+     """Observation of `state` from the PoV of `player`, as a string."""
+diff --git a/open_spiel/python/games/liars_poker_test.py b/open_spiel/python/games/liars_poker_test.py
+index c1c6c993..3f1e79a7 100644
+--- a/open_spiel/python/games/liars_poker_test.py
++++ b/open_spiel/python/games/liars_poker_test.py
+@@ -245,6 +245,37 @@ class LiarsPokerTest(absltest.TestCase):
+     game = pyspiel.load_game("python_liars_poker", {"players": 2})
+     pyspiel.random_sim_test(game, num_sims=10, serialize=False, verbose=True)
+ 
++  def test_non_default_player_count(self):
++    game = pyspiel.load_game("python_liars_poker", {"players": 3})
++    self.assertEqual(game.num_players(), 3)
++    state = game.new_initial_state()
++    self.assertEqual(state.num_players(), 3)
++    self.assertEqual(state.total_possible_bids, 300)
++
++  def test_default_deck_can_bid_zero(self):
++    game = pyspiel.load_game("python_liars_poker")
++    state = game.new_initial_state()
++    state.hands = [[0] * game.hand_length, [1] * game.hand_length]
++    bid = state.encode_bid(1, 0)
++    self.assertEqual(state._decode_bid(bid), (1, 0))
++    state._current_action = bid + liars_poker.BID_ACTION_OFFSET
++    state._bid_originator = 0
++    state._counts()
++    self.assertEqual(state.winner(), 0)
++
++  def test_observer_writes_into_tensor_views(self):
++    game = pyspiel.load_game("python_liars_poker")
++    state = game.new_initial_state()
++    state.hands = [[1, 2, 3, 4, 5, 6, 7, 8, 9, 0], [1] * game.hand_length]
++    observer = game.make_py_observer(
++        pyspiel.IIGObservationType(perfect_recall=True)
++    )
++    observer.set_from(state, 0)
++    self.assertGreater(observer.tensor.sum(), observer.dict["player"].sum())
++    np.testing.assert_array_equal(
++        observer.dict["private_hand"], np.asarray(state.hands[0])
++    )
++
+   def test_pickle(self):
+     """Checks pickling and unpickling of game and state."""
+     game = pyspiel.load_game("python_liars_poker")
+diff --git a/open_spiel/python/games/team_dominoes.py b/open_spiel/python/games/team_dominoes.py
+index 12badc88..68832eb7 100644
+--- a/open_spiel/python/games/team_dominoes.py
++++ b/open_spiel/python/games/team_dominoes.py
+@@ -62,7 +62,7 @@ _ACTIONS_STR = [str(action) for action in _ACTIONS]
+ 
+ _HAND_SIZE = 7
+ 
+-_MAX_GAME_LENGTH = 28
++_MAX_GAME_LENGTH = 56
+ 
+ _GAME_TYPE = pyspiel.GameType(
+     short_name="python_team_dominoes",
+@@ -329,7 +329,7 @@ class DominoesObserver:
+         # 1 for which player (0,1,3,4),
+         # 1 to distinguish between actual move and empty slot for a move (0/1).
+         # the None (play on an empty board) edge represented using 0.
+-        pieces.append(("actions_history", 125, (25, 5)))
++        pieces.append(("actions_history", 140, (28, 5)))
+       else:
+         # last action, represented in the same way as in "actions_history"
+         # but without the last integer.
+@@ -358,13 +358,9 @@ class DominoesObserver:
+ 
+     if "player" in self.dict:
+       self.dict["player"][player] = 1
+-      self.dict["player"][1 - player] = 0
+ 
+     if "hand_sizes" in self.dict:
+-      my_hand_size = len(state.hands[player])
+-      opp_hand_size = len(state.hands[1 - player])
+-      self.dict["hand_sizes"][0] = my_hand_size
+-      self.dict["hand_sizes"][1] = opp_hand_size
++      self.dict["hand_sizes"][:] = [len(hand) for hand in state.hands]
+ 
+     if "edges" in self.dict:
+       if state.open_edges:
+diff --git a/open_spiel/python/games/team_dominoes_test.py b/open_spiel/python/games/team_dominoes_test.py
+index 7583fa0d..bac475e1 100644
+--- a/open_spiel/python/games/team_dominoes_test.py
++++ b/open_spiel/python/games/team_dominoes_test.py
+@@ -28,6 +28,38 @@ class DominoesTest(absltest.TestCase):
+     game = pyspiel.load_game("python_team_dominoes")
+     pyspiel.random_sim_test(game, num_sims=100, serialize=False, verbose=True)
+ 
++  def test_metadata_includes_deal_and_play_actions(self):
++    game = pyspiel.load_game("python_team_dominoes")
++    self.assertEqual(game.max_game_length(), 56)
++
++  def test_observer_reports_all_hand_sizes(self):
++    game = pyspiel.load_game("python_team_dominoes")
++    state = game.new_initial_state()
++    state.hands = [
++        [(0.0, 0.0)],
++        [(0.0, 0.0), (0.0, 1.0)],
++        [(0.0, 0.0), (0.0, 1.0), (0.0, 2.0)],
++        [(0.0, 0.0), (0.0, 1.0), (0.0, 2.0), (0.0, 3.0)],
++    ]
++    observer = game.make_py_observer(
++        pyspiel.IIGObservationType(perfect_recall=False)
++    )
++    observer.set_from(state, 3)
++    self.assertEqual(observer.dict["hand_sizes"].tolist(), [1.0, 2.0, 3.0, 4.0])
++
++  def test_perfect_recall_observer_fits_full_play_history(self):
++    game = pyspiel.load_game("python_team_dominoes")
++    state = game.new_initial_state()
++    state.actions_history = [
++        team_dominoes.Action(i % 4, (0.0, 0.0), 0.0) for i in range(28)
++    ]
++    observer = game.make_py_observer(
++        pyspiel.IIGObservationType(perfect_recall=True)
++    )
++    observer.set_from(state, 0)
++    self.assertEqual(observer.dict["actions_history"].shape, (28, 5))
++    self.assertEqual(observer.dict["actions_history"][:, 4].sum(), 28)
++
+   def test_single_deterministic_game_1(self):
+     """Runs a single game where tiles and actions chose deterministically."""
+     game = pyspiel.load_game("python_team_dominoes")
+diff --git a/setup.py b/setup.py
+index b224ee43..80b1653f 100644
+--- a/setup.py
++++ b/setup.py
+@@ -105,7 +105,11 @@ def _get_requirements(requirements_file):  # pylint: disable=g-doc-args
+   source of truth.
+   """
+   with open(requirements_file) as f:
+-    return [_parse_line(line) for line in f if line]
++    return [
++        requirement
++        for requirement in (_parse_line(line) for line in f)
++        if requirement
++    ]
+ 
+ 
+ def _parse_line(s):

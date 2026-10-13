@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Quantum Cat</title>
+    <link rel="stylesheet" href="/style.css?v=tabletop-polish-1">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="gamebar">
+        <div class="brand">
+          <div class="cat-mark">QC</div>
+          <div>
+            <p>Quantum Cat</p>
+            <strong id="turn">-</strong>
+          </div>
+        </div>
+
+        <nav class="phase-tabs" aria-label="Game phase">
+          <span class="step" data-step="dealing">Deal</span>
+          <span class="step" data-step="discard">Discard</span>
+          <span class="step" data-step="prediction">Bid</span>
+          <span class="step" data-step="play">Play</span>
+          <span class="step" data-step="scoring">Score</span>
+        </nav>
+
+        <form id="setup" class="setup-bar">
+          <label>
+            Humans
+            <input id="humanPlayers" type="number" min="1" max="2" value="1">
+          </label>
+          <label>
+            Bots
+            <input id="botPlayers" type="number" min="0" max="5" value="2">
+          </label>
+          <label class="bot-select">
+            Bot
+            <select id="botMode">
+              <option value="best">Best available</option>
+              <option value="heuristic">Rule fallback</option>
+              <option value="random">Random</option>
+            </select>
+          </label>
+          <label>
+            Seed
+            <input id="seed" type="number" value="20260605">
+          </label>
+          <button type="submit">New game</button>
+        </form>
+      </header>
+
+      <section id="warning" class="warning" hidden></section>
+
+      <section class="table-layout">
+        <section class="main-table">
+          <section class="turn-card">
+            <div class="turn-heading">
+              <div>
+                <p id="phase" class="phase-label">-</p>
+                <h1 id="taskTitle">Your turn</h1>
+                <p id="taskHint" class="task-hint">Choose a legal move to continue.</p>
+              </div>
+              <div class="turn-facts">
+                <div><span>Trick</span><strong id="trick">-</strong></div>
+                <div><span>Lead</span><strong id="lead">-</strong></div>
+              </div>
+            </div>
+
+            <div class="action-grid">
+              <section>
+                <div class="section-title">Your hand</div>
+                <div id="activeHand" class="hand"></div>
+              </section>
+              <section>
+                <div class="section-title">Legal moves</div>
+                <div id="actions" class="actions"></div>
+              </section>
+            </div>
+          </section>
+
+          <section class="trick-panel">
+            <div class="section-title">Current trick</div>
+            <div id="currentTrick" class="trick-list"></div>
+          </section>
+
+          <section class="board-panel">
+            <div class="board-heading">
+              <div>
+                <div class="section-title">Public board</div>
+                <p>Green outlines are legal board plays for the current human.</p>
+              </div>
+              <div class="legend">
+                <span><i class="dot legal-dot"></i>Legal</span>
+                <span><i class="dot blocked-dot"></i>Blocked</span>
+                <span><i class="dot owned-dot"></i>Owned</span>
+              </div>
+            </div>
+            <div id="board" class="board"></div>
+          </section>
+        </section>
+
+        <aside class="side-rail">
+          <section class="rail-panel bot-panel">
+            <span>Champion bot</span>
+            <strong id="botBadge">-</strong>
+          </section>
+          <section class="rail-panel">
+            <div class="section-title">Scoreboard</div>
+            <div id="seats" class="seats"></div>
+          </section>
+          <section class="rail-panel log-panel">
+            <div class="section-title">Recent moves</div>
+            <div id="log" class="log"></div>
+          </section>
+        </aside>
+      </section>
+    </main>
+    <script src="/app.js?v=tabletop-polish-1"></script>
+  </body>
+</html>
