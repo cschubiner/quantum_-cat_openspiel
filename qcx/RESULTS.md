@@ -119,3 +119,13 @@ v4 fresh-deal confirmations vs v3: 3p 80 deals +9.0 [+4.2, +13.7]; 4p 80 deals +
 Worlds importance-resampled by the likelihood of opponents' past plays under the learned policy (reconstruction & info-safety tests pass).
 Best setting (α=0.5, ε=0.1, M=512): 5p pooled 300 deals +1.1 [−0.6, +2.9]; 4p 160 deals +2.7 [−0.2, +5.5]; 3p −0.7. CPU-matched control (more worlds) +1.9.
 → Not adopted. Diagnosed cause: deliberate discards bias the uniform hand prior; play likelihood alone can't fix it.
+
+## Gen-4 rollout policy (256-world v4 labels) vs v4 — not promoted
+| Candidate | P | Deals | Δ placement (95% CI) |
+|---|---|---|---|
+| g4 MLP-32 (gen-3 + gen-4 data) | 5 | 120 | −1.3 [−4.3, +1.6] |
+| g4-only MLP-32 | 5 | 120 | +1.8 [−1.0, +4.5] |
+| g4 MLP-32 | 4 | 80 | +1.4 [−2.8, +5.6] |
+| g4 MLP-32 | 3 | 80 | −0.3 [−6.0, +5.3] |
+Expert iteration with the 64-feature MLP has saturated; v4 remains champion.
+On-device v4 (iPhone 17 Pro Max, 512 worlds): parity 72/72, 297 decisions 0 illegal; 5p mean 121 ms, max 0.59 s.
