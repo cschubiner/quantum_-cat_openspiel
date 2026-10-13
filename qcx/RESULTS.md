@@ -91,3 +91,23 @@ Champion shipped to the iPhone (branch `claude/ios-qcx`). On-device parity 72/72
 | 3 | 1.40 | −0.394 | 9.0% | 7.2% |
 bid 2 − bid 1 = −0.12 [−0.47, +0.23]; bid 3 − bid 1 = −0.85 [−1.16, −0.54].
 → The locked rule "three/four 9s: bid 1 is known-bad" is **not supported** under strong play: 1 and 2 are statistically equivalent; 3+ is clearly worse.
+
+## Gen-3 rollout policy (128-world v3 labels, 158k decisions, 3/4/5p) — champion v4
+| Candidate vs v3 (pimcl:128 g1) | P | Deals | Δ placement (95% CI) |
+|---|---|---|---|
+| g3 MLP-32 | 3 | 60 | +6.7 [+1.0, +12.4] |
+| g3 MLP-32 | 4 | 60 | +4.2 [+0.1, +8.4] |
+| g3 MLP-32 | 5 | 100 | +2.3 [−0.5, +5.2] |
+| g3 MLP-32, fresh deals | 5 | 150 | +0.9 [−1.5, +3.3] |
+| g3 MLP-64 | 5 | 100 | +1.1 [−2.2, +4.4] |
+→ **v4 = g3 MLP-32** (non-inferior at 5p, better at 3p/4p, lower paradox and higher bid-hit everywhere). Shipped to iPhone.
+
+Four-nines bidding ground truth (5p, 300 deals): bid 2 − bid 1 = −0.09 [−0.48, +0.31]; bid 3 − bid 1 = −0.86 [−1.29, −0.43].
+
+## Learned bid model inside rollouts (fit on v4's own bids)
+| P | Deals | Δ placement (95% CI) |
+|---|---|---|
+| 3 | 60 | +1.4 [−3.5, +6.3] |
+| 4 | 60 | −1.4 [−5.7, +3.0] |
+| 5 | 100 | +1.75 [−1.4, +4.9] |
+Not significant → not adopted.
