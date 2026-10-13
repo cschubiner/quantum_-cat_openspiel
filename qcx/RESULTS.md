@@ -12,6 +12,7 @@ All C++-arena rows are 5-player complete matches: one candidate seat against a f
 |---|---|---|---|---|---|---|---|
 | qcx PIMC 64 worlds | 4× Run1051 champion | 32 (160) | **87.1%** | **72.5%** (par 20%) | **+8.13** | 12.6% (champ 13.6%) | 51.8% |
 | qcx PIMC 128 worlds (v1) | 4× Run1052 champion (the prior confirmed champion) | 16 (80) | **86.9%** | **73.8%** (par 20%) | **+7.69** | 13.3% (champ 12.6%) | 52.0% |
+| **qcx v3 (learned rollouts, 256 worlds)** | 4× Run1052 champion | 32 (160) | **96.1%** | **87.5%** (par 20%) | **+10.59** | 8.1% (champ 13.5%) | 61.6% |
 | qcx PIMC 128 worlds (3p) | 2× Run604 3p champion (liveness shield) | 40 (120) | **80.0%** | **69.6%** (par 33%) | **+6.35** | 10.0% (champ 26.4%) | 36.7% |
 | qcx PIMC 128 worlds (4p) | 3× Run730 best 4p model (liveness shield) | 40 (160) | **84.6%** | **70.6%** (par 25%) | **+8.24** | 11.1% (champ 22.4%) | 45.0% |
 
@@ -91,3 +92,40 @@ Champion shipped to the iPhone (branch `claude/ios-qcx`). On-device parity 72/72
 | 3 | 1.40 | −0.394 | 9.0% | 7.2% |
 bid 2 − bid 1 = −0.12 [−0.47, +0.23]; bid 3 − bid 1 = −0.85 [−1.16, −0.54].
 → The locked rule "three/four 9s: bid 1 is known-bad" is **not supported** under strong play: 1 and 2 are statistically equivalent; 3+ is clearly worse.
+
+## Gen-3 rollout policy (128-world v3 labels, 158k decisions, 3/4/5p) — champion v4
+| Candidate vs v3 (pimcl:128 g1) | P | Deals | Δ placement (95% CI) |
+|---|---|---|---|
+| g3 MLP-32 | 3 | 60 | +6.7 [+1.0, +12.4] |
+| g3 MLP-32 | 4 | 60 | +4.2 [+0.1, +8.4] |
+| g3 MLP-32 | 5 | 100 | +2.3 [−0.5, +5.2] |
+| g3 MLP-32, fresh deals | 5 | 150 | +0.9 [−1.5, +3.3] |
+| g3 MLP-64 | 5 | 100 | +1.1 [−2.2, +4.4] |
+→ **v4 = g3 MLP-32** (non-inferior at 5p, better at 3p/4p, lower paradox and higher bid-hit everywhere). Shipped to iPhone.
+
+Four-nines bidding ground truth (5p, 300 deals): bid 2 − bid 1 = −0.09 [−0.48, +0.31]; bid 3 − bid 1 = −0.86 [−1.29, −0.43].
+
+## Learned bid model inside rollouts (fit on v4's own bids)
+| P | Deals | Δ placement (95% CI) |
+|---|---|---|
+| 3 | 60 | +1.4 [−3.5, +6.3] |
+| 4 | 60 | −1.4 [−5.7, +3.0] |
+| 5 | 100 | +1.75 [−1.4, +4.9] |
+Not significant → not adopted.
+
+v4 fresh-deal confirmations vs v3: 3p 80 deals +9.0 [+4.2, +13.7]; 4p 80 deals +4.2 [+1.0, +7.3].
+
+## E7 — policy-based belief inference (branch claude/exp-infer; details in that branch's RESULTS.md)
+Worlds importance-resampled by the likelihood of opponents' past plays under the learned policy (reconstruction & info-safety tests pass).
+Best setting (α=0.5, ε=0.1, M=512): 5p pooled 300 deals +1.1 [−0.6, +2.9]; 4p 160 deals +2.7 [−0.2, +5.5]; 3p −0.7. CPU-matched control (more worlds) +1.9.
+→ Not adopted. Diagnosed cause: deliberate discards bias the uniform hand prior; play likelihood alone can't fix it.
+
+## Gen-4 rollout policy (256-world v4 labels) vs v4 — not promoted
+| Candidate | P | Deals | Δ placement (95% CI) |
+|---|---|---|---|
+| g4 MLP-32 (gen-3 + gen-4 data) | 5 | 120 | −1.3 [−4.3, +1.6] |
+| g4-only MLP-32 | 5 | 120 | +1.8 [−1.0, +4.5] |
+| g4 MLP-32 | 4 | 80 | +1.4 [−2.8, +5.6] |
+| g4 MLP-32 | 3 | 80 | −0.3 [−6.0, +5.3] |
+Expert iteration with the 64-feature MLP has saturated; v4 remains champion.
+On-device v4 (iPhone 17 Pro Max, 512 worlds): parity 72/72, 297 decisions 0 illegal; 5p mean 121 ms, max 0.59 s.
