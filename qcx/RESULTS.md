@@ -11,7 +11,7 @@ All C++-arena rows are 5-player complete matches: one candidate seat against a f
 | Candidate | Opponents | Deals (matches) | Pairwise placement | First place | Score adv./match | Own paradox | Bid hit |
 |---|---|---|---|---|---|---|---|
 | qcx PIMC 64 worlds | 4× Run1051 champion | 32 (160) | **87.1%** | **72.5%** (par 20%) | **+8.13** | 12.6% (champ 13.6%) | 51.8% |
-| qcx PIMC 128 worlds | 4× Run1052 champion | 16 (80) | *running* | | | | |
+| qcx PIMC 128 worlds (v1) | 4× Run1052 champion (the prior confirmed champion) | 16 (80) | **86.9%** | **73.8%** (par 20%) | **+7.69** | 13.3% (champ 12.6%) | 52.0% |
 | qcx PIMC 128 worlds (3p) | 2× Run604 3p champion (liveness shield) | 40 (120) | **80.0%** | **69.6%** (par 33%) | **+6.35** | 10.0% (champ 26.4%) | 36.7% |
 | qcx PIMC 128 worlds (4p) | 3× Run730 best 4p model (liveness shield) | 40 (160) | **84.6%** | **70.6%** (par 25%) | **+8.24** | 11.1% (champ 22.4%) | 45.0% |
 
@@ -65,3 +65,29 @@ Importance resampling of worlds by a multinomial-logistic bid model (fit on 36k 
 
 ## iOS
 Champion shipped to the iPhone (branch `claude/ios-qcx`). On-device parity 72/72 fixtures; 702 benchmark decisions, 0 illegal; 256 worlds: 5p mean 22 ms, max 91 ms.
+
+## E5 — expert iteration: learned rollout policy (branch claude/exp-exit, integrated in claude/exp-champ3)
+64 information-safe features; MLP (32 hidden) trained to imitate pimc:32 decisions (86k decisions / 950k rows). Info-safety test: 12,050 decisions × 8 resampled worlds, features identical.
+
+| Candidate | Field | P | Deals | Δ placement (95% CI) |
+|---|---|---|---|---|
+| learned MLP policy alone (no search) | heur | 5 | 300 | +19.9 [+18.1, +21.7] |
+| pimcl:32 MLP (old tok 1.2 recipe) | pimc:32 | 5 | 200 | +12.3 [+10.0, +14.5] |
+| pimc:96 (≈ same CPU) | pimc:32 | 5 | 200 | +9.3 [+7.1, +11.5] |
+| gen-2 pimcl vs gen-1 pimcl | | 5 | 200 | +0.9 [−1.2, +2.9] (second iteration saturates: noisy 32-world labels) |
+| **pimcl:128 MLP vs champion v2 recipe pimc:128 (tok 0.6)** | | 5 | 60 | **+11.5 [+8.0, +15.0]** |
+| **pimcl:64 MLP vs pimc:256 (4× worlds)** | | 5 | 60 | **+6.5 [+2.8, +10.2]** |
+| pimcl:128 MLP vs pimc:128 | | 3 | 60 | +8.1 [+1.8, +14.4] |
+| pimcl:128 MLP vs pimc:128 | | 4 | 60 | +19.1 [+14.8, +23.4] |
+
+→ **Champion v3** = PIMC with learned MLP rollouts (g1_mlp), promoted.
+
+## Bidding ground truth (strong play, identical deals, forced bid)
+5p, seat 0 holds ≥3 nines after discard; every other decision by pimcl:32 (MLP rollouts); 400 deals.
+| Bid | own score | score − mean(others) | bid hit | paradox |
+|---|---|---|---|---|
+| 1 | 2.30 | +0.455 | 48.5% | 7.0% |
+| 2 | 2.16 | +0.338 | 32.0% | 7.5% |
+| 3 | 1.40 | −0.394 | 9.0% | 7.2% |
+bid 2 − bid 1 = −0.12 [−0.47, +0.23]; bid 3 − bid 1 = −0.85 [−1.16, −0.54].
+→ The locked rule "three/four 9s: bid 1 is known-bad" is **not supported** under strong play: 1 and 2 are statistically equivalent; 3+ is clearly worse.
