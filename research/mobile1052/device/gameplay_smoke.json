@@ -1,0 +1,22 @@
+{
+  "kind": "championBeliefPolicy",
+  "players": 5,
+  "games": 3,
+  "seat_rate": 0.0667,
+  "game_rate": 0.3333,
+  "games_with_paradox": 1,
+  "paradox_events": 1,
+  "bid_histogram": {"1": 12, "2": 2, "3": 1, "4": 0},
+  "shared_bid_check": true,
+  "shared_discard_check": true,
+  "live_input_contract": "python-observation113-action214-5p-v2",
+  "checkpoint_sha256": "b9c1d5fd3ce60ea528cd7955a4e07868cd75eb203593c4cee8e0bb6a1281be4d",
+  "live_inference_verified": true,
+  "learned_prediction_enabled": true,
+  "coreml_successes": 15,
+  "coreml_attempts": 15,
+  "coreml_failures": 0
+  ,"search_enabled": true
+  ,"search_expanded_decisions": 12
+  ,"search_failures": 0
+}

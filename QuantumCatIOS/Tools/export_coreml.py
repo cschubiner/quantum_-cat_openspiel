@@ -66,12 +66,19 @@ class CoreMLExportWrapper(torch.nn.Module):
     min_embedding = action_embedding.masked_fill(~legal, 1e9).min(dim=1).values
     return mean_embedding, max_embedding, min_embedding, std_embedding
 
-  def _pair_features_action_mlp(self, state_embedding, action_features):
-    action_embedding = self.model.action_encoder(action_features)
+  def _pair_features_action_mlp(
+      self, state_embedding, action_features,
+      action_encoder=None, state_action_projection=None
+  ):
+    action_encoder = action_encoder or self.model.action_encoder
+    state_action_projection = (
+        state_action_projection or self.model.state_action_projection
+    )
+    action_embedding = action_encoder(action_features)
     state_expanded = state_embedding.unsqueeze(1).expand(
         -1, self.max_actions, -1
     )
-    state_for_action = self.model.state_action_projection(state_embedding)
+    state_for_action = state_action_projection(state_embedding)
     state_for_action = state_for_action.unsqueeze(1).expand(
         -1, self.max_actions, -1
     )
@@ -107,17 +114,52 @@ class CoreMLExportWrapper(torch.nn.Module):
         state_embedding, action_features
     )
     policy = self.model.policy(pair_features).squeeze(-1)
+    if getattr(self.model, "separate_prediction_policy_head", False):
+      prediction_features = (
+          action_features
+          if getattr(self.model, "prediction_policy_input", "pair") == "raw"
+          else pair_features
+      )
+      policy = policy + (
+          self.model.prediction_policy(prediction_features).squeeze(-1)
+          * action_features[..., 7]
+      )
     value = torch.tanh(self.model.value(value_features))
-    action_paradox = self.model.action_paradox(pair_features).squeeze(-1)
-    action_values = torch.tanh(self.model.action_value(pair_features).squeeze(-1))
+    paradox_pair_features = pair_features
+    if getattr(self.model, "separate_action_paradox_encoder", False):
+      paradox_pair_features = self._pair_features_action_mlp(
+          state_embedding,
+          action_features,
+          self.model.action_paradox_encoder,
+          self.model.action_paradox_state_action_projection,
+      )
+    value_pair_features = pair_features
+    if getattr(self.model, "separate_action_value_encoder", False):
+      value_pair_features = self._pair_features_action_mlp(
+          state_embedding,
+          action_features,
+          self.model.action_value_encoder,
+          self.model.action_value_state_action_projection,
+      )
+    action_paradox = self.model.action_paradox(paradox_pair_features).squeeze(-1)
+    action_values = torch.tanh(
+        self.model.action_value(value_pair_features).squeeze(-1)
+    )
     return policy, value, action_paradox, action_values
 
-  def _pair_features_action_setpool(self, state_embedding, action_features):
-    action_embedding = self.model.action_encoder(action_features)
+  def _pair_features_action_setpool(
+      self, state_embedding, action_features,
+      action_encoder=None, state_action_projection=None
+  ):
+    action_encoder = action_encoder or self.model.action_encoder
+    state_action_projection = (
+        state_action_projection or self.model.state_action_projection
+    )
+    action_embedding = action_encoder(action_features)
     state_expanded = state_embedding.unsqueeze(1).expand(
         -1, self.max_actions, -1
     )
-    state_for_action = self.model.state_action_projection(state_embedding)
+    state_for_action = state_action_projection(state_embedding)
     state_for_action = state_for_action.unsqueeze(1).expand(
         -1, self.max_actions, -1
     )
@@ -169,9 +211,37 @@ class CoreMLExportWrapper(torch.nn.Module):
         state_embedding, action_features
     )
     policy = self.model.policy(pair_features).squeeze(-1)
+    if getattr(self.model, "separate_prediction_policy_head", False):
+      prediction_features = (
+          action_features
+          if getattr(self.model, "prediction_policy_input", "pair") == "raw"
+          else pair_features
+      )
+      policy = policy + (
+          self.model.prediction_policy(prediction_features).squeeze(-1)
+          * action_features[..., 7]
+      )
     value = torch.tanh(self.model.value(value_features))
-    action_paradox = self.model.action_paradox(pair_features).squeeze(-1)
-    action_values = torch.tanh(self.model.action_value(pair_features).squeeze(-1))
+    paradox_pair_features = pair_features
+    if getattr(self.model, "separate_action_paradox_encoder", False):
+      paradox_pair_features = self._pair_features_action_setpool(
+          state_embedding,
+          action_features,
+          self.model.action_paradox_encoder,
+          self.model.action_paradox_state_action_projection,
+      )
+    value_pair_features = pair_features
+    if getattr(self.model, "separate_action_value_encoder", False):
+      value_pair_features = self._pair_features_action_setpool(
+          state_embedding,
+          action_features,
+          self.model.action_value_encoder,
+          self.model.action_value_state_action_projection,
+      )
+    action_paradox = self.model.action_paradox(paradox_pair_features).squeeze(-1)
+    action_values = torch.tanh(
+        self.model.action_value(value_pair_features).squeeze(-1)
+    )
     return policy, value, action_paradox, action_values
 
 
@@ -181,6 +251,10 @@ def main() -> int:
   parser.add_argument("--players", type=int, default=3)
   parser.add_argument("--max-actions", type=int, default=1000)
   parser.add_argument("--out", required=True)
+  parser.add_argument(
+      "--named-outputs", action="store_true",
+      help="Use stable policy/value/action-risk/action-value output names.",
+  )
   args = parser.parse_args()
 
   try:
@@ -204,6 +278,15 @@ def main() -> int:
       value_scale=float(checkpoint_args.get("value_scale", 20.0)),
       separate_action_value_encoder=bool(
           checkpoint_args.get("separate_action_value_encoder", False)
+      ),
+      separate_action_paradox_encoder=bool(
+          checkpoint_args.get("separate_action_paradox_encoder", False)
+      ),
+      separate_prediction_policy_head=bool(
+          checkpoint_args.get("separate_prediction_policy_head", False)
+      ),
+      prediction_policy_input=str(
+          checkpoint_args.get("prediction_policy_input", "pair")
       ),
   )
   model, _, saved_args = load_model_payload(
@@ -235,7 +318,21 @@ def main() -> int:
               shape=(1, args.max_actions, ACTION_FEATURE_SIZE),
           ),
       ],
+      outputs=(
+          [
+              ct.TensorType(name="policy_logits"),
+              ct.TensorType(name="state_values"),
+              ct.TensorType(name="action_paradox_logits"),
+              ct.TensorType(name="action_values"),
+          ]
+          if args.named_outputs else None
+      ),
       compute_units=ct.ComputeUnit.ALL,
+      # The policy's absolute logits can be several hundred in magnitude.
+      # ML Program's default float16 weight conversion changes action ordering
+      # on otherwise identical inputs, so preserve float32 for a deployable
+      # policy export.
+      compute_precision=ct.precision.FLOAT32,
       minimum_deployment_target=ct.target.iOS17,
   )
   out = Path(args.out)

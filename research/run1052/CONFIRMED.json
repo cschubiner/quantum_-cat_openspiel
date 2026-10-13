@@ -1,0 +1,81 @@
+{
+  "status": "benchmark_confirmed",
+  "confirmed_utc": "2026-09-05T05:30:56.998126+00:00",
+  "candidate": "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1049/real_bid_raw_grounded/checkpoint_0000_loaded_replay_best.pt:root_rollout?root_rollout_base_mode=competitive_tactics,root_rollout_preserve_tactical_overrides=true,root_rollout_preserve_own_liveness=true,root_rollout_continuation_mode=competitive_tactics,root_rollout_phases=play,root_rollout_min_trick_number=4,root_rollout_max_trick_number=6,root_rollout_max_plies=0,root_rollout_samples=8,root_rollouts=1,root_rollout_max_actions=2,root_rollout_top_policy=2,root_rollout_objective=paradox_then_score,root_rollout_paradox_scope=acting,root_rollout_audit_samples=8,root_rollout_audit_rollouts=1,root_rollout_audit_passes=1,belief_source=infostate,root_rollout_min_match_round=0,root_rollout_max_match_round=4,root_rollout_full_match=true,competitive_tactics_base_mode=q_policy,competitive_tactics_bid_regime=true,action_value_selection_weight=1.0,action_feasibility_selection_weight=2.0,action_paradox_rerank_mode=relative,action_paradox_min_risk_margin=0.02,action_paradox_max_policy_log_gap=2.0,neural_prediction_mode=model,root_rollout_min_audit_score_improvement=0",
+  "checkpoint": "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1049/real_bid_raw_grounded/checkpoint_0000_loaded_replay_best.pt",
+  "checkpoint_sha256": "b9c1d5fd3ce60ea528cd7955a4e07868cd75eb203593c4cee8e0bb6a1281be4d",
+  "candidate_selector_sha256": "bd344cdce83e618518b66287cb56988ddba589e373c14533b5722fb669434411",
+  "prior_champion": "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1049/real_bid_raw_grounded/checkpoint_0000_loaded_replay_best.pt:root_rollout?root_rollout_base_mode=competitive_tactics,root_rollout_preserve_tactical_overrides=true,root_rollout_preserve_own_liveness=true,root_rollout_continuation_mode=competitive_tactics,root_rollout_phases=play,root_rollout_min_trick_number=4,root_rollout_max_trick_number=6,root_rollout_max_plies=0,root_rollout_samples=8,root_rollouts=1,root_rollout_max_actions=2,root_rollout_top_policy=2,root_rollout_objective=paradox_then_score,root_rollout_paradox_scope=acting,root_rollout_audit_samples=8,root_rollout_audit_rollouts=1,root_rollout_audit_passes=1,belief_source=infostate,root_rollout_min_match_round=4,root_rollout_max_match_round=4,root_rollout_full_match=true,competitive_tactics_base_mode=q_policy,competitive_tactics_bid_regime=true,action_value_selection_weight=1.0,action_feasibility_selection_weight=2.0,action_paradox_rerank_mode=relative,action_paradox_min_risk_margin=0.02,action_paradox_max_policy_log_gap=2.0,neural_prediction_mode=model,root_rollout_min_audit_score_improvement=0",
+  "neural_weights_changed": false,
+  "change": "Root search in the final three tricks of every round, instead of only the final round",
+  "protected_confirmation": {
+    "actor_round_opportunities": 1600,
+    "baseline": "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1049/real_bid_raw_grounded/checkpoint_0000_loaded_replay_best.pt:root_rollout?root_rollout_base_mode=competitive_tactics,root_rollout_preserve_tactical_overrides=true,root_rollout_preserve_own_liveness=true,root_rollout_continuation_mode=competitive_tactics,root_rollout_phases=play,root_rollout_min_trick_number=4,root_rollout_max_trick_number=6,root_rollout_max_plies=0,root_rollout_samples=8,root_rollouts=1,root_rollout_max_actions=2,root_rollout_top_policy=2,root_rollout_objective=paradox_then_score,root_rollout_paradox_scope=acting,root_rollout_audit_samples=8,root_rollout_audit_rollouts=1,root_rollout_audit_passes=1,belief_source=infostate,root_rollout_min_match_round=4,root_rollout_max_match_round=4,root_rollout_full_match=true,competitive_tactics_base_mode=q_policy,competitive_tactics_bid_regime=true,action_value_selection_weight=1.0,action_feasibility_selection_weight=2.0,action_paradox_rerank_mode=relative,action_paradox_min_risk_margin=0.02,action_paradox_max_policy_log_gap=2.0,neural_prediction_mode=model,root_rollout_min_audit_score_improvement=0",
+    "baseline_first_place_share": 0.2,
+    "baseline_matches": 320,
+    "candidate": "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1049/real_bid_raw_grounded/checkpoint_0000_loaded_replay_best.pt:root_rollout?root_rollout_base_mode=competitive_tactics,root_rollout_preserve_tactical_overrides=true,root_rollout_preserve_own_liveness=true,root_rollout_continuation_mode=competitive_tactics,root_rollout_phases=play,root_rollout_min_trick_number=4,root_rollout_max_trick_number=6,root_rollout_max_plies=0,root_rollout_samples=8,root_rollouts=1,root_rollout_max_actions=2,root_rollout_top_policy=2,root_rollout_objective=paradox_then_score,root_rollout_paradox_scope=acting,root_rollout_audit_samples=8,root_rollout_audit_rollouts=1,root_rollout_audit_passes=1,belief_source=infostate,root_rollout_min_match_round=0,root_rollout_max_match_round=4,root_rollout_full_match=true,competitive_tactics_base_mode=q_policy,competitive_tactics_bid_regime=true,action_value_selection_weight=1.0,action_feasibility_selection_weight=2.0,action_paradox_rerank_mode=relative,action_paradox_min_risk_margin=0.02,action_paradox_max_policy_log_gap=2.0,neural_prediction_mode=model,root_rollout_min_audit_score_improvement=0",
+    "candidate_matches": 320,
+    "checkpoint_sha256": "b9c1d5fd3ce60ea528cd7955a4e07868cd75eb203593c4cee8e0bb6a1281be4d",
+    "gates": {
+      "all60_locked": true,
+      "frozen_information_audit": true,
+      "matched_own_paradox_no_increase": true,
+      "official_score_nonnegative": true,
+      "placement_positive_corrected_lower_bound": true
+    },
+    "independent_deals": 64,
+    "matched_baseline_own_paradoxes": 180,
+    "method": "Paired common-deal Student-t; rotated seats aggregated within each deal",
+    "own_paradoxes": 169,
+    "paired_official_score_difference": {
+      "confidence_interval": [
+        0.6890972645487563,
+        1.2874652354512437
+      ],
+      "confidence_level": 0.9833333333333333,
+      "independent_deals": 64,
+      "mean": 0.98828125,
+      "two_sided_p": 2.160286138364563e-11
+    },
+    "paired_own_paradox_rate_difference": {
+      "confidence_interval": [
+        -0.01680917574766045,
+        0.0030591757476604482
+      ],
+      "confidence_level": 0.9833333333333333,
+      "independent_deals": 64,
+      "mean": -0.006875000000000001,
+      "two_sided_p": 0.09365391088750219
+    },
+    "paired_placement_difference": {
+      "bonferroni_adjusted_p": 4.781464557099034e-8,
+      "confidence_interval": [
+        0.044110474316384055,
+        0.09807702568361597
+      ],
+      "confidence_level": 0.9833333333333333,
+      "independent_deals": 64,
+      "mean": 0.07109375000000001,
+      "two_sided_p": 1.5938215190330112e-8
+    },
+    "placement": 0.5710937500000001,
+    "promotable": true,
+    "protected_confirmation": true,
+    "seed": 2026090402,
+    "summaries": [
+      "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1052/confirmation/blocks/offset0000/summary.json"
+    ],
+    "tie_split_first_place_share": 0.26875,
+    "warning": null
+  },
+  "evidence_sha256": {
+    "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1052/FROZEN_CANDIDATE.json": "405b571aa94b8f48000f557e4f5f04ecc797c9b5c320a6f0d421c60342ef20b6",
+    "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1052/confirmation/result.json": "5ab9b0e0e12ce54239ef1d134fd0d4236f6a97d8b3efba07204ed773e859b9c5",
+    "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1052/confirmation/look_0064.json": "8fa3e2a7e5c46ae0f563ea6b389b35f7d6686c461c7792b920a7076f793a7a37",
+    "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1052/confirmation/raw_readback_0064.json": "8fb1abc39cd1ae70327df5b1416928c50ecd32c22aaa621bc81988cca6b0b79e"
+  },
+  "deployment_performed": false,
+  "source_or_app_default_changed": false,
+  "fastpath_prototype_included": false,
+  "scope": "Verified five-player placement improvement against four exact prior-champion opponents; no human/superhuman, other-player-count, mobile-performance or deployment claim"
+}

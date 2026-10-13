@@ -1,0 +1,211 @@
+{
+  "players": 3,
+  "matches": 600,
+  "rounds_per_match": 3,
+  "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+  "candidate": "az_policy",
+  "ratings": {
+    "az_policy": 1165.48,
+    "heuristic": 968.77,
+    "heuristic_target2": 941.75,
+    "heuristic_adj2": 924.0
+  },
+  "stats": {
+    "az_policy": {
+      "matches": 600,
+      "avg_match_total": 6.165,
+      "paradoxes_per_match": 0.6167
+    },
+    "heuristic_adj2": {
+      "matches": 400,
+      "avg_match_total": 1.5975,
+      "paradoxes_per_match": 1.255
+    },
+    "heuristic": {
+      "matches": 400,
+      "avg_match_total": 3.16,
+      "paradoxes_per_match": 1.1
+    },
+    "heuristic_target2": {
+      "matches": 400,
+      "avg_match_total": 1.9075,
+      "paradoxes_per_match": 1.1625
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "az_policy",
+        "heuristic_adj2",
+        "heuristic"
+      ],
+      "totals": [
+        3.0,
+        -1.0,
+        17.0
+      ],
+      "paradoxes": [
+        1,
+        2,
+        0
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            3.0,
+            -1.0,
+            2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            -2.0,
+            0.0,
+            8.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            2.0,
+            0.0,
+            7.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "heuristic_target2",
+        "az_policy",
+        "heuristic"
+      ],
+      "totals": [
+        -5.0,
+        -4.0,
+        -4.0
+      ],
+      "paradoxes": [
+        1,
+        1,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            -7.0,
+            0.0,
+            0.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            2.0,
+            1.0,
+            -4.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            0.0,
+            -5.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "heuristic_target2",
+        "heuristic_adj2",
+        "az_policy"
+      ],
+      "totals": [
+        5.0,
+        8.0,
+        9.0
+      ],
+      "paradoxes": [
+        2,
+        1,
+        0
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            5.0,
+            0.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            0.0,
+            8.0,
+            3.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            0.0,
+            0.0,
+            6.0
+          ],
+          "paradoxed": [
+            true,
+            false,
+            false
+          ]
+        }
+      ]
+    }
+  ]
+}

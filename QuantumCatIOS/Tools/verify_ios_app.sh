@@ -11,7 +11,9 @@ cd "$ROOT_DIR"
 echo "== Swift engine smoke =="
 xcrun swiftc -parse-as-library \
   QuantumCatIOS/QuantumCatIOS/Models/BotCatalog.swift \
+  QuantumCatIOS/QuantumCatIOS/Models/QuantumCatMLFeatureEncoder.swift \
   QuantumCatIOS/QuantumCatIOS/Models/QuantumCatMLPolicy.swift \
+  QuantumCatIOS/QuantumCatIOS/Models/QuantumCatChampionSearch.swift \
   QuantumCatIOS/QuantumCatIOS/Models/QuantumCatGame.swift \
   QuantumCatIOS/Tools/engine_smoke.swift \
   -o /tmp/quantum-cat-engine-smoke
@@ -39,6 +41,10 @@ test -f "$SIM_BUNDLE/setpool_distill.pt"
 test -f "$SIM_BUNDLE/raw_policy_league.pt"
 test -f "$SIM_BUNDLE/strict_q_head.pt"
 test -f "$SIM_BUNDLE/BotModels.json"
+test -f "$SIM_BUNDLE/champion_move_parity.json"
+checkpoint_sha="$(shasum -a 256 az_runs/best_3p_policy_checkpoint.pt | awk '{print $1}')"
+fixture_sha="$(plutil -extract checkpointSha256 raw -o - "$SIM_BUNDLE/champion_move_parity.json")"
+test "$checkpoint_sha" = "$fixture_sha"
 plutil -extract CFBundleDisplayName raw -o - "$SIM_BUNDLE/Info.plist"
 echo
 plutil -extract CFBundleIdentifier raw -o - "$SIM_BUNDLE/Info.plist"
@@ -54,6 +60,9 @@ if [[ -d "$DEVICE_BUNDLE" ]]; then
   test -f "$DEVICE_BUNDLE/setpool_distill.pt"
   test -f "$DEVICE_BUNDLE/raw_policy_league.pt"
   test -f "$DEVICE_BUNDLE/strict_q_head.pt"
+  test -f "$DEVICE_BUNDLE/champion_move_parity.json"
+  device_fixture_sha="$(plutil -extract checkpointSha256 raw -o - "$DEVICE_BUNDLE/champion_move_parity.json")"
+  test "$checkpoint_sha" = "$device_fixture_sha"
   plutil -extract CFBundleDisplayName raw -o - "$DEVICE_BUNDLE/Info.plist"
   echo
   plutil -extract CFBundleIdentifier raw -o - "$DEVICE_BUNDLE/Info.plist"

@@ -11,6 +11,7 @@ import numpy as np
 import pyspiel
 
 from open_spiel.python.games import quantum_cat  # pylint: disable=unused-import
+import quantum_cat_liveness_oracle as liveness_oracle
 
 
 PARADOX = 999
@@ -69,6 +70,60 @@ def shared_prediction_action(state, player: int, legal: Iterable[int] | None = N
   return min(prediction_actions, key=lambda a: abs((a - PREDICT_OFFSET) - guess))
 
 
+def discard_dissimilarity_score(hand, rank_idx: int) -> float:
+  """Average numeric-rank distance from this discard to the remaining hand."""
+  hand_np = np.asarray(hand, dtype=np.float32)
+  rank_idx = int(rank_idx)
+  if rank_idx < 0 or rank_idx >= hand_np.size:
+    return 0.0
+  remaining = np.array(hand_np, copy=True)
+  remaining[rank_idx] = max(0.0, remaining[rank_idx] - 1.0)
+  total = float(np.sum(remaining))
+  if total <= 0:
+    return 0.0
+  rank_values = np.arange(hand_np.size, dtype=np.float32) + 1.0
+  return float(
+      np.sum(np.abs(rank_values - float(rank_idx + 1)) * remaining) / total
+  )
+
+
+def shared_discard_action(state, player: int, legal: Iterable[int] | None = None):
+  """Returns the shared heuristic discard action, or None outside discard.
+
+  The setup discard rule is intentionally simple and global:
+  discard from the rank with the most cards; on ties, avoid rank 6 if any other
+  tied rank exists; then discard the rank least similar to the remaining hand.
+  """
+  if int(getattr(state, "_phase", -1)) != 1:
+    return None
+  legal_actions = [int(action) for action in (
+      state.legal_actions(player) if legal is None else legal
+  )]
+  if not legal_actions:
+    return None
+  hand = np.asarray(state._hands[int(player)], dtype=np.float32)
+  discard_actions = [
+      action
+      for action in legal_actions
+      if 0 <= int(action) < hand.size and float(hand[int(action)]) > 0.0
+  ]
+  if not discard_actions:
+    return None
+  max_count = max(float(hand[action]) for action in discard_actions)
+  candidates = [
+      action
+      for action in discard_actions
+      if abs(float(hand[action]) - max_count) < 1e-9
+  ]
+  six_rank_idx = 5
+  if len(candidates) > 1 and six_rank_idx in candidates:
+    candidates = [action for action in candidates if action != six_rank_idx]
+  return max(
+      candidates,
+      key=lambda action: (discard_dissimilarity_score(hand, action), -action),
+  )
+
+
 class QuantumCatBot(Protocol):
   name: str
 
@@ -86,6 +141,9 @@ class RandomBot:
 
   def step(self, state, player):
     legal = state.legal_actions(player)
+    discard_action = shared_discard_action(state, player, legal)
+    if discard_action is not None:
+      return discard_action
     prediction_action = shared_prediction_action(state, player, legal)
     if prediction_action is not None:
       return prediction_action
@@ -133,22 +191,10 @@ class HeuristicBot:
     return self._trick_action(state, player, legal)
 
   def _discard(self, state, player, legal):
-    hand = state._hands[player]
-    if (
-        self.discard_future_flex_weight
-        or self.discard_rank_deficit_weight
-        or self.discard_future_buffer_weight
-    ):
-      scored = [
-          (self._score_discard_action(state, player, rank_idx), rank_idx)
-          for rank_idx in legal
-      ]
-      best = max(score for score, _ in scored)
-      candidates = [rank_idx for score, rank_idx in scored if abs(score - best) < 1e-9]
-      return self._rng.choice(candidates)
-    # Keep singletons as escape hatches; discard from the most duplicated rank,
-    # breaking ties toward low ranks that are less useful for winning tricks.
-    return max(legal, key=lambda rank_idx: (hand[rank_idx], -rank_idx))
+    action = shared_discard_action(state, player, legal)
+    if action is None:
+      raise ValueError(f"No legal discard action for player {player}: {legal}")
+    return action
 
   def _score_discard_action(self, state, player, rank_idx):
     hand = state._hands[player]
@@ -322,7 +368,8 @@ class HeuristicBot:
 
     tricks = int(state._tricks_won[player])
     prediction = state._predictions[player]
-    wants_more = prediction < 0 or tricks < prediction
+    # Only an exactly matched bid still has a connected bonus to protect.
+    wants_more = prediction < 0 or tricks != prediction
 
     would_win_now = self._would_win_after_play(state, player, rank, color)
     if would_win_now is not None:
@@ -383,10 +430,73 @@ def base_bot_name(name: str) -> str:
   return name
 
 
+@dataclasses.dataclass
+class OracleSafeBot:
+  """Survival-first bot: maximize exact own-hand adversarial liveness margin.
+
+  The principled version of reserve-rank play ("discard the rank you hold the
+  most of, then avoid spending it unless forced"): every discard and play is
+  chosen to maximize the post-action adversarial margin from
+  quantum_cat_liveness_oracle, so the bot automatically reserves whatever
+  ranks/columns its survival actually depends on, given the live board and
+  tokens. Bids use the shared top-rank heuristic. Information-legal: the
+  oracle reads only the acting player's hand plus public state.
+
+  Tie-breaks within equal margin: follow the led color, then shed from the
+  deepest remaining rank (surplus duplicates first), then lowest action id.
+  """
+
+  name: str = "oracle_safe"
+  seed: int = 0
+
+  def step(self, state, player):
+    legal = state.legal_actions(player)
+    if not legal:
+      return PARADOX
+    prediction_action = shared_prediction_action(state, player, legal)
+    if prediction_action is not None:
+      return prediction_action
+    phase = int(getattr(state, "_phase", -1))
+    if phase == 1:
+      view = liveness_oracle.discard_view_from_state(state, player)
+      hand = state._hands[player]
+      return max(
+          legal,
+          key=lambda a: (
+              liveness_oracle.post_discard_margin(view, int(a)),
+              int(hand[int(a)]),
+              -int(a),
+          ),
+      )
+    if phase != 3:
+      return int(legal[0])
+    if legal == [PARADOX]:
+      return PARADOX
+    view = liveness_oracle.view_from_state(state, player)
+    num_ranks = view.num_ranks
+    led_idx = view.led_color_idx
+
+    def play_key(action):
+      action = int(action)
+      c_idx = action // num_ranks
+      r_idx = action % num_ranks
+      return (
+          liveness_oracle.post_play_margin(view, action),
+          1 if (led_idx is not None and c_idx == led_idx) else 0,
+          int(view.counts[r_idx]),
+          -action,
+      )
+
+    candidates = [a for a in legal if a != PARADOX]
+    return int(max(candidates, key=play_key))
+
+
 def make_bot(name: str, seed: int = 0) -> QuantumCatBot:
   name = base_bot_name(name)
   if name == "random":
     return RandomBot(seed=seed)
+  if name == "oracle_safe":
+    return OracleSafeBot(seed=seed)
   if name == "heuristic":
     return HeuristicBot(seed=seed)
   if name == "heuristic_adj2":
@@ -658,7 +768,9 @@ def play_game(game, bots: list[QuantumCatBot], seed: int | None = None):
       action = int(np.random.choice(actions, p=probs))
     else:
       player = state.current_player()
-      action = shared_prediction_action(state, player)
+      action = shared_discard_action(state, player)
+      if action is None:
+        action = shared_prediction_action(state, player)
       if action is None:
         action = bots[player].step(state, player)
     state.apply_action(action)

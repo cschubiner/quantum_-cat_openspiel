@@ -1,0 +1,46 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "3B48B807-F049-4B56-802B-D9DF0C602327",
+        "deviceName" : "iPhone 17 Pro Max",
+        "modelName" : "iPhone 17 Pro Max",
+        "osBuildNumber" : "23F77",
+        "osVersion" : "26.5",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 0,
+      "passedTests" : 27,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Test Scheme Action"
+      }
+    }
+  ],
+  "environmentDescription" : "QuantumCatIOS · Built with macOS 26.6.2",
+  "expectedFailures" : 0,
+  "failedTests" : 0,
+  "finishTime" : 1788893701.407,
+  "passedTests" : 27,
+  "result" : "Passed",
+  "skippedTests" : 0,
+  "startTime" : 1788893611.006,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+
+  ],
+  "title" : "Test - QuantumCatIOS",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "63% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 28.35s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 27
+}

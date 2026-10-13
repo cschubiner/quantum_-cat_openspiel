@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "poolID": "quantum-cat-frozen-human-elo-v2",
+  "playerCounts": {
+    "2": {
+      "ratings": {
+        "bot:heuristicTarget:native:native-v1": 1000.0
+      }
+    },
+    "3": {
+      "ratings": {
+        "bot:championBeliefPolicy:f15a7dbd9c259b72c5be6b687f6945b52242ca2c506f9f97c3b4426071b2839f:python-observation76-action214-v1": 1000.0
+      }
+    },
+    "4": {
+      "ratings": {
+        "bot:heuristicTarget:native:native-v1": 1000.0
+      }
+    },
+    "5": {
+      "ratings": {
+        "bot:heuristicTarget:native:native-v1": 1000.0
+      }
+    }
+  }
+}

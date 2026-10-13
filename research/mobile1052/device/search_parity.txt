@@ -1,0 +1,19 @@
+15:00:30  Acquired tunnel connection to device.
+15:00:30  Enabling developer disk image services.
+15:00:30  Acquired usage assertion.
+Launched application with com.canal.quantumcat bundle identifier.
+Waiting for the application to terminate…
+SEARCH_COMPONENT_PARITY failures=0
+ROOT 0 action=26 calls=2547 seconds=1.2217459678649902
+ROOT 1 action=21 calls=1 seconds=0.00025594234466552734
+ROOT 2 action=25 calls=3858 seconds=1.4000219106674194
+ROOT 3 action=28 calls=1 seconds=0.0002269744873046875
+ROOT 4 action=28 calls=1 seconds=0.00024306774139404297
+ROOT 5 action=27 calls=1344 seconds=0.46745800971984863
+ROOT 6 action=21 calls=1490 seconds=0.4986199140548706
+ROOT 7 action=30 calls=1 seconds=0.00019407272338867188
+ROOT 8 action=34 calls=1 seconds=0.00027811527252197266
+ROOT 9 action=31 calls=273 seconds=0.05770695209503174
+SEARCH_PARITY continuations=441 worlds=25 roots=10 failures=0
+DEVICE_CHAMPION_1052_SEARCH_PARITY passed=true enabled=true
+The app terminated with the exit code 0.

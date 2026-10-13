@@ -1,0 +1,17 @@
+qc_arena
+qc_arena_x
+qc_bench
+qc_biddata
+dbg_hand
+dbg_trace
+*.dylib
+results/
+__pycache__/
+qc_gen
+test_features
+qc_noise
+bench_pimcl
+bid_truth
+*_chk
+dbg_nb
+qcx_arena3

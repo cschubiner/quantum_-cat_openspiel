@@ -29,6 +29,24 @@ struct GameSetupView: View {
                     Text(store.humanSeats == 0 ? "Bot-only tables can be watched live or simulated in bulk." : "Use pass-and-play for every human seat. Bot seats move automatically.")
                 }
 
+                if store.humanSeats > 0 {
+                    Section {
+                        ForEach(0..<store.humanSeats, id: \.self) { index in
+                            TextField(
+                                "Player \(index + 1) ID",
+                                text: $store.humanParticipantIDs[index]
+                            )
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .accessibilityIdentifier("human-id-\(index)")
+                        }
+                    } header: {
+                        Text("Human identities")
+                    } footer: {
+                        Text("Use the same ID across matches and seats so Elo tracks the same person. Active IDs must be unique.")
+                    }
+                }
+
                 if store.humanSeats == 0 {
                     Section {
                         Picker("Mode", selection: $store.botOnlyRunMode) {
@@ -75,6 +93,36 @@ struct GameSetupView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
+                    }
+                }
+
+                if store.humanSeats > 0 {
+                    Section {
+                        if let telemetry = store.humanMatchTelemetry {
+                            HStack {
+                                Label("Match progress", systemImage: "chart.line.uptrend.xyaxis")
+                                Spacer()
+                                Text("\(telemetry.rounds.count)/\(telemetry.targetRounds) rounds")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if let status = store.telemetryStatus {
+                            Text(status)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("telemetry-status")
+                        }
+                        if let exportURL = store.latestTelemetryExportURL {
+                            ShareLink(item: exportURL) {
+                                Label("Export completed match", systemImage: "square.and.arrow.up")
+                            }
+                            .accessibilityIdentifier("telemetry-export")
+                        }
+                    } header: {
+                        Text("Human-match telemetry")
+                    } footer: {
+                        Text("A match is one round per seat. Records contain actions, legal choices, scores, and model provenance, but never opponents' hidden hands.")
                     }
                 }
 

@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "suiteID": "quantum-cat-curated-bidding-validation-v1",
+  "trainingPolicy": {"allowInTraining": false},
+  "metamorphicValidation": {"seatRotations": "all"},
+  "scenarios": [
+    {
+      "id": "5p-four-nines-requires-more-than-one",
+      "title": "Four nines support a prediction above one",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "user_reviewed_hand_strength_constraint"},
+      "state": {"numPlayers": 5, "numRanks": 9, "cardsPerPlayerInitial": 9, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [1, 1, 1, 1, 0, 0, 0, 0, 4], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1, -1, -1], "matchTotals": [0, 0, 0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [2, 3, 4], "knownBadBids": [1], "reasonableBidRule": {"kind": "multiple_max_rank_requires_above_minimum", "minimumMaxRankCopies": 3}, "rationale": "Several copies of the highest rank make one an unreasonably low prediction; two, three, and four remain defensible."}
+    },
+    {
+      "id": "5p-three-nines-requires-more-than-one",
+      "title": "Three nines also reject the minimum prediction",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "user_reviewed_hand_strength_constraint"},
+      "state": {"numPlayers": 5, "numRanks": 9, "cardsPerPlayerInitial": 9, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [0, 1, 1, 1, 1, 0, 0, 1, 3], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1, -1, -1], "matchTotals": [0, 0, 0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [2, 3, 4], "knownBadBids": [1], "reasonableBidRule": {"kind": "multiple_max_rank_requires_above_minimum", "minimumMaxRankCopies": 3}, "rationale": "Three highest cards support more than one predicted trick without prescribing an exact aggressive bid."}
+    },
+    {
+      "id": "5p-no-nines-eights-or-sevens-requires-one",
+      "title": "Without nines, eights, or sevens predict one",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "user_reviewed_hand_strength_constraint"},
+      "state": {"numPlayers": 5, "numRanks": 9, "cardsPerPlayerInitial": 9, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [2, 2, 1, 1, 1, 1, 0, 0, 0], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1, -1, -1], "matchTotals": [0, 0, 0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [1], "knownBadBids": [2, 3, 4], "reasonableBidRule": {"kind": "no_top_three_ranks_requires_minimum"}, "rationale": "A hand containing none of the three highest ranks should choose the lowest legal prediction."}
+    },
+    {
+      "id": "5p-four-eights-no-nines-requires-more-than-one",
+      "title": "Four eights can still justify more than one without a nine",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "public_hand_strength_boundary"},
+      "state": {"numPlayers": 5, "numRanks": 9, "cardsPerPlayerInitial": 9, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [1, 1, 1, 1, 0, 0, 0, 4, 0], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1, -1, -1], "matchTotals": [0, 0, 0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [2, 3, 4], "knownBadBids": [1], "reasonableBidRule": {"kind": "multiple_second_rank_requires_above_minimum", "minimumSecondRankCopies": 4}, "rationale": "The maximum rank is not the only useful high card; four second-highest cards also rule out a one-trick bid."}
+    },
+    {
+      "id": "5p-single-nine-accepts-one-or-two",
+      "title": "One isolated nine permits either cautious reasonable bid",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "public_hand_strength_boundary"},
+      "state": {"numPlayers": 5, "numRanks": 9, "cardsPerPlayerInitial": 9, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [2, 2, 1, 1, 1, 0, 0, 0, 1], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1, -1, -1], "matchTotals": [0, 0, 0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [1, 2], "knownBadBids": [3, 4], "reasonableBidRule": {"kind": "single_max_rank_allows_one_or_two"}, "rationale": "A single highest card is ambiguous; both one and two are reasonable and neither should fail the fixture."}
+    },
+    {
+      "id": "4p-four-eights-requires-more-than-one",
+      "title": "Four-player hands use eight as their highest rank",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "user_reviewed_hand_strength_constraint"},
+      "state": {"numPlayers": 4, "numRanks": 8, "cardsPerPlayerInitial": 10, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [1, 1, 1, 1, 1, 0, 0, 4], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1, -1], "matchTotals": [0, 0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [2, 3, 4], "knownBadBids": [1], "reasonableBidRule": {"kind": "multiple_max_rank_requires_above_minimum", "minimumMaxRankCopies": 3}, "rationale": "Four copies of the actual four-player maximum rank make predicting one implausibly timid."}
+    },
+    {
+      "id": "4p-no-eights-sevens-or-sixes-requires-one",
+      "title": "Four-player hands without any of the top three ranks predict one",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "user_reviewed_hand_strength_constraint"},
+      "state": {"numPlayers": 4, "numRanks": 8, "cardsPerPlayerInitial": 10, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [2, 2, 2, 2, 1, 0, 0, 0], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1, -1], "matchTotals": [0, 0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [1], "knownBadBids": [2, 3, 4], "reasonableBidRule": {"kind": "no_top_three_ranks_requires_minimum"}, "rationale": "No six, seven, or eight leaves only the minimum prediction defensible."}
+    },
+    {
+      "id": "4p-single-eight-accepts-one-or-two",
+      "title": "An isolated eight does not uniquely determine the bid",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "public_hand_strength_boundary"},
+      "state": {"numPlayers": 4, "numRanks": 8, "cardsPerPlayerInitial": 10, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [2, 2, 1, 1, 1, 1, 0, 1], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1, -1], "matchTotals": [0, 0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [1, 2], "knownBadBids": [3, 4], "reasonableBidRule": {"kind": "single_max_rank_allows_one_or_two"}, "rationale": "Allow both defensible low bids for a single eight instead of enforcing one arbitrary choice."}
+    },
+    {
+      "id": "3p-four-sixes-requires-more-than-one",
+      "title": "Three-player hands use six as their highest rank",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "user_reviewed_hand_strength_constraint"},
+      "state": {"numPlayers": 3, "numRanks": 6, "cardsPerPlayerInitial": 10, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [1, 1, 1, 1, 1, 4], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1], "matchTotals": [0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [2, 3, 4], "knownBadBids": [1], "reasonableBidRule": {"kind": "multiple_max_rank_requires_above_minimum", "minimumMaxRankCopies": 3}, "rationale": "Four copies of the three-player maximum rank should not collapse to the minimum bid."}
+    },
+    {
+      "id": "3p-no-sixes-fives-or-fours-requires-one",
+      "title": "Three-player hands without their three highest ranks predict one",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "user_reviewed_hand_strength_constraint"},
+      "state": {"numPlayers": 3, "numRanks": 6, "cardsPerPlayerInitial": 10, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [3, 3, 3, 0, 0, 0], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1], "matchTotals": [0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [1], "knownBadBids": [2, 3, 4], "reasonableBidRule": {"kind": "no_top_three_ranks_requires_minimum"}, "rationale": "A hand of ones, twos, and threes should make the minimum legal prediction."}
+    },
+    {
+      "id": "3p-single-six-accepts-one-or-two",
+      "title": "A single six permits either sensible low prediction",
+      "reviewStatus": "locked", "trainingEligible": false,
+      "source": {"kind": "public_hand_strength_boundary"},
+      "state": {"numPlayers": 3, "numRanks": 6, "cardsPerPlayerInitial": 10, "actingPlayer": 0, "roundStartPlayer": 0, "actingHandRankCounts": [3, 2, 2, 1, 0, 1], "actingDiscardedRank": 0, "publicPredictions": [-1, -1, -1], "matchTotals": [0, 0, 0], "matchRound": 0},
+      "acceptance": {"kind": "one_of_bid_values", "acceptedBids": [1, 2], "knownBadBids": [3, 4], "reasonableBidRule": {"kind": "single_max_rank_allows_one_or_two"}, "rationale": "A single highest card has a range of reasonable predictions."}
+    }
+  ]
+}

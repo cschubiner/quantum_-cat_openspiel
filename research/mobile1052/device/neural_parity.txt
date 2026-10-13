@@ -1,0 +1,7 @@
+15:00:26  Acquired tunnel connection to device.
+15:00:26  Enabling developer disk image services.
+15:00:27  Acquired usage assertion.
+Launched application with com.canal.quantumcat bundle identifier.
+Waiting for the application to terminate…
+DEVICE_MODEL_MOVE_PARITY players=5 fixtures=40 mismatches=0 max_abs_diff=0.00009155 live_input_mismatches=0 max_live_input_abs_diff=0.00000963 checkpoint_sha256=b9c1d5fd3ce60ea528cd7955a4e07868cd75eb203593c4cee8e0bb6a1281be4d learned_prediction_enabled=true passed=true error=none
+The app terminated with the exit code 0.

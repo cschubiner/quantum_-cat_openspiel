@@ -47,7 +47,11 @@ _GAME_TYPE = pyspiel.GameType(
     provides_information_state_tensor=True,
     provides_observation_string=True,
     provides_observation_tensor=True,
-    parameter_specification={"players": pyspiel.GameParameter(_DEFAULT_NUM_PLAYERS)}
+    parameter_specification={
+        "players": _DEFAULT_NUM_PLAYERS,
+        "start_player": 0,
+        "match_context": 0,
+    }
 )
 
 # Static game info - will be customized per-instance based on num_players
@@ -57,7 +61,7 @@ _GAME_INFO = pyspiel.GameInfo(
     num_players=_DEFAULT_NUM_PLAYERS,
     min_utility=-50.0,
     max_utility=50.0,
-    utility_sum=0.0,  # We'll fix the sum to 0 only in 2p mode within the code
+    utility_sum=None,
     max_game_length=_MAX_GAME_LENGTH
 )
 
@@ -94,6 +98,10 @@ class QuantumCatGame(pyspiel.Game):
     
     if not (2 <= num_players <= 5):
       raise ValueError("QuantumCatGame only supports 2..5 players.")
+    self.round_start_player = int(params.get("start_player", 0))
+    if not (0 <= self.round_start_player < num_players):
+      raise ValueError("start_player must be in [0, players).")
+    self.match_context = bool(int(params.get("match_context", 0)))
 
     # Decide rank range by #players
     if num_players == 2:
@@ -117,7 +125,7 @@ class QuantumCatGame(pyspiel.Game):
         num_players=num_players,
         min_utility=-50.0,
         max_utility=50.0,
-        utility_sum=0.0,
+        utility_sum=None,
         max_game_length=_MAX_GAME_LENGTH
     )
 
@@ -131,22 +139,24 @@ class QuantumCatGame(pyspiel.Game):
       self.cards_per_player_initial = 10
       self.num_tricks = 9
     elif num_players == 3:
-      # 30 total => each gets 10 => discards 1 => 9 => 8 tricks
+      # 30 total => each gets 10 => discards 1 => play until 1 left => 8 tricks
       self.cards_per_player_initial = 10
       self.num_tricks = 8
     elif num_players == 4:
-      # 40 total => each gets 10 => discards 1 => 9 => 8 tricks
+      # 40 total => each gets 10 => discards 1 => play until 1 left => 8 tricks
       self.cards_per_player_initial = 10
       self.num_tricks = 8
     else:  # 5 players
-      # 45 total => each gets 9 => discards 1 => 8 => 7 tricks
+      # 45 total => each gets 9 => discards 1 => play until 1 left => 7 tricks
       self.cards_per_player_initial = 9
       self.num_tricks = 7
 
   def get_parameters(self):
     """Return the parameters used to create this game instance."""
     return {
-        "players": self.num_players()
+        "players": self.num_players(),
+        "start_player": self.round_start_player,
+        "match_context": int(self.match_context),
     }
 
   def new_initial_state(self):
@@ -168,7 +178,9 @@ class QuantumCatGame(pyspiel.Game):
     """
     num_players = self.num_players()
     num_colors = 4
-    num_card_types = self.num_card_types
+    num_card_types = getattr(
+        self, "num_card_types", self._num_card_types_for_players(num_players)
+    )
 
     # Sum of public pieces:
     #  1) current_player -> size = num_players
@@ -184,6 +196,9 @@ class QuantumCatGame(pyspiel.Game):
     # And single-player private pieces:
     # 11) hand -> size = num_card_types
     # 12) discarded_rank -> size = 1
+    # If match_context is enabled:
+    # 13) match_totals -> size = num_players
+    # 14) match_round -> size = 1
     # 
     # So total = 6 * num_players for #1 + #5 + #6 + #7 + #8
     #          + 5 + (num_colors + 1) + 1
@@ -203,20 +218,38 @@ class QuantumCatGame(pyspiel.Game):
         + num_card_types
         + 1
     )
+    if getattr(self, "match_context", False):
+      total_size += num_players + 1
     return [total_size]
 
   def get_parameters(self):
     """Return the parameters used to create this game instance."""
     return {
-        "players": self.num_players()
+        "players": self.num_players(),
+        "start_player": self.round_start_player,
+        "match_context": int(self.match_context),
     }
 
+  @staticmethod
+  def _num_card_types_for_players(num_players):
+    if num_players == 2:
+      return 5
+    if num_players == 3:
+      return 6
+    if num_players == 4:
+      return 8
+    if num_players == 5:
+      return 9
+    raise ValueError("QuantumCatGame only supports 2..5 players.")
+
   def make_py_observer(self, iig_obs_type=None, params=None):
+    num_players = self.num_players()
     return QuantumCatObserver(
         iig_obs_type or pyspiel.IIGObservationType(perfect_recall=False),
-        self.num_players(),
-        self.num_card_types,
-        self.num_colors,
+        num_players,
+        getattr(self, "num_card_types", self._num_card_types_for_players(num_players)),
+        getattr(self, "num_colors", _NUM_COLORS),
+        getattr(self, "match_context", False),
         params
     )
 
@@ -255,13 +288,17 @@ class QuantumCatGameState(pyspiel.State):
     self._cards_per_player_initial = game.cards_per_player_initial
     self._total_cards = game.total_cards
     self._num_tricks = game.num_tricks
+    self._round_start_player = game.round_start_player
+    self._match_context_enabled = game.match_context
+    self._match_totals = np.zeros(self._num_players, dtype=np.float32)
+    self._match_round = 0
 
     # Phase: 0..4
     self._phase = 0
 
-    # Create & shuffle deck
+    # Chance actions select from the remaining suffix, so the initial deck must
+    # be deterministic for serialized chance histories to replay exactly.
     self._deck = self._create_deck()
-    np.random.shuffle(self._deck)
     self._cards_dealt = 0
     self._deal_player = 0
 
@@ -277,7 +314,7 @@ class QuantumCatGameState(pyspiel.State):
 
     # Trick info
     self._trick_number = 0
-    self._start_player = 0
+    self._start_player = self._round_start_player
     self._current_player = pyspiel.PlayerId.CHANCE
     self._led_color = None
     self._cards_played_this_trick = [None] * self._num_players  # each slot is (rank_val, color_str)
@@ -297,6 +334,7 @@ class QuantumCatGameState(pyspiel.State):
     self._game_over = False
     self._returns = [0.0] * self._num_players
     self._rewards = [0.0] * self._num_players
+    self._last_raw_scores = [0.0] * self._num_players
     self._player_adjacency_bonus = [0.0] * self._num_players
 
     # Keep track if trump (Red) is broken
@@ -420,7 +458,7 @@ class QuantumCatGameState(pyspiel.State):
         self._handle_two_player_leftover()
         self._phase = 3
         self._trick_number = 0
-        self._start_player = 0
+        self._start_player = self._round_start_player
         self._current_player = self._start_player
         self._led_color = None
         self._cards_played_this_trick = [None] * self._num_players
@@ -440,11 +478,19 @@ class QuantumCatGameState(pyspiel.State):
     leftover = self._deck[self._cards_dealt:]
     if len(leftover) != 5:
       raise ValueError("Expected exactly 5 leftover cards in 2p mode.")
-    green_idx = 3  # G
-    # Reveal top 3 => block them in (green, rank-1)
+    # Reveal top 3. Duplicates stack onto the next rows for that rank:
+    # first duplicate in green, second in yellow, third in blue.
+    block_rows_by_seen_count = [3, 2, 1]  # G, Y, B
+    seen_ranks = {}
     for i in range(3):
       rank_val = leftover[i]
-      self._board_ownership[green_idx, rank_val - 1] = _BLOCKED_MARKER
+      seen_count = seen_ranks.get(rank_val, 0)
+      if seen_count >= len(block_rows_by_seen_count):
+        raise ValueError("Unexpected fourth revealed copy in 2p leftover setup.")
+      self._board_ownership[
+          block_rows_by_seen_count[seen_count], rank_val - 1
+      ] = _BLOCKED_MARKER
+      seen_ranks[rank_val] = seen_count + 1
 
     # Remove them from the deck => leftover is no longer used
     self._deck = self._deck[:self._cards_dealt]
@@ -463,7 +509,7 @@ class QuantumCatGameState(pyspiel.State):
     if all(self._has_discarded):
       # move to predictions
       self._phase = 2
-      self._current_player = 0
+      self._current_player = self._round_start_player
     else:
       self._current_player = (self._current_player + 1) % self._num_players
 
@@ -482,7 +528,7 @@ class QuantumCatGameState(pyspiel.State):
       # Everyone predicted => start trick-taking
       self._phase = 3
       self._trick_number = 0
-      self._start_player = 0
+      self._start_player = self._round_start_player
       self._current_player = self._start_player
       self._led_color = None
       self._cards_played_this_trick = [None] * self._num_players
@@ -510,7 +556,7 @@ class QuantumCatGameState(pyspiel.State):
     # Phase 2 => predictions (skipped if 2p)
     if self._phase == 2:
       if self._predictions[player] < 0:
-        return [101, 102, 103, 104]  # i.e. 1..4
+        return self._prediction_actions()
       else:
         return []
 
@@ -519,6 +565,13 @@ class QuantumCatGameState(pyspiel.State):
       return self._trick_legal_actions(player)
 
     # Phase 4 => terminal => no actions
+    return []
+
+  def _prediction_actions(self):
+    if self._num_players == 3:
+      return [101, 102, 103, 104]
+    if self._num_players in (4, 5):
+      return [101, 102, 103, 104]
     return []
 
   def _discard_actions(self, player):
@@ -552,7 +605,7 @@ class QuantumCatGameState(pyspiel.State):
         act = c_idx * self._num_card_types + rank_idx
         actions.append(act)
 
-    if self._led_color is None and not self._trump_broken:
+    if self._led_color is None and not self._red_row_occupied():
       # remove red leads if we can lead something else
       red_actions = [a for a in actions if (a // self._num_card_types) == 0]
       if red_actions and len(actions) > len(red_actions):
@@ -576,8 +629,8 @@ class QuantumCatGameState(pyspiel.State):
     color_str = _COLORS[color_idx]
     self._cards_played_this_trick[player] = (rank_val, color_str)
 
-    # If not leading color and it's red => trump broken
-    if self._led_color is not None and color_str == "R" and color_str != self._led_color:
+    # Once any red space is occupied, red can be led on later tricks.
+    if color_str == "R":
       self._trump_broken = True
 
     # If no lead, set it
@@ -641,6 +694,9 @@ class QuantumCatGameState(pyspiel.State):
       return max(all_plays, key=lambda x: x[1])[0]
     return max(led_plays, key=lambda x: x[1])[0]
 
+  def _red_row_occupied(self):
+    return bool(np.any(self._board_ownership[0] >= 0))
+
   # -------------------------------------------------------------------
   # Phase 4: Scoring
   # -------------------------------------------------------------------
@@ -683,7 +739,14 @@ class QuantumCatGameState(pyspiel.State):
       raw_scores[0] = diff
       raw_scores[1] = -diff
 
+    self._last_raw_scores = list(raw_scores)
+
     # Add these to self._returns & self._rewards
+    if self._match_context_enabled:
+      raw_scores = [
+          float(self._match_totals[p]) + raw_scores[p]
+          for p in range(self._num_players)
+      ]
     for p in range(self._num_players):
       self._returns[p] += raw_scores[p]
       self._rewards[p] += raw_scores[p]
@@ -734,6 +797,15 @@ class QuantumCatGameState(pyspiel.State):
       count += 1
     return count
 
+  def set_match_context(self, totals, round_index):
+    if len(totals) != self._num_players:
+      raise ValueError("match totals must have one value per player")
+    self._match_totals = np.array(totals, dtype=np.float32)
+    self._match_round = int(round_index)
+
+  def raw_round_scores(self):
+    return list(self._last_raw_scores)
+
   def _clone_impl(self):
     """Creates a deep clone of this state."""
     # Create a fresh state with the same underlying Game object:
@@ -747,6 +819,10 @@ class QuantumCatGameState(pyspiel.State):
     new_state._cards_per_player_initial = self._cards_per_player_initial
     new_state._total_cards = self._total_cards
     new_state._num_tricks = self._num_tricks
+    new_state._round_start_player = self._round_start_player
+    new_state._match_context_enabled = self._match_context_enabled
+    new_state._match_totals = np.copy(self._match_totals)
+    new_state._match_round = self._match_round
 
     new_state._deck = np.copy(self._deck)
     new_state._cards_dealt = self._cards_dealt
@@ -776,6 +852,7 @@ class QuantumCatGameState(pyspiel.State):
     new_state._game_over = self._game_over
     new_state._returns = list(self._returns)
     new_state._rewards = list(self._rewards)
+    new_state._last_raw_scores = list(self._last_raw_scores)
     new_state._player_adjacency_bonus = list(self._player_adjacency_bonus)
 
     return new_state
@@ -785,26 +862,26 @@ class QuantumCatGameState(pyspiel.State):
     if player is None:
       player = self._current_player
 
-    # Allocate a 1D numpy array of the same size that observation_tensor_shape() says.
-    obs_size = self._game.observation_tensor_shape()[0]
-    obs = np.zeros(obs_size, dtype=np.float32)
-
-    # Build a temporary observer and ask it to fill its .tensor
-    observer = self._game.make_py_observer(
-        pyspiel.IIGObservationType(perfect_recall=False)
+    # Build a temporary observer from state-local counts. Cloned Python-game
+    # objects can lose mutable instance attributes under pyspiel, but the state
+    # fields are explicitly copied in _clone_impl.
+    observer = QuantumCatObserver(
+        pyspiel.IIGObservationType(perfect_recall=False),
+        self._num_players,
+        self._num_card_types,
+        self._num_colors,
+        self._match_context_enabled,
     )
     observer.set_from(self, player)
 
-    # Copy the observer's data into our obs array:
-    obs[:] = observer.tensor
-    return obs
+    return np.array(observer.tensor, dtype=np.float32)
 
   def resample_from_infostate(self, player_id, sampler):
     """
     Returns a new state with all hidden information re-sampled
     consistently with 'player_id's' perspective of the game so far.
     - The player's own hand & discard are fully known to them.
-    - Other players' discards, if face-down, are unknown => sample them.
+    - Other players' face-down discards are unknown => sample them.
     - All publicly played cards are removed from the unknown deck.
     - We re-deal the unknown cards to each other player's hidden hand and discard.
     """
@@ -812,8 +889,8 @@ class QuantumCatGameState(pyspiel.State):
     # 1) Clone this full state to overwrite hidden areas
     cloned = self.clone()
 
-    # 2) Build a multiset of all possible ranks [1..max_card_value], each with 5 copies
-    max_val = self._game.max_card_value
+    # 2) Build a multiset of all possible ranks from the state-local rank count.
+    max_val = self._num_card_types
     card_counts = [5] * max_val  # card_counts[r-1] => how many copies of rank r remain
 
     # 3) Remove from card_counts all cards that 'player_id' definitely knows are used
@@ -827,7 +904,15 @@ class QuantumCatGameState(pyspiel.State):
     if my_discard_rank != -1:
       card_counts[my_discard_rank - 1] -= 1
 
-    #    (C) All publicly known trick plays
+    #    (C) In 2p, revealed leftover cards block public board squares and
+    #        are no longer in any hand. Remove one physical card per blocked
+    #        rank/color square.
+    for c_idx in range(self._num_colors):
+      for rank_idx in range(self._num_card_types):
+        if self._board_ownership[c_idx, rank_idx] == _BLOCKED_MARKER:
+          card_counts[rank_idx] -= 1
+
+    #    (D) All publicly known trick plays
     #        For each completed trick + current trick, those ranks are visible.
     for trick_list in self._completed_tricks:
       for (p, cardinfo) in trick_list:
@@ -845,17 +930,6 @@ class QuantumCatGameState(pyspiel.State):
     unknown_allocations = [0] * self._num_players
     needs_discard = [False] * self._num_players
 
-    # Determine how many each started with (after discarding).
-    # For 5p => 8 in hand, for 4p => 9 in hand, for 3p => 10 in hand, etc.
-    if self._num_players == 5:
-      starting_in_hand_after_discard = 8
-    elif self._num_players == 4:
-      starting_in_hand_after_discard = 9
-    elif self._num_players == 3:
-      starting_in_hand_after_discard = 9
-    else:
-      raise ValueError("Only 3..5 players supported in Cat in the Box")
-
     for p in range(self._num_players):
       if p == player_id:
         # We know our own exact hand + discard
@@ -863,17 +937,24 @@ class QuantumCatGameState(pyspiel.State):
         needs_discard[p] = False
         continue
 
-      # If discard is still -1, that means from *player_id*'s perspective,
-      # p's discard is unknown => we must sample it.
-      if self._discarded_cards[p] == -1:
-        needs_discard[p] = True
-      else:
-        needs_discard[p] = False
-
       # Count how many times p has played a card so far
       played_count = self._count_cards_played_by(p)
-      # Then p must have (starting_in_hand_after_discard - played_count) cards left hidden
-      unknown_allocations[p] = starting_in_hand_after_discard - played_count
+      if self._num_players == 2:
+        # 2p skips discard/prediction; hidden hand size is initial minus plays.
+        needs_discard[p] = False
+        hidden_hand_size = self._cards_per_player_initial - played_count
+      else:
+        # Opponent discards are face-down. If they have discarded, sample that
+        # card regardless of the true state's private _discarded_cards[p].
+        needs_discard[p] = self._has_discarded[p]
+        hidden_hand_size = (
+            self._cards_per_player_initial
+            - (1 if self._has_discarded[p] else 0)
+            - played_count
+        )
+      if hidden_hand_size < 0:
+        raise ValueError(f"Contradictory hidden hand size for player {p}")
+      unknown_allocations[p] = hidden_hand_size
 
     # 5) Create the unknown deck list from card_counts
     unknown_deck = []
@@ -881,7 +962,8 @@ class QuantumCatGameState(pyspiel.State):
       if ccount < 0:
         raise ValueError(f"Contradictory card counts for rank {rank_idx+1}")
       unknown_deck.extend([rank_idx] * ccount)
-    np.random.shuffle(unknown_deck)
+    rng = sampler if sampler is not None else np.random
+    rng.shuffle(unknown_deck)
 
     # 6) Assign unknown discards + unknown hands to each other player
     deck_pos = 0
@@ -892,14 +974,20 @@ class QuantumCatGameState(pyspiel.State):
 
       # 6a) If p's discard is unknown => pick 1 random rank for it
       if needs_discard[p]:
+        if deck_pos >= len(unknown_deck):
+          raise ValueError("Not enough unknown cards to sample discard")
         discard_rank_idx = unknown_deck[deck_pos]
         deck_pos += 1
         cloned._discarded_cards[p] = discard_rank_idx + 1
+      else:
+        cloned._discarded_cards[p] = -1
 
       # 6b) Now re-deal p's unknown portion of their hand
       needed = unknown_allocations[p]
       cloned._hands[p].fill(0)
       for _ in range(needed):
+        if deck_pos >= len(unknown_deck):
+          raise ValueError("Not enough unknown cards to sample hand")
         rank_idx = unknown_deck[deck_pos]
         deck_pos += 1
         cloned._hands[p][rank_idx] += 1
@@ -912,13 +1000,17 @@ class QuantumCatGameState(pyspiel.State):
 class QuantumCatObserver:
   """Observer, conforming to the PyObserver interface."""
 
-  def __init__(self, iig_obs_type, num_players, num_card_types, num_colors, params=None):
+  def __init__(
+      self, iig_obs_type, num_players, num_card_types, num_colors,
+      match_context=False, params=None
+  ):
     if params:
       raise ValueError(f"Observation parameters not supported; passed {params}")
     self.iig_obs_type = iig_obs_type
     self.num_players = num_players
     self.num_card_types = num_card_types
     self.num_colors = num_colors
+    self.match_context = match_context
 
     pieces = [
         ("current_player", num_players, (num_players,)),
@@ -936,6 +1028,9 @@ class QuantumCatObserver:
     if iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       pieces.append(("hand", num_card_types, (num_card_types,)))
       pieces.append(("discarded_rank", 1, (1,)))
+    if match_context:
+      pieces.append(("match_totals", num_players, (num_players,)))
+      pieces.append(("match_round", 1, (1,)))
 
     total_size = sum(size for name, size, shape in pieces)
     self.tensor = np.zeros(total_size, dtype=np.float32)
@@ -991,6 +1086,13 @@ class QuantumCatObserver:
       for c_idx in range(self.num_colors):
         color_tokens_arr[p, c_idx] = float(state._color_tokens[p, c_idx])
 
+    if self.match_context:
+      self.dict["match_totals"][:] = np.array(
+          getattr(state, "_match_totals", np.zeros(self.num_players)),
+          dtype=np.float32,
+      ) / 20.0
+      self.dict["match_round"][0] = float(getattr(state, "_match_round", 0))
+
     # single-player private info
     if self.iig_obs_type.private_info == pyspiel.PrivateInfoType.SINGLE_PLAYER:
       for i in range(self.num_card_types):
@@ -1042,4 +1144,3 @@ class QuantumCatObserver:
 # Register the game with PySpiel
 # ---------------------------------------------------------------------
 pyspiel.register_game(_GAME_TYPE, QuantumCatGame)
-

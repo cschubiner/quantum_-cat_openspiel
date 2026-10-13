@@ -1,0 +1,56 @@
+{
+  "run": "run1052",
+  "purpose": "Test three research-backed improvement lanes against the exact strongest confirmed five-player champion without privileged online information",
+  "created_date": "2026-09-04",
+  "baseline_freeze": "/Users/canal/Documents/Codex/2026-08-19/find-my-quantum-cat-ios-ml/run1051/FROZEN_CANDIDATE.json",
+  "baseline_checkpoint_sha256": "b9c1d5fd3ce60ea528cd7955a4e07868cd75eb203593c4cee8e0bb6a1281be4d",
+  "players": 5,
+  "training_seeds": {"league": [2026090411, 2026090412], "belief": [2026090421, 2026090422]},
+  "development_seed": 2026090401,
+  "audit_seed": 2026090431,
+  "confirmation_seed": 2026090402,
+  "lanes": {
+    "search": {"variants": ["four_actions_eight_worlds", "two_actions_32_selection_and_audit_worlds", "each_round_last_three_tricks"], "initial_screen_deals": 8},
+    "league": {"target_complete_matches": 500, "snapshot_matches": [100, 250, 500], "initial_screen_deals": 8},
+    "belief": {"target_complete_matches": 200, "model": "dense_public_history_constrained_belief", "initial_screen_deals": 8}
+  },
+  "development_extension": {"max_finalists_per_lane": 1, "additional_deals": 16, "deal_offset": 8},
+  "post_diagnostic_followup": {
+    "lane": "belief",
+    "reason": "The original learned sampler improved contrastive world recognition but worsened finite-proposal marginal calibration. This follow-up was specified after that diagnostic, before any protected games.",
+    "experiment": "Same frozen learned energy with symmetric Metropolis swaps of hidden physical card slots, 128 burn-in transitions and 16 thinning transitions, retaining 75 percent fresh uniform mixture",
+    "selection_data": "Original calibration partition only; no new model selection using the original final predictive test",
+    "initial_gameplay_deals_if_calibration_justifies": 8,
+    "maximum_finalists_per_lane_unchanged": true,
+    "original_plugin_and_weights_immutable": true
+  },
+  "selection": "Rank development finalists by deal-block pairwise placement against the exact baseline. Prefer a positive paired score advantage and no increase in matched actor-owned paradox count. Locked scenarios and information-safety checks are mandatory. Development results are exploratory, not promotion evidence.",
+  "confirmation": {
+    "maximum_distinct_candidates": 1,
+    "freeze_required_before_first_protected_game": true,
+    "block_deals": 64,
+    "allowed_offsets": [0, 64, 128, 192],
+    "planned_looks_total_deals": [64, 128, 256],
+    "family_alpha": 0.05,
+    "per_look_alpha": 0.016666666666666666,
+    "confidence_level": 0.9833333333333333,
+    "primary_endpoint": "mean paired deal-block difference in official pairwise placement, compared with exact champion on the same deals and seats",
+    "primary_pass": "corrected confidence interval lower bound strictly greater than zero",
+    "additional_guards": ["official score point estimate nonnegative", "candidate-owned paradox count no greater than matched baseline-owned count", "all60 locked cases pass", "full-stack information-safety audit passes", "baseline and candidate code/model provenance unchanged"],
+    "no_post_confirmation_tuning": true,
+    "stop_rule": "Stop at first planned look satisfying all gates, or report failure/inconclusive at256 independent deals. Do not keep sampling until a favorable p-value appears."
+  },
+  "match_design": "Complete five-round matches with cyclic seat rotations within each independent common deal; four exact baseline opponents. Run matched baseline actor on identical deals. Treat deals, not individual seats/rounds, as the independent statistical unit.",
+  "secondary_metrics": ["actual first-place share", "official raw score", "bid-hit frequency", "personal paradox frequency", "decision latency", "search activation and override counts"],
+  "scope": "Five-player experimental result only; no claims about other player counts, human strength, mobile parity, or deployment. No source/app/champion replacement without verified improvement.",
+  "compute": {
+    "initial_cpu_process_budget": 8,
+    "confirmation_worker_ceiling": 12,
+    "late_development_worker_ceiling": 12,
+    "torch_threads_per_process": 1,
+    "paid_cloud_compute": false,
+    "confirmation_orchestration": "An isolated arena snapshot raises only the worker ceiling from4to12; original development arena and all inference code remain unchanged. Full-map pre/post receipts are mandatory for every protected baseline/candidate block.",
+    "development_throughput_retry": "Once other lanes completed, the unfinished16-deal search extension may be restarted once on12workers with the exact same frozen selector, seed and deal IDs, in a new output directory. Preserve and mark the incomplete attempt unscored; never rerun a completed result. This changes throughput only and consumes no protected data."
+  },
+  "information_contract": "Every real and simulated actor uses only own remembered cards/discard and public history. Constrained imagined hands are allowed; actual opponents' hidden cards, discards, future deal state, or deal seeds are not online inputs. Fail closed on sampler inconsistency. Hidden labels, if used in belief training, are targets only."
+}

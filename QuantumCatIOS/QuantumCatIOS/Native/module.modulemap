@@ -1,0 +1,4 @@
+module QCXNative {
+    header "qcx_capi.h"
+    export *
+}

@@ -21,6 +21,7 @@ from open_spiel.python.algorithms.ismcts import (
 )
 from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
 from open_spiel.python.games import quantum_cat
+from quantum_cat_ai import shared_discard_action
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("num_players", 3, "Number of players in the game.")
@@ -95,6 +96,13 @@ def main(_):
             print(f"You picked: {state.action_to_string(cur_player, chosen_action)}")
             state.apply_action(chosen_action)
         else:
+            legal_actions = state.legal_actions(cur_player)
+            discard_action = shared_discard_action(state, cur_player, legal_actions)
+            if discard_action is not None:
+                chosen_action = int(discard_action)
+                print(f"Bot discard heuristic picks: {state.action_to_string(cur_player, chosen_action)}")
+                state.apply_action(chosen_action)
+                continue
             if cur_player == 0:
                 # ISMCTS Agent's turn
                 bot = agents[cur_player]
@@ -103,7 +111,6 @@ def main(_):
                 state.apply_action(chosen_action)
             else:
                 # Random bot's turn (player 1)
-                legal_actions = state.legal_actions(cur_player)
                 chosen_action = random.choice(legal_actions)
                 print(f"Random bot picks: {state.action_to_string(cur_player, chosen_action)}")
                 state.apply_action(chosen_action)

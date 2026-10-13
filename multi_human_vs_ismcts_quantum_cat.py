@@ -31,6 +31,7 @@ flags.DEFINE_integer("num_bots", 1, "Number of ISMCTS bot players.")
 flags.DEFINE_integer("max_simulations", 4700, "Max simulations for each ISMCTS bot.")
 flags.DEFINE_integer("random_seed", 1234, "Random seed for reproducibility.")
 flags.DEFINE_bool("clear_screen", True, "If True, prints many blank lines between turns.")
+flags.DEFINE_bool("debug_bot_observation", False, "If True, print bot-private observations during bot turns.")
 
 def clear_or_separate():
     """Optionally print many blank lines to hide the previous player's info."""
@@ -43,15 +44,13 @@ def main(_):
     num_humans = FLAGS.num_humans
     num_bots = FLAGS.num_bots
     total_players = num_humans + num_bots
-    if total_players < 2:
-        raise ValueError("Need at least 2 total players (some combination of humans+bots).")
-    if total_players > 5:
-        raise ValueError("Quantum Cat only supports up to 5 total players.")
+    if not (3 <= total_players <= 5):
+        raise ValueError("Quantum Cat only supports 3 to 5 total players.")
 
     random_state = np.random.RandomState(FLAGS.random_seed)
     game = pyspiel.load_game("python_quantum_cat", {"players": total_players})
     observer = game.make_py_observer(
-        pyspiel.IIGObservationType(perfectrecall=False)
+        pyspiel.IIGObservationType(perfect_recall=False)
     )
 
     # Decide seat assignment: which seats are humans vs. bots
@@ -151,12 +150,12 @@ def main(_):
             # Bot turn
             ismcts_bot = bots[current_player]
 
-            # Print bot's observer state
-            observer_str = observer.string_from(state, current_player)
             print(f"--- Player {current_player}'s Turn (Bot) ---")
-            print("Bot Observer State (scroll up if you really want to read it):")
-            print(observer_str)
-            print("\n" * 50)
+            if FLAGS.debug_bot_observation:
+                observer_str = observer.string_from(state, current_player)
+                print("Bot Observer State:")
+                print(observer_str)
+                clear_or_separate()
 
             print("\n(MCTS thinking...)\n")
 

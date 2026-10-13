@@ -1,0 +1,3032 @@
+{
+  "schemaVersion": 1,
+  "suiteID": "quantum-cat-curated-bid-regime-validation-v1",
+  "purpose": "Locked information-safe tests of below-target, exact-target, already-overshot, and unreachable bid strategy.",
+  "trainingPolicy": {
+    "allowInTraining": false,
+    "source": "user_reviewed_three_regime_strategy",
+    "note": "Never use any locked state or seat rotation in training."
+  },
+  "metamorphicValidation": {
+    "seatRotations": "all",
+    "independenceUnit": "captured_public_position_and_bid_regime"
+  },
+  "scenarios": [
+    {
+      "id": "bid-regime-3p-below-bid-win-seed2026090411-deal10-seat2",
+      "title": "3p below bid win: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 10,
+        "candidateSeat": 2,
+        "opponents": "random",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 3,
+        "numRanks": 6,
+        "numColors": 4,
+        "numTricks": 8,
+        "cardsPerPlayerInitial": 10,
+        "phase": "play",
+        "actingPlayer": 2,
+        "currentPlayer": 2,
+        "roundStartPlayer": 2,
+        "startPlayer": 0,
+        "trickNumber": 5,
+        "ledSuit": "Y",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "Y",
+            "rank": 3
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 5
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 6
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 5
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 1
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 3
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 4
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 6
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 2
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 2
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 2
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 4
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 3
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          6,
+          6,
+          5
+        ],
+        "predictions": [
+          3,
+          3,
+          3
+        ],
+        "tricksWon": [
+          3,
+          0,
+          2
+        ],
+        "boardOwnership": [
+          [
+            0,
+            0,
+            2,
+            -1,
+            -1,
+            0
+          ],
+          [
+            2,
+            2,
+            -1,
+            2,
+            -1,
+            -1
+          ],
+          [
+            -1,
+            1,
+            0,
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            2,
+            0,
+            0,
+            1,
+            -1
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            false,
+            true,
+            true
+          ],
+          [
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          0,
+          1,
+          1,
+          2,
+          0
+        ],
+        "actingDiscardedRank": 5,
+        "trumpBroken": true,
+        "matchTotals": [
+          5.0,
+          -2.0,
+          7.0
+        ],
+        "matchRound": 1,
+        "expectedLegalActionCount": 4
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 3,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 4
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_winning_trick_for_needed_bid",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 8,
+            "move": {
+              "phase": "play",
+              "suit": "B",
+              "rank": 3
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-3p-at-bid-lose-seed2026090411-deal10-seat2",
+      "title": "3p at bid lose: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 10,
+        "candidateSeat": 2,
+        "opponents": "random",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 3,
+        "numRanks": 6,
+        "numColors": 4,
+        "numTricks": 8,
+        "cardsPerPlayerInitial": 10,
+        "phase": "play",
+        "actingPlayer": 2,
+        "currentPlayer": 2,
+        "roundStartPlayer": 2,
+        "startPlayer": 0,
+        "trickNumber": 5,
+        "ledSuit": "Y",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "Y",
+            "rank": 3
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 5
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 6
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 5
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 1
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 3
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 4
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 6
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 2
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 2
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 2
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 4
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 3
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          6,
+          6,
+          5
+        ],
+        "predictions": [
+          3,
+          3,
+          2
+        ],
+        "tricksWon": [
+          3,
+          0,
+          2
+        ],
+        "boardOwnership": [
+          [
+            0,
+            0,
+            2,
+            -1,
+            -1,
+            0
+          ],
+          [
+            2,
+            2,
+            -1,
+            2,
+            -1,
+            -1
+          ],
+          [
+            -1,
+            1,
+            0,
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            2,
+            0,
+            0,
+            1,
+            -1
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            false,
+            true,
+            true
+          ],
+          [
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          0,
+          1,
+          1,
+          2,
+          0
+        ],
+        "actingDiscardedRank": 5,
+        "trumpBroken": true,
+        "matchTotals": [
+          5.0,
+          -2.0,
+          7.0
+        ],
+        "matchRound": 1,
+        "expectedLegalActionCount": 4
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 8,
+            "move": {
+              "phase": "play",
+              "suit": "B",
+              "rank": 3
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_losing_trick_to_preserve_exact_bid",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 3,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 4
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-3p-above-bid-win-seed2026090411-deal10-seat2",
+      "title": "3p above bid win: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 10,
+        "candidateSeat": 2,
+        "opponents": "random",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 3,
+        "numRanks": 6,
+        "numColors": 4,
+        "numTricks": 8,
+        "cardsPerPlayerInitial": 10,
+        "phase": "play",
+        "actingPlayer": 2,
+        "currentPlayer": 2,
+        "roundStartPlayer": 2,
+        "startPlayer": 0,
+        "trickNumber": 5,
+        "ledSuit": "Y",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "Y",
+            "rank": 3
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 5
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 6
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 5
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 1
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 3
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 4
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 6
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 2
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 2
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 2
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 4
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 3
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          6,
+          6,
+          5
+        ],
+        "predictions": [
+          3,
+          3,
+          1
+        ],
+        "tricksWon": [
+          3,
+          0,
+          2
+        ],
+        "boardOwnership": [
+          [
+            0,
+            0,
+            2,
+            -1,
+            -1,
+            0
+          ],
+          [
+            2,
+            2,
+            -1,
+            2,
+            -1,
+            -1
+          ],
+          [
+            -1,
+            1,
+            0,
+            1,
+            1,
+            1
+          ],
+          [
+            1,
+            2,
+            0,
+            0,
+            1,
+            -1
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            false,
+            true,
+            true
+          ],
+          [
+            false,
+            false,
+            true,
+            false
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          0,
+          1,
+          1,
+          2,
+          0
+        ],
+        "actingDiscardedRank": 5,
+        "trumpBroken": true,
+        "matchTotals": [
+          5.0,
+          -2.0,
+          7.0
+        ],
+        "matchRound": 1,
+        "expectedLegalActionCount": 4
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 3,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 4
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_winning_trick_after_irreversible_bid_miss",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 8,
+            "move": {
+              "phase": "play",
+              "suit": "B",
+              "rank": 3
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-4p-below-bid-win-seed2026090411-deal1-seat3",
+      "title": "4p below bid win: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 1,
+        "candidateSeat": 3,
+        "opponents": "random",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 4,
+        "numRanks": 8,
+        "numColors": 4,
+        "numTricks": 8,
+        "cardsPerPlayerInitial": 10,
+        "phase": "play",
+        "actingPlayer": 3,
+        "currentPlayer": 3,
+        "roundStartPlayer": 3,
+        "startPlayer": 0,
+        "trickNumber": 4,
+        "ledSuit": "R",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "R",
+            "rank": 5
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 6
+          },
+          {
+            "player": 2,
+            "suit": "R",
+            "rank": 1
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "Y",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 4
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 1,
+              "suit": "R",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 8
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 2
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 8
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "Y",
+              "rank": 3
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 6
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 6
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 7
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 5
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          5,
+          5,
+          5,
+          4
+        ],
+        "predictions": [
+          2,
+          1,
+          1,
+          3
+        ],
+        "tricksWon": [
+          1,
+          1,
+          0,
+          2
+        ],
+        "boardOwnership": [
+          [
+            2,
+            -1,
+            -1,
+            1,
+            0,
+            0,
+            -1,
+            -1
+          ],
+          [
+            3,
+            3,
+            -1,
+            -1,
+            3,
+            -1,
+            -1,
+            -1
+          ],
+          [
+            1,
+            -1,
+            3,
+            2,
+            -1,
+            1,
+            0,
+            2
+          ],
+          [
+            0,
+            2,
+            -1,
+            1,
+            -1,
+            1,
+            2,
+            0
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            false,
+            false,
+            true
+          ],
+          [
+            false,
+            false,
+            true,
+            true
+          ],
+          [
+            true,
+            false,
+            false,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0
+        ],
+        "actingDiscardedRank": 5,
+        "trumpBroken": true,
+        "matchTotals": [
+          1.0,
+          11.0,
+          2.0,
+          2.0
+        ],
+        "matchRound": 2,
+        "expectedLegalActionCount": 10
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 6,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 7
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_winning_trick_for_needed_bid",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 1,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 2
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-4p-at-bid-lose-seed2026090411-deal1-seat3",
+      "title": "4p at bid lose: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 1,
+        "candidateSeat": 3,
+        "opponents": "random",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 4,
+        "numRanks": 8,
+        "numColors": 4,
+        "numTricks": 8,
+        "cardsPerPlayerInitial": 10,
+        "phase": "play",
+        "actingPlayer": 3,
+        "currentPlayer": 3,
+        "roundStartPlayer": 3,
+        "startPlayer": 0,
+        "trickNumber": 4,
+        "ledSuit": "R",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "R",
+            "rank": 5
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 6
+          },
+          {
+            "player": 2,
+            "suit": "R",
+            "rank": 1
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "Y",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 4
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 1,
+              "suit": "R",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 8
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 2
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 8
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "Y",
+              "rank": 3
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 6
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 6
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 7
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 5
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          5,
+          5,
+          5,
+          4
+        ],
+        "predictions": [
+          2,
+          1,
+          1,
+          2
+        ],
+        "tricksWon": [
+          1,
+          1,
+          0,
+          2
+        ],
+        "boardOwnership": [
+          [
+            2,
+            -1,
+            -1,
+            1,
+            0,
+            0,
+            -1,
+            -1
+          ],
+          [
+            3,
+            3,
+            -1,
+            -1,
+            3,
+            -1,
+            -1,
+            -1
+          ],
+          [
+            1,
+            -1,
+            3,
+            2,
+            -1,
+            1,
+            0,
+            2
+          ],
+          [
+            0,
+            2,
+            -1,
+            1,
+            -1,
+            1,
+            2,
+            0
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            false,
+            false,
+            true
+          ],
+          [
+            false,
+            false,
+            true,
+            true
+          ],
+          [
+            true,
+            false,
+            false,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0
+        ],
+        "actingDiscardedRank": 5,
+        "trumpBroken": true,
+        "matchTotals": [
+          1.0,
+          11.0,
+          2.0,
+          2.0
+        ],
+        "matchRound": 2,
+        "expectedLegalActionCount": 10
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 1,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 2
+            }
+          },
+          {
+            "action": 2,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 3
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_losing_trick_to_preserve_exact_bid",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 6,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 7
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-4p-above-bid-win-seed2026090411-deal1-seat3",
+      "title": "4p above bid win: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 1,
+        "candidateSeat": 3,
+        "opponents": "random",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 4,
+        "numRanks": 8,
+        "numColors": 4,
+        "numTricks": 8,
+        "cardsPerPlayerInitial": 10,
+        "phase": "play",
+        "actingPlayer": 3,
+        "currentPlayer": 3,
+        "roundStartPlayer": 3,
+        "startPlayer": 0,
+        "trickNumber": 4,
+        "ledSuit": "R",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "R",
+            "rank": 5
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 6
+          },
+          {
+            "player": 2,
+            "suit": "R",
+            "rank": 1
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "Y",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 4
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 1,
+              "suit": "R",
+              "rank": 4
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 8
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 2
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 8
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "Y",
+              "rank": 3
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 6
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 6
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 7
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 5
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          5,
+          5,
+          5,
+          4
+        ],
+        "predictions": [
+          2,
+          1,
+          1,
+          1
+        ],
+        "tricksWon": [
+          1,
+          1,
+          0,
+          2
+        ],
+        "boardOwnership": [
+          [
+            2,
+            -1,
+            -1,
+            1,
+            0,
+            0,
+            -1,
+            -1
+          ],
+          [
+            3,
+            3,
+            -1,
+            -1,
+            3,
+            -1,
+            -1,
+            -1
+          ],
+          [
+            1,
+            -1,
+            3,
+            2,
+            -1,
+            1,
+            0,
+            2
+          ],
+          [
+            0,
+            2,
+            -1,
+            1,
+            -1,
+            1,
+            2,
+            0
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            false,
+            false,
+            true
+          ],
+          [
+            false,
+            false,
+            true,
+            true
+          ],
+          [
+            true,
+            false,
+            false,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          1,
+          1,
+          1,
+          1,
+          0,
+          1,
+          0
+        ],
+        "actingDiscardedRank": 5,
+        "trumpBroken": true,
+        "matchTotals": [
+          1.0,
+          11.0,
+          2.0,
+          2.0
+        ],
+        "matchRound": 2,
+        "expectedLegalActionCount": 10
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 6,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 7
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_winning_trick_after_irreversible_bid_miss",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 1,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 2
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-5p-below-bid-win-seed2026090411-deal8-seat4",
+      "title": "5p below bid win: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 8,
+        "candidateSeat": 4,
+        "opponents": "champion",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 5,
+        "numRanks": 9,
+        "numColors": 4,
+        "numTricks": 7,
+        "cardsPerPlayerInitial": 9,
+        "phase": "play",
+        "actingPlayer": 4,
+        "currentPlayer": 4,
+        "roundStartPlayer": 3,
+        "startPlayer": 0,
+        "trickNumber": 5,
+        "ledSuit": "Y",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "Y",
+            "rank": 9
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 8
+          },
+          {
+            "player": 2,
+            "suit": "Y",
+            "rank": 6
+          },
+          {
+            "player": 3,
+            "suit": "G",
+            "rank": 5
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "B",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "B",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 4
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 1
+            },
+            {
+              "player": 4,
+              "suit": "B",
+              "rank": 8
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "Y",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 5
+            },
+            {
+              "player": 3,
+              "suit": "Y",
+              "rank": 2
+            },
+            {
+              "player": 4,
+              "suit": "Y",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "B",
+              "rank": 2
+            },
+            {
+              "player": 1,
+              "suit": "B",
+              "rank": 5
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 9
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 6
+            },
+            {
+              "player": 4,
+              "suit": "R",
+              "rank": 8
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 5
+            },
+            {
+              "player": 1,
+              "suit": "R",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "R",
+              "rank": 9
+            },
+            {
+              "player": 4,
+              "suit": "R",
+              "rank": 7
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 8
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "G",
+              "rank": 3
+            },
+            {
+              "player": 4,
+              "suit": "G",
+              "rank": 7
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          6,
+          6,
+          6,
+          6,
+          5
+        ],
+        "predictions": [
+          1,
+          1,
+          2,
+          2,
+          3
+        ],
+        "tricksWon": [
+          2,
+          0,
+          0,
+          1,
+          2
+        ],
+        "boardOwnership": [
+          [
+            -1,
+            2,
+            1,
+            -1,
+            0,
+            -1,
+            4,
+            4,
+            3
+          ],
+          [
+            3,
+            0,
+            1,
+            2,
+            1,
+            3,
+            0,
+            4,
+            2
+          ],
+          [
+            4,
+            3,
+            1,
+            -1,
+            2,
+            2,
+            0,
+            1,
+            0
+          ],
+          [
+            1,
+            2,
+            3,
+            -1,
+            3,
+            -1,
+            4,
+            0,
+            -1
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            false,
+            true
+          ],
+          [
+            true,
+            false,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          0,
+          0,
+          1,
+          0,
+          2,
+          0,
+          0,
+          0
+        ],
+        "actingDiscardedRank": 4,
+        "trumpBroken": true,
+        "matchTotals": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "matchRound": 0,
+        "expectedLegalActionCount": 5
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 5,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 6
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_winning_trick_for_needed_bid",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 21,
+            "move": {
+              "phase": "play",
+              "suit": "Y",
+              "rank": 4
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-5p-at-bid-lose-seed2026090411-deal8-seat4",
+      "title": "5p at bid lose: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 8,
+        "candidateSeat": 4,
+        "opponents": "champion",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 5,
+        "numRanks": 9,
+        "numColors": 4,
+        "numTricks": 7,
+        "cardsPerPlayerInitial": 9,
+        "phase": "play",
+        "actingPlayer": 4,
+        "currentPlayer": 4,
+        "roundStartPlayer": 3,
+        "startPlayer": 0,
+        "trickNumber": 5,
+        "ledSuit": "Y",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "Y",
+            "rank": 9
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 8
+          },
+          {
+            "player": 2,
+            "suit": "Y",
+            "rank": 6
+          },
+          {
+            "player": 3,
+            "suit": "G",
+            "rank": 5
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "B",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "B",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 4
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 1
+            },
+            {
+              "player": 4,
+              "suit": "B",
+              "rank": 8
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "Y",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 5
+            },
+            {
+              "player": 3,
+              "suit": "Y",
+              "rank": 2
+            },
+            {
+              "player": 4,
+              "suit": "Y",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "B",
+              "rank": 2
+            },
+            {
+              "player": 1,
+              "suit": "B",
+              "rank": 5
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 9
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 6
+            },
+            {
+              "player": 4,
+              "suit": "R",
+              "rank": 8
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 5
+            },
+            {
+              "player": 1,
+              "suit": "R",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "R",
+              "rank": 9
+            },
+            {
+              "player": 4,
+              "suit": "R",
+              "rank": 7
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 8
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "G",
+              "rank": 3
+            },
+            {
+              "player": 4,
+              "suit": "G",
+              "rank": 7
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          6,
+          6,
+          6,
+          6,
+          5
+        ],
+        "predictions": [
+          1,
+          1,
+          2,
+          2,
+          2
+        ],
+        "tricksWon": [
+          2,
+          0,
+          0,
+          1,
+          2
+        ],
+        "boardOwnership": [
+          [
+            -1,
+            2,
+            1,
+            -1,
+            0,
+            -1,
+            4,
+            4,
+            3
+          ],
+          [
+            3,
+            0,
+            1,
+            2,
+            1,
+            3,
+            0,
+            4,
+            2
+          ],
+          [
+            4,
+            3,
+            1,
+            -1,
+            2,
+            2,
+            0,
+            1,
+            0
+          ],
+          [
+            1,
+            2,
+            3,
+            -1,
+            3,
+            -1,
+            4,
+            0,
+            -1
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            false,
+            true
+          ],
+          [
+            true,
+            false,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          0,
+          0,
+          1,
+          0,
+          2,
+          0,
+          0,
+          0
+        ],
+        "actingDiscardedRank": 4,
+        "trumpBroken": true,
+        "matchTotals": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "matchRound": 0,
+        "expectedLegalActionCount": 5
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 32,
+            "move": {
+              "phase": "play",
+              "suit": "G",
+              "rank": 6
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_losing_trick_to_preserve_exact_bid",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 3,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 4
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-5p-above-bid-win-seed2026090411-deal8-seat4",
+      "title": "5p above bid win: choose any equally safe strategically correct trick result",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "public_information_bid_regime_counterfactual",
+        "seed": 2026090411,
+        "deal": 8,
+        "candidateSeat": 4,
+        "opponents": "champion",
+        "note": "Real public/own-hand match position; only the acting player's public prediction is changed to expose each requested regime."
+      },
+      "state": {
+        "numPlayers": 5,
+        "numRanks": 9,
+        "numColors": 4,
+        "numTricks": 7,
+        "cardsPerPlayerInitial": 9,
+        "phase": "play",
+        "actingPlayer": 4,
+        "currentPlayer": 4,
+        "roundStartPlayer": 3,
+        "startPlayer": 0,
+        "trickNumber": 5,
+        "ledSuit": "Y",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "Y",
+            "rank": 9
+          },
+          {
+            "player": 1,
+            "suit": "Y",
+            "rank": 8
+          },
+          {
+            "player": 2,
+            "suit": "Y",
+            "rank": 6
+          },
+          {
+            "player": 3,
+            "suit": "G",
+            "rank": 5
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "B",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "B",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 4
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 1
+            },
+            {
+              "player": 4,
+              "suit": "B",
+              "rank": 8
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "Y",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 5
+            },
+            {
+              "player": 3,
+              "suit": "Y",
+              "rank": 2
+            },
+            {
+              "player": 4,
+              "suit": "Y",
+              "rank": 1
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "B",
+              "rank": 2
+            },
+            {
+              "player": 1,
+              "suit": "B",
+              "rank": 5
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 9
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 6
+            },
+            {
+              "player": 4,
+              "suit": "R",
+              "rank": 8
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 5
+            },
+            {
+              "player": 1,
+              "suit": "R",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "R",
+              "rank": 9
+            },
+            {
+              "player": 4,
+              "suit": "R",
+              "rank": 7
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 8
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 1
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "G",
+              "rank": 3
+            },
+            {
+              "player": 4,
+              "suit": "G",
+              "rank": 7
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          6,
+          6,
+          6,
+          6,
+          5
+        ],
+        "predictions": [
+          1,
+          1,
+          2,
+          2,
+          1
+        ],
+        "tricksWon": [
+          2,
+          0,
+          0,
+          1,
+          2
+        ],
+        "boardOwnership": [
+          [
+            -1,
+            2,
+            1,
+            -1,
+            0,
+            -1,
+            4,
+            4,
+            3
+          ],
+          [
+            3,
+            0,
+            1,
+            2,
+            1,
+            3,
+            0,
+            4,
+            2
+          ],
+          [
+            4,
+            3,
+            1,
+            -1,
+            2,
+            2,
+            0,
+            1,
+            0
+          ],
+          [
+            1,
+            2,
+            3,
+            -1,
+            3,
+            -1,
+            4,
+            0,
+            -1
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            true,
+            false,
+            true
+          ],
+          [
+            true,
+            false,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          0,
+          0,
+          1,
+          0,
+          2,
+          0,
+          0,
+          0
+        ],
+        "actingDiscardedRank": 4,
+        "trumpBroken": true,
+        "matchTotals": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "matchRound": 0,
+        "expectedLegalActionCount": 5
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 5,
+            "move": {
+              "phase": "play",
+              "suit": "R",
+              "rank": 6
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "safe_winning_trick_after_irreversible_bid_miss",
+          "note": "Accept every publicly guaranteed move with the requested trick outcome that preserves the best opposite move's own exit margin, own future buffer, and remaining suit-token count."
+        },
+        "knownBadActions": [
+          {
+            "action": 21,
+            "move": {
+              "phase": "play",
+              "suit": "Y",
+              "rank": 4
+            },
+            "note": "The opposite trick result is strategically incorrect."
+          }
+        ]
+      }
+    },
+    {
+      "id": "bid-regime-5p-unreachable-underbid-exact-final-official-score",
+      "title": "Final action: unreachable bid cannot earn a bonus, so take the extra trick when official placement improves",
+      "reviewStatus": "locked",
+      "trainingEligible": false,
+      "source": {
+        "kind": "exhaustive_final_match_official_scoring",
+        "seed": 2026081936,
+        "matchIndex": 34,
+        "incumbentAction": 34,
+        "incumbentWasOptimal": false,
+        "derivedFrom": "exact-5p-final-decline_extra_trick_to_preserve_exact_bid-seed2026081936-match34-p4"
+      },
+      "proof": {
+        "kind": "exact_terminal_official_placement",
+        "objective": [
+          "maximize_official_match_rank_points",
+          "accept_all_actions_tied_on_official_placement"
+        ],
+        "allLegalActions": [
+          {
+            "action": 34,
+            "rankPoints": 2.0,
+            "ownTotalScore": 10.0,
+            "ownRoundScore": 2.0,
+            "ownTricksWon": 2,
+            "ownPrediction": 3,
+            "ownConnectedBonus": 0.0,
+            "move": {
+              "phase": "play",
+              "suit": "G",
+              "rank": 8
+            }
+          },
+          {
+            "action": 25,
+            "rankPoints": 1.0,
+            "ownTotalScore": 9.0,
+            "ownRoundScore": 1.0,
+            "ownTricksWon": 1,
+            "ownPrediction": 3,
+            "ownConnectedBonus": 0.0,
+            "move": {
+              "phase": "play",
+              "suit": "Y",
+              "rank": 8
+            }
+          }
+        ]
+      },
+      "acceptance": {
+        "kind": "one_of_top1",
+        "acceptedActions": [
+          {
+            "action": 34,
+            "move": {
+              "phase": "play",
+              "suit": "G",
+              "rank": 8
+            }
+          }
+        ],
+        "reasonableActionRule": {
+          "kind": "best_official_match_placement"
+        },
+        "knownBadActions": [
+          {
+            "action": 25,
+            "move": {
+              "phase": "play",
+              "suit": "Y",
+              "rank": 8
+            },
+            "note": "An impossible bid cannot pay a connected bonus; this move gives away a point and worsens official placement."
+          }
+        ]
+      },
+      "state": {
+        "numPlayers": 5,
+        "numRanks": 9,
+        "numColors": 4,
+        "numTricks": 7,
+        "cardsPerPlayerInitial": 9,
+        "phase": "play",
+        "actingPlayer": 4,
+        "currentPlayer": 4,
+        "roundStartPlayer": 3,
+        "startPlayer": 0,
+        "trickNumber": 6,
+        "ledSuit": "G",
+        "currentTrick": [
+          {
+            "player": 0,
+            "suit": "G",
+            "rank": 1
+          },
+          {
+            "player": 1,
+            "suit": "G",
+            "rank": 5
+          },
+          {
+            "player": 2,
+            "suit": "Y",
+            "rank": 5
+          },
+          {
+            "player": 3,
+            "suit": "G",
+            "rank": 7
+          },
+          null
+        ],
+        "completedTricks": [
+          [
+            {
+              "player": 0,
+              "suit": "B",
+              "rank": 5
+            },
+            {
+              "player": 1,
+              "suit": "B",
+              "rank": 6
+            },
+            {
+              "player": 2,
+              "suit": "B",
+              "rank": 3
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 1
+            },
+            {
+              "player": 4,
+              "suit": "B",
+              "rank": 7
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "B",
+              "rank": 4
+            },
+            {
+              "player": 1,
+              "suit": "B",
+              "rank": 9
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 3
+            },
+            {
+              "player": 3,
+              "suit": "B",
+              "rank": 8
+            },
+            {
+              "player": 4,
+              "suit": "B",
+              "rank": 2
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 5
+            },
+            {
+              "player": 1,
+              "suit": "R",
+              "rank": 6
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 2
+            },
+            {
+              "player": 3,
+              "suit": "R",
+              "rank": 9
+            },
+            {
+              "player": 4,
+              "suit": "R",
+              "rank": 8
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "Y",
+              "rank": 9
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "Y",
+              "rank": 1
+            },
+            {
+              "player": 3,
+              "suit": "Y",
+              "rank": 6
+            },
+            {
+              "player": 4,
+              "suit": "Y",
+              "rank": 2
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "G",
+              "rank": 2
+            },
+            {
+              "player": 1,
+              "suit": "G",
+              "rank": 3
+            },
+            {
+              "player": 2,
+              "suit": "G",
+              "rank": 9
+            },
+            {
+              "player": 3,
+              "suit": "G",
+              "rank": 4
+            },
+            {
+              "player": 4,
+              "suit": "G",
+              "rank": 6
+            }
+          ],
+          [
+            {
+              "player": 0,
+              "suit": "R",
+              "rank": 7
+            },
+            {
+              "player": 1,
+              "suit": "Y",
+              "rank": 7
+            },
+            {
+              "player": 2,
+              "suit": "R",
+              "rank": 1
+            },
+            {
+              "player": 3,
+              "suit": "R",
+              "rank": 4
+            },
+            {
+              "player": 4,
+              "suit": "Y",
+              "rank": 4
+            }
+          ]
+        ],
+        "playedCountByPlayer": [
+          7,
+          7,
+          7,
+          7,
+          6
+        ],
+        "predictions": [
+          1,
+          1,
+          1,
+          2,
+          3
+        ],
+        "tricksWon": [
+          2,
+          0,
+          2,
+          1,
+          1
+        ],
+        "boardOwnership": [
+          [
+            2,
+            2,
+            2,
+            3,
+            0,
+            1,
+            0,
+            4,
+            3
+          ],
+          [
+            3,
+            4,
+            2,
+            0,
+            0,
+            1,
+            4,
+            3,
+            1
+          ],
+          [
+            2,
+            4,
+            1,
+            4,
+            2,
+            3,
+            1,
+            -1,
+            0
+          ],
+          [
+            0,
+            0,
+            1,
+            3,
+            1,
+            4,
+            3,
+            -1,
+            2
+          ]
+        ],
+        "colorTokens": [
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            false,
+            true,
+            true,
+            true
+          ],
+          [
+            true,
+            false,
+            true,
+            false
+          ],
+          [
+            true,
+            true,
+            true,
+            true
+          ],
+          [
+            false,
+            true,
+            true,
+            true
+          ]
+        ],
+        "hasParadoxed": [
+          false,
+          false,
+          false,
+          false,
+          false
+        ],
+        "actingHandRankCounts": [
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0
+        ],
+        "actingDiscardedRank": 8,
+        "trumpBroken": true,
+        "matchTotals": [
+          2.0,
+          11.0,
+          11.0,
+          8.0,
+          8.0
+        ],
+        "matchRound": 4,
+        "expectedLegalActionCount": 2
+      }
+    }
+  ]
+}

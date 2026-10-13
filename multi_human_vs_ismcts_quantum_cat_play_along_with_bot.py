@@ -50,6 +50,7 @@ flags.DEFINE_integer("num_bots", 1, "Number of ISMCTS bot players.")
 flags.DEFINE_integer("random_seed", 42, "Random seed for the bot RNG.")
 flags.DEFINE_integer("max_simulations", 8000, "Max simulations for each ISMCTS bot.")
 flags.DEFINE_bool("clear_screen", True, "If True, prints many blank lines between turns.")
+flags.DEFINE_bool("debug_bot_observation", False, "If True, print bot-private observations during bot turns.")
 
 
 def clear_or_separate():
@@ -79,6 +80,11 @@ def main(_):
 
     if not (3 <= total_players <= 5):
         raise ValueError("Total players must be between 3 and 5 for Cat in the Box.")
+    if num_bots != 1:
+        raise ValueError(
+            "This play-along mode can deduce exactly one bot hand. "
+            "Use --num_bots=1 or enter an explicit multi-bot hand distribution flow."
+        )
 
     # Create the game with the desired number of players
     game = pyspiel.load_game("python_quantum_cat", {"players": total_players})
@@ -303,10 +309,11 @@ def main(_):
         else:
             # Bot turn
             print(f"--- Player {current_player} (Bot) Turn ---")
-            obs_str = observer.string_from(state, current_player)
-            print("Bot sees partial info (for debugging/human reference):")
-            print(obs_str)
-            clear_or_separate()
+            if FLAGS.debug_bot_observation:
+                obs_str = observer.string_from(state, current_player)
+                print("Bot sees partial info:")
+                print(obs_str)
+                clear_or_separate()
             print("\n(MCTS thinking...)\n")
             chosen_action = bots[current_player].step(state)
             print(f"Bot chooses: {state.action_to_string(current_player, chosen_action)}")

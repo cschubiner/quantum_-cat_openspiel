@@ -1,0 +1,35 @@
+{
+  "players": 3,
+  "games": 300,
+  "k_factor": 24.0,
+  "seed": 20260602,
+  "elapsed_seconds": 0.5027689933776855,
+  "ratings": {
+    "heuristic": 1068.98,
+    "heuristic_target2": 1039.14,
+    "heuristic_adj2": 982.49,
+    "random": 909.4
+  },
+  "stats": {
+    "random": {
+      "games": 225,
+      "avg_return": 0.1644,
+      "paradox_rate": 0.5422
+    },
+    "heuristic": {
+      "games": 225,
+      "avg_return": 1.5022,
+      "paradox_rate": 0.2578
+    },
+    "heuristic_adj2": {
+      "games": 225,
+      "avg_return": 1.2222,
+      "paradox_rate": 0.2933
+    },
+    "heuristic_target2": {
+      "games": 225,
+      "avg_return": 1.7333,
+      "paradox_rate": 0.2222
+    }
+  }
+}

@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT_DIR"
 
+if [[ "${CHAMPION_SEARCH:-0}" == "1" ]]; then
+  exec bash QuantumCatIOS/Tools/run_champion_search_bridge.sh
+fi
+
 CHECKPOINT="${CHECKPOINT:-az_runs/best_3p_policy_checkpoint.pt}"
 DEVICE_ID="${IPHONE_DEVICE_ID:-${IPHONE_UDID:-}}"
 APP="${APP:-/tmp/QuantumCatIOSDeviceDD/Build/Products/Debug-iphoneos/QuantumCatIOS.app}"
@@ -40,6 +44,18 @@ if [[ "$expected_sha" != "$app_sha" ]]; then
   exit 2
 fi
 
+PARITY_FIXTURE="$APP/champion_move_parity.json"
+if [[ ! -f "$PARITY_FIXTURE" ]]; then
+  echo "Signed app is missing champion_move_parity.json: $APP" >&2
+  exit 4
+fi
+fixture_sha="$(plutil -extract checkpointSha256 raw -o - "$PARITY_FIXTURE")"
+echo "parity_fixture_checkpoint_sha256=$fixture_sha"
+if [[ "$expected_sha" != "$fixture_sha" ]]; then
+  echo "Move-parity fixtures do not match CHECKPOINT." >&2
+  exit 4
+fi
+
 echo "== Device list =="
 xcrun devicectl list devices | tee "$LOG_DIR/devices.txt"
 
@@ -61,7 +77,7 @@ if [[ "$INSTALL" == "1" ]]; then
     | tee "$LOG_DIR/install.txt"
 fi
 
-echo "== On-device CoreML benchmark =="
+echo "== On-device gameplay bridge benchmark =="
 set +e
 DEVICECTL_CHILD_DEVICE_PARADOX_BENCHMARK=1 \
 DEVICECTL_CHILD_DEVICE_PARADOX_BENCHMARK_GAMES="$BENCHMARK_GAMES" \
@@ -86,15 +102,40 @@ rg -q "DEVICE_PARADOX_BENCHMARK" "$LOG_DIR/device_benchmark.txt"
 rg -q "coreml_failures=0" "$LOG_DIR/device_benchmark.txt"
 rg -q "shared_bid_check=true" "$LOG_DIR/device_benchmark.txt"
 rg -q "shared_discard_check=true" "$LOG_DIR/device_benchmark.txt"
+if rg -q "live_inference_verified=true" "$LOG_DIR/device_benchmark.txt"; then
+  if rg -q "coreml_attempts=0" "$LOG_DIR/device_benchmark.txt"; then
+    echo "Verified live inference made no Core ML attempts." >&2
+    exit 5
+  fi
+else
+  rg -q "live_input_contract=swift-partial-v0-unverified" "$LOG_DIR/device_benchmark.txt"
+  rg -q "live_inference_verified=false" "$LOG_DIR/device_benchmark.txt"
+  rg -q "coreml_attempts=0" "$LOG_DIR/device_benchmark.txt"
+  echo "Live Core ML is fail-closed because native input parity is unverified."
+fi
 
 if [[ "$REQUIRE_EXACT_MOVE_PARITY" == "1" ]]; then
-  if rg -q "DEVICE_MODEL_MOVE_PARITY|MODEL_MOVE_PARITY" QuantumCatIOS/QuantumCatIOS; then
-    echo "Exact move-parity hook detected, but this wrapper must be extended to invoke it." >&2
-    exit 4
+  echo "== Exact PyTorch-to-CoreML move parity =="
+  set +e
+  DEVICECTL_CHILD_DEVICE_MODEL_MOVE_PARITY=1 \
+  xcrun devicectl -t 120 device process launch \
+    --device "$DEVICE_ID" \
+    --terminate-existing \
+    --console \
+    "$BUNDLE_ID" \
+    >"$LOG_DIR/device_move_parity.txt" 2>&1
+  parity_status=$?
+  set -e
+  cat "$LOG_DIR/device_move_parity.txt"
+  if [[ "$parity_status" -ne 0 ]]; then
+    if rg -q "Locked|could not be, unlocked" "$LOG_DIR/device_move_parity.txt"; then
+      echo "Device is locked; unlock the iPhone and rerun this script." >&2
+    fi
+    exit "$parity_status"
   fi
-  echo "Exact PyTorch-to-CoreML move-parity mode is not present in the iOS app." >&2
-  echo "Do not claim exact same-move parity on physical iPhone until that hook exists and passes." >&2
-  exit 4
+  rg -q "DEVICE_MODEL_MOVE_PARITY" "$LOG_DIR/device_move_parity.txt"
+  rg -q "mismatches=0" "$LOG_DIR/device_move_parity.txt"
+  rg -q "passed=true" "$LOG_DIR/device_move_parity.txt"
 fi
 
 if [[ "$NORMAL_LAUNCH" == "1" ]]; then

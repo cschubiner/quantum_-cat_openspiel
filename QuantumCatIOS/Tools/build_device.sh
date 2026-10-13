@@ -18,6 +18,7 @@ xcodebuild \
   PROVISIONING_PROFILE_SPECIFIER='Quantum Cat Development' \
   CODE_SIGN_IDENTITY='Apple Development' \
   COMPILER_INDEX_STORE_ENABLE=NO \
+  SWIFT_OPTIMIZATION_LEVEL=-O \
   -quiet \
   build
 
@@ -26,6 +27,10 @@ test -d "$APP/champion_belief_policy.mlmodelc"
 test -d "$APP/setpool_distill.mlmodelc"
 test -d "$APP/raw_policy_league.mlmodelc"
 test -d "$APP/strict_q_head.mlmodelc"
+test -d "$APP/champion_1052_search.mlmodelc"
+test -f "$APP/champion_1052_search_parity.json"
+test -f "$APP/qcx_champion.json"
+test -f "$APP/qcx_parity_fixtures.json"
 test -f "$APP/champion_belief_policy.pt"
 test -f "$APP/setpool_distill.pt"
 test -f "$APP/raw_policy_league.pt"

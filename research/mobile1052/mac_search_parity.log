@@ -1,0 +1,12 @@
+SEARCH_COMPONENT_PARITY failures=0
+ROOT 0 action=26 calls=2547 seconds=4.055456042289734
+ROOT 1 action=21 calls=1 seconds=0.001067042350769043
+ROOT 2 action=25 calls=3858 seconds=4.558859944343567
+ROOT 3 action=28 calls=1 seconds=0.0005680322647094727
+ROOT 4 action=28 calls=1 seconds=0.0007740259170532227
+ROOT 5 action=27 calls=1344 seconds=1.2262330055236816
+ROOT 6 action=21 calls=1490 seconds=0.9997150897979736
+ROOT 7 action=30 calls=1 seconds=0.0005050897598266602
+ROOT 8 action=34 calls=1 seconds=0.0005700588226318359
+ROOT 9 action=31 calls=273 seconds=0.1268390417098999
+SEARCH_PARITY continuations=441 worlds=25 roots=10 failures=0

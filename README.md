@@ -25,6 +25,7 @@ To try OpenSpiel in Google Colaboratory, please refer to `open_spiel/colabs` sub
 
 Please choose among the following options:
 
+*   [Cat in the Box run metrics](QUANTUM_CAT_RUN_METRICS.md)
 *   [Installing OpenSpiel](docs/install.md)
 *   [Introduction to OpenSpiel](docs/intro.md)
 *   [API Overview and First Example](docs/concepts.md)
@@ -81,4 +82,3 @@ BibTeX:
 ## Versioning
 
 We use [Semantic Versioning](https://semver.org/).
-

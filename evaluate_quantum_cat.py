@@ -37,6 +37,7 @@ from open_spiel.python.algorithms.ismcts import (
 
 # Make sure quantum_cat is registered
 from open_spiel.python.games import quantum_cat
+from quantum_cat_ai import shared_discard_action
 
 FLAGS = flags.FLAGS
 
@@ -63,10 +64,9 @@ flags.DEFINE_bool("self_play", False, "If True, use same agent for all players."
 flags.DEFINE_bool("random_vs_random", False, "If True, evaluate random vs random play.")
 
 
-def pick_follow_suit_action(legal_actions, info_state, num_card_types):
+def pick_follow_suit_action(legal_actions, info_state, num_card_types, num_players):
     """Tries to find an action that follows the led color, if any."""
     # led color is a 5-dimensional one-hot: R,B,Y,G,None
-    num_players = FLAGS.num_players
     led_color_start = num_players + 5  # skip current_player (num_players) + phase(5)
     led_color = info_state[led_color_start: led_color_start + 5]
     led_color_idx = int(np.argmax(led_color))  # 0..3 => R,B,Y,G, 4 => None
@@ -131,18 +131,19 @@ def evaluate(agent, envs, game, player_id=0, num_episodes=20):
 
             p = ts.current_player()
             legal = ts.observations["legal_actions"][p]
+            state = envs.envs[i]._state
 
-            if hasattr(agent, "step"):
-                # If it's an RL-based agent or IS-MCTS (Bot API), try step()
-                # Some bots implement step(), others do step_with_policy()...
-                # We'll try step() if it exists.
-                chosen_action = agent.step(ts)  # For IS-MCTS or uniform random
-                if chosen_action is None:
-                    chosen_action = 0
+            discard_action = shared_discard_action(state, p, legal)
+            if discard_action is not None:
+                chosen_action = discard_action
+            elif hasattr(agent, "step"):
+                chosen_action = agent.step(state)
+                if chosen_action is None or chosen_action not in legal:
+                    chosen_action = random.choice(legal)
             else:
                 # If the 'agent' is just a python function or a dict, handle special logic:
                 # (We handle "random" or "follow_suit" via direct function calls)
-                chosen_action = 0
+                chosen_action = random.choice(legal)
                 # We'll rely on a specialized function for random or follow_suit
                 # if we had coded it that way.
 
@@ -154,6 +155,8 @@ def evaluate(agent, envs, game, player_id=0, num_episodes=20):
 
         # Mark finished envs, accumulate reward, count episodes
         for i, dval in enumerate(done):
+            if episodes_done >= num_episodes:
+                break
             if dval and not done_mask[i]:
                 if reward[i] is not None:
                     total_reward += reward[i][player_id]
@@ -178,9 +181,10 @@ def evaluate(agent, envs, game, player_id=0, num_episodes=20):
         else:
             time_step = next_time_step
 
-    avg_rew = total_reward / num_episodes
-    paradox_rate = paradox_count / num_episodes
-    correct_pred_rate = correct_pred_count / num_episodes
+    completed = max(1, episodes_done)
+    avg_rew = total_reward / completed
+    paradox_rate = paradox_count / completed
+    correct_pred_rate = correct_pred_count / completed
 
     print(f"[Sync Eval] player_id={player_id}, episodes={num_episodes}, "
           f"avg reward={avg_rew:.2f}, episodes_done={episodes_done}, "
@@ -192,7 +196,7 @@ def make_policy(policy_type, game, player_id=0):
     """Helper to create a policy (bot or function) given a string."""
     if policy_type == "random":
         # Make a random bot that uses open_spiel's built-in uniform random
-        return pyspiel.make_uniform_random_bot(player_id, random.Random(123 + player_id))
+        return pyspiel.make_uniform_random_bot(player_id, 123 + player_id)
     elif policy_type == "follow_suit":
         # We'll create a simple python function that picks actions
         # We'll wrap it in a Bot adapter (requires some extra steps).
@@ -203,7 +207,7 @@ def make_policy(policy_type, game, player_id=0):
                 super().__init__()
                 self._player_id = player_id
                 self._game = game
-                self._num_card_types = game.num_distinct_actions() // 4  # rough guess
+                self._num_card_types = int(getattr(game, "num_card_types"))
 
             def player_id(self):
                 return self._player_id
@@ -213,11 +217,21 @@ def make_policy(policy_type, game, player_id=0):
                 if state.current_player() != self._player_id:
                     return None
                 legal_actions = state.legal_actions(self._player_id)
+                discard_action = shared_discard_action(
+                    state, self._player_id, legal_actions
+                )
+                if discard_action is not None:
+                    return discard_action
                 # For observation, we'll just get the public obs, or info_state
                 # to figure out led color. The quantum_cat obs might be big,
                 # but let's do a quick approach:
                 obs = state.observation_tensor(self._player_id)
-                return pick_follow_suit_action(legal_actions, obs, self._num_card_types)
+                return pick_follow_suit_action(
+                    legal_actions,
+                    obs,
+                    self._num_card_types,
+                    self._game.num_players(),
+                )
 
             def restart_at(self, state):
                 pass
@@ -266,6 +280,11 @@ def make_policy(policy_type, game, player_id=0):
                     return None
                 # RL Env step
                 legal_actions = state.legal_actions(self._agent.player_id)
+                discard_action = shared_discard_action(
+                    state, self._agent.player_id, legal_actions
+                )
+                if discard_action is not None:
+                    return discard_action
                 obs = [rl_environment.TimeStep(
                     observations={"info_state": [state.observation_tensor(self._agent.player_id)],
                                   "legal_actions": [legal_actions]},

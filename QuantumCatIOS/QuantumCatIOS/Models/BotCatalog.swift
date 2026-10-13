@@ -1,6 +1,10 @@
 import Foundation
 
 enum BotKind: String, CaseIterable, Identifiable, Codable {
+    /// The current champion: the qcx C++ information-set search (synced from
+    /// qcx/ by qcx/sync_ios.sh). Used for 3-5 players; two-player tables fall
+    /// back to `championBeliefPolicy`.
+    case qcxChampion
     case championBeliefPolicy
     case setPoolDistill
     case rawPolicyLeague
@@ -13,7 +17,8 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var name: String {
         switch self {
-        case .championBeliefPolicy: "Champion ML"
+        case .qcxChampion: QCXChampionConfig.bundled.displayName
+        case .championBeliefPolicy: "Run1052 ML (previous champion)"
         case .setPoolDistill: "SetPool Distill"
         case .rawPolicyLeague: "Raw Policy League"
         case .strictQHead: "Strict Q Head"
@@ -25,8 +30,10 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var subtitle: String {
         switch self {
+        case .qcxChampion:
+            "Information-set search at every decision: discard, bid and each play are chosen by \(QCXChampionConfig.bundled.worlds) sampled hypothetical deals consistent with only this seat's hand and public information. Beat four copies of the Run1051 champion with 87% pairwise placement (32 five-player deals)."
         case .championBeliefPolicy:
-            "Run604 step50 shield-distilled champion with the promoted native liveness shield wrapped around raw Core ML policy."
+            "Run1052: full-size neural bidding and actor-information-only rollout search in the final three tricks of every five-player round. Three-player champion preserved."
         case .setPoolDistill:
             "Set-pooling distilled policy/value student, bundled as Core ML."
         case .rawPolicyLeague:
@@ -44,21 +51,41 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var mobileStatus: String {
         switch self {
+        case .qcxChampion:
+            QCXChampion.supports(players: 3)
+                ? "Native C++ search active for 3, 4 and 5 players (\(QCXChampionConfig.bundled.worlds) worlds per decision, source \(QCXChampionConfig.bundled.sourceCommit ?? "unknown")). Uses only this seat's hand and public information. Two-player tables use the Run1052 ML bot."
+                : "qcx champion parameters do not match the bundled engine; Run1052 ML fallback active."
         case .championBeliefPolicy:
-            ModelArtifactStatus.isBundled(resource: "champion_belief_policy", extension: "mlmodelc")
-                ? "Core ML active; native liveness shield active."
-                : "Core ML missing; liveness-shielded heuristic fallback active."
+            if ChampionInference.verified,
+               ModelArtifactStatus.isBundled(resource: "champion_1052_search", extension: "mlmodelc") {
+                "Run1052 search active: full-size neural network plus on-device hypothetical-world rollouts. Uses only your hand and public information. Five-player search parity verified on this device; three-player champion preserved."
+            } else if !ModelArtifactStatus.isBundled(
+                resource: "champion_belief_policy", extension: "mlmodelc"
+            ) {
+                "Core ML missing; liveness-shielded heuristic fallback active."
+            } else if QuantumCatMLPolicy.shared.liveInferenceIsVerified(for: self, players: 3),
+                      ModelArtifactStatus.isBundled(resource: "champion_5p", extension: "mlmodelc") {
+                if QuantumCatMLPolicy.shared.usesLearnedPrediction(for: self, players: 5) {
+                    "Core ML active: full-size five-player champion learns its bids and plays directly; the three-player champion is preserved and four-player games safely fall back."
+                } else {
+                    "Core ML active: verified three-player champion and parity-gated five-player specialist; four-player games safely use the native fallback."
+                }
+            } else if QuantumCatMLPolicy.shared.liveInferenceIsVerified(for: self, players: 3) {
+                "Core ML active; native three-player 76/214 live-input parity verified."
+            } else {
+                "Core ML bundled but disabled because live-input parity failed; fallback active."
+            }
         case .setPoolDistill:
             ModelArtifactStatus.isBundled(resource: "setpool_distill", extension: "mlmodelc")
-                ? "Core ML active; heuristic fallback ready."
+                ? "Core ML bundled but disabled pending live input parity; heuristic fallback active."
                 : "Core ML missing; heuristic fallback active."
         case .rawPolicyLeague:
             ModelArtifactStatus.isBundled(resource: "raw_policy_league", extension: "mlmodelc")
-                ? "Core ML active; heuristic fallback ready."
+                ? "Core ML bundled but disabled pending live input parity; heuristic fallback active."
                 : "Core ML missing; heuristic fallback active."
         case .strictQHead:
             ModelArtifactStatus.isBundled(resource: "strict_q_head", extension: "mlmodelc")
-                ? "Core ML active; heuristic fallback ready."
+                ? "Core ML bundled but disabled pending live input parity; heuristic fallback active."
                 : "Core ML missing; heuristic fallback active."
         case .heuristicTarget:
             "Native, fast, target-aware."
@@ -71,7 +98,7 @@ enum BotKind: String, CaseIterable, Identifiable, Codable {
 
     var weights: BotWeights {
         switch self {
-        case .championBeliefPolicy:
+        case .qcxChampion, .championBeliefPolicy:
             BotWeights(adjacency: 1.45, target: 2.35, winner: 1.35, highCard: 0.95, noise: 0.02)
         case .setPoolDistill:
             BotWeights(adjacency: 1.20, target: 1.95, winner: 1.15, highCard: 0.85, noise: 0.04)
@@ -192,8 +219,22 @@ struct ModelArtifactStatus: Identifiable {
 
     static let bundledArtifacts: [ModelArtifactStatus] = [
         ModelArtifactStatus(
+            id: "qcx-champion",
+            title: "Champion (qcx PIMC search)",
+            detail: "Native C++ search parameters (qcx_champion.json)",
+            resource: "qcx_champion",
+            fileExtension: "json"
+        ),
+        ModelArtifactStatus(
+            id: "qcx-parity",
+            title: "qcx parity fixtures",
+            detail: "Python-generated cross-language decisions",
+            resource: "qcx_parity_fixtures",
+            fileExtension: "json"
+        ),
+        ModelArtifactStatus(
             id: "champion-coreml",
-            title: "Champion ML",
+            title: "Run1052 ML (previous champion)",
             detail: "Run604 raw policy plus liveness shield",
             resource: "champion_belief_policy",
             fileExtension: "mlmodelc"

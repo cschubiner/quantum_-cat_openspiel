@@ -2,6 +2,11 @@ import SwiftUI
 
 struct GameTableView: View {
     @EnvironmentObject private var store: GameStore
+    @State private var botRecommendationExpanded = false
+    @State private var botRecommendationAllMovesExpanded = false
+    @State private var botRecommendation: BotRecommendation?
+    @State private var botRecommendationStateKey = ""
+    @State private var recommendationPending = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -107,6 +112,7 @@ struct GameTableView: View {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 14) {
                         handView(for: human)
+                        botRecommendationPanel
                         if store.game.phase == .play {
                             legalMovesView
                         }
@@ -139,11 +145,11 @@ struct GameTableView: View {
         if store.game.isTerminal { return 74 }
         switch store.game.phase {
         case .discard:
-            return 184
+            return 286
         case .prediction:
-            return 154
+            return 278
         case .play:
-            return 324
+            return 410
         default:
             return 112
         }
@@ -250,6 +256,271 @@ struct GameTableView: View {
         return "Rank \(rank), \(held) held"
     }
 
+    private var botRecommendationPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                let willExpand = !botRecommendationExpanded
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    botRecommendationExpanded = willExpand
+                    if !willExpand {
+                        botRecommendationAllMovesExpanded = false
+                    }
+                }
+                if willExpand {
+                    refreshBotRecommendation()
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "sparkles")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(.yellow)
+                        .frame(width: 24, height: 24)
+                        .background(Color.yellow.opacity(0.16), in: Circle())
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Bot recommendation")
+                            .font(.caption.weight(.black))
+                            .foregroundStyle(.white)
+                        Text(botRecommendationSummaryText)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.64))
+                    }
+                    Spacer()
+                    Image(systemName: botRecommendationExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.black))
+                        .foregroundStyle(.white.opacity(0.76))
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Bot recommendation")
+            .accessibilityIdentifier("bot-recommendation-toggle")
+
+            if botRecommendationExpanded {
+                if let recommendation = botRecommendation {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Champion preference · scores total 100")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.66))
+
+                        ForEach(
+                            Array(recommendation.rankedMoves.prefix(2).enumerated()),
+                            id: \.element.id
+                        ) { index, preference in
+                            recommendationOptionRow(
+                                preference,
+                                rank: index,
+                                recommendation: recommendation
+                            )
+                        }
+
+                        if recommendation.rankedMoves.count > 2 {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.18)) {
+                                        botRecommendationAllMovesExpanded.toggle()
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text("All \(recommendation.legalMoveCount) legal moves")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.white.opacity(0.76))
+                                        Spacer()
+                                        Image(systemName: botRecommendationAllMovesExpanded ? "chevron.up" : "chevron.down")
+                                            .font(.caption.weight(.black))
+                                            .foregroundStyle(.yellow)
+                                    }
+                                    .frame(minHeight: 32)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("bot-recommendation-other-moves")
+
+                                if botRecommendationAllMovesExpanded {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        ForEach(
+                                            Array(recommendation.rankedMoves.dropFirst(2).enumerated()),
+                                            id: \.element.id
+                                        ) { offset, preference in
+                                            recommendationOptionRow(
+                                                preference,
+                                                rank: offset + 2,
+                                                recommendation: recommendation
+                                            )
+                                        }
+                                    }
+                                    .padding(.top, 8)
+                                }
+                            }
+                        }
+
+                        Text(recommendationDetail(recommendation))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.64))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                } else {
+                    Text(recommendationPending ? "Champion is thinking…" : "No bot recommendation is available for this position.")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.68))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                        .transition(.opacity)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(
+            RoundedRectangle(cornerRadius: 9)
+                .stroke(botRecommendationExpanded ? Color.yellow.opacity(0.52) : Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .onAppear {
+            if botRecommendationExpanded {
+                refreshBotRecommendation()
+            }
+        }
+        .onChange(of: botRecommendationInputKey) { _, _ in
+            if botRecommendationExpanded {
+                refreshBotRecommendation()
+            } else {
+                botRecommendation = nil
+                botRecommendationStateKey = ""
+            }
+        }
+    }
+
+    private var botRecommendationSummaryText: String {
+        if botRecommendationExpanded, let botRecommendation {
+            let score = botRecommendation.rankedMoves.first?.score ?? 100
+            return "\(botRecommendation.botKind.name): \(recommendationMoveTitle(botRecommendation.move)) · \(score)/100"
+        }
+        return "Ask the champion what it would do here."
+    }
+
+    private func recommendationOptionRow(
+        _ preference: BotMovePreference,
+        rank: Int,
+        recommendation: BotRecommendation
+    ) -> some View {
+        HStack(spacing: 10) {
+            moveToken(preference.move, player: recommendation.player)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(rank == 0 ? "Best move" : rank == 1 ? "Second best" : "Option \(rank + 1)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(rank == 0 ? .yellow : .white.opacity(0.64))
+                    .accessibilityIdentifier("bot-recommendation-option-\(rank)")
+                Text(recommendationMoveTitle(preference.move))
+                    .font((rank < 2 ? Font.callout : Font.caption).weight(.bold))
+                    .foregroundStyle(.white)
+            }
+            Spacer(minLength: 4)
+            Text("\(preference.score)/100")
+                .font(.caption.weight(.black))
+                .monospacedDigit()
+                .foregroundStyle(rank == 0 ? .yellow : .white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(
+                    rank == 0 ? Color.yellow.opacity(0.16) : Color.white.opacity(0.08),
+                    in: Capsule()
+                )
+                .accessibilityIdentifier("bot-recommendation-score-\(rank)")
+            Button {
+                store.apply(preference.move)
+                botRecommendation = nil
+                botRecommendationExpanded = false
+                botRecommendationAllMovesExpanded = false
+            } label: {
+                Image(systemName: "hand.tap.fill")
+                    .font(.caption.weight(.black))
+                    .foregroundStyle(Color(red: 0.04, green: 0.13, blue: 0.10))
+                    .padding(8)
+                    .background(rank == 0 ? Color.yellow : Color.white.opacity(0.86), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Use \(recommendationMoveTitle(preference.move))")
+            .accessibilityIdentifier(
+                rank == 0 ? "bot-recommendation-use" : "bot-recommendation-use-\(rank)"
+            )
+        }
+    }
+
+    private var botRecommendationInputKey: String {
+        let game = store.game
+        let player = game.currentPlayer
+        let playerState = game.players.indices.contains(player) ? game.players[player] : nil
+        let handKey = playerState?.hand.map(String.init).joined(separator: ",") ?? "-"
+        let tokenKey = playerState?.colorTokens.map { $0 ? "1" : "0" }.joined() ?? "-"
+        let boardKey = game.board.flatMap { $0 }.map(String.init).joined(separator: ",")
+        let trickKey = game.currentTrick.map { card in
+            guard let card else { return "-" }
+            return "\(card.suit.rawValue)\(card.rank)"
+        }.joined(separator: ",")
+        let legalKey = game.legalMoves.map(\.id).joined(separator: ",")
+        return [
+            game.phase.rawValue,
+            "\(player)",
+            game.ledSuit?.rawValue ?? "-",
+            handKey,
+            tokenKey,
+            boardKey,
+            trickKey,
+            legalKey,
+            game.players.map { String($0.prediction ?? -1) }.joined(separator: ","),
+            game.players.map { String($0.tricksWon) }.joined(separator: ","),
+            "\(game.mlMatchRound):\(game.mlMatchTotals)"
+        ].joined(separator: "|")
+    }
+
+    private func refreshBotRecommendation() {
+        let key = botRecommendationInputKey
+        guard key != botRecommendationStateKey || (botRecommendation == nil && !recommendationPending) else { return }
+        botRecommendationStateKey = key
+        botRecommendation = nil
+        recommendationPending = true
+        let snapshot = store.game
+        ChampionInference.queue.async {
+            let recommendation = snapshot.botRecommendationForCurrentHuman(kind: .qcxChampion)
+            DispatchQueue.main.async {
+                guard botRecommendationStateKey == key, botRecommendationInputKey == key else { return }
+                botRecommendation = recommendation
+                recommendationPending = false
+            }
+        }
+    }
+
+    private func recommendationMoveTitle(_ move: Move) -> String {
+        switch move {
+        case .discard(let rank):
+            return "Discard \(rank)"
+        case .prediction(let value):
+            return "Bid \(value)"
+        case .play(let rank, let suit):
+            return "Play \(suit.rawValue)\(rank)"
+        case .paradox:
+            return "Paradox"
+        }
+    }
+
+    private func recommendationDetail(_ recommendation: BotRecommendation) -> String {
+        let optionText = recommendation.legalMoveCount == 1 ? "1 legal option" : "\(recommendation.legalMoveCount) legal options"
+        switch recommendation.move {
+        case .discard:
+            return "\(recommendation.botKind.name) uses the shared discard rule here out of \(optionText)."
+        case .prediction:
+            if store.game.players.count == 5 {
+                return "Five players share only seven tricks, so bidding one is often correct; strong nines and eights raise the bid."
+            }
+            return "Hand strength and the opening lead determine the bid; scores compare all \(optionText)."
+        case .play:
+            return "Scores reflect relative model preference, trick value, and paradox safety—not odds of winning."
+        case .paradox:
+            return "\(recommendation.botKind.name) sees no non-paradox legal move."
+        }
+    }
+
     private var legalMovesView: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Legal moves").font(.caption.weight(.black)).foregroundStyle(.yellow)
@@ -263,6 +534,16 @@ struct GameTableView: View {
                                 .font(.caption2.weight(.black))
                             Text(move.value)
                                 .font(.system(size: 28, weight: .black, design: .serif))
+                            if botRecommendationExpanded,
+                               let preference = botRecommendation?.rankedMoves.first(
+                                where: { $0.move == move }
+                               ) {
+                                Text("\(preference.score)/100")
+                                    .font(.caption2.weight(.black))
+                                    .monospacedDigit()
+                                    .foregroundStyle(.yellow)
+                                    .accessibilityIdentifier("legal-move-score-\(move.id)")
+                            }
                         }
                         .frame(maxWidth: .infinity, minHeight: 68)
                     }
@@ -453,9 +734,9 @@ struct GameTableView: View {
                         HStack {
                             Circle()
                                 .fill(currentTrickHighlightColor)
-                                .frame(width: 8, height: 8)
+                                .frame(width: 10, height: 10)
                                 .padding(5)
-                                .shadow(color: currentTrickHighlightColor.opacity(0.85), radius: 5)
+                                .shadow(color: currentTrickHighlightColor.opacity(0.9), radius: 6)
                             Spacer()
                         }
                         Spacer()
@@ -490,10 +771,10 @@ struct GameTableView: View {
                 .stroke(legal ? Color.green : Color.black.opacity(0.1), lineWidth: legal ? 2 : 1)
                 .allowsHitTesting(false)
         )
-        .overlay(currentTrickStroke(isCurrentTrick: currentTrickPlayer != nil, cornerRadius: 7))
         .overlay(ledSuitStroke(for: suit, cornerRadius: 7, lineWidth: legal ? 1.5 : 2))
+        .overlay(currentTrickStroke(isCurrentTrick: currentTrickPlayer != nil, cornerRadius: 7))
         .shadow(color: ledSuitShadowColor(for: suit), radius: isLedSuit(suit) ? 10 : 0)
-        .shadow(color: currentTrickPlayer != nil ? currentTrickHighlightColor.opacity(0.72) : .clear, radius: currentTrickPlayer != nil ? 8 : 0)
+        .shadow(color: currentTrickPlayer != nil ? currentTrickHighlightColor.opacity(0.82) : .clear, radius: currentTrickPlayer != nil ? 11 : 0)
         .disabled(!legal)
     }
 
@@ -512,7 +793,7 @@ struct GameTableView: View {
             .font(.system(size: 9, weight: .black, design: .rounded))
             .foregroundStyle(Color(red: 0.06, green: 0.10, blue: 0.08))
             .frame(width: 14, height: 14)
-            .background(currentTrickHighlightColor, in: Circle())
+            .background(rankCountBadgeColor, in: Circle())
             .overlay(Circle().stroke(Color.white.opacity(0.82), lineWidth: 0.8))
             .shadow(color: Color.black.opacity(0.28), radius: 2, x: 0, y: 1)
             .padding(1)
@@ -683,6 +964,10 @@ struct GameTableView: View {
     }
 
     private var currentTrickHighlightColor: Color {
+        Color(red: 1.0, green: 0.38, blue: 0.04)
+    }
+
+    private var rankCountBadgeColor: Color {
         Color(red: 1.0, green: 0.78, blue: 0.18)
     }
 
@@ -697,13 +982,18 @@ struct GameTableView: View {
     }
 
     private func currentTrickStroke(isCurrentTrick: Bool, cornerRadius: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: cornerRadius)
-            .stroke(isCurrentTrick ? currentTrickHighlightColor : Color.clear, lineWidth: 3)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(isCurrentTrick ? Color.white.opacity(0.72) : Color.clear, lineWidth: 1)
-                    .padding(2)
-            )
+        ZStack {
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .fill(isCurrentTrick ? currentTrickHighlightColor.opacity(0.10) : Color.clear)
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(isCurrentTrick ? Color.white.opacity(0.78) : Color.clear, lineWidth: 1)
+                .padding(1)
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(isCurrentTrick ? currentTrickHighlightColor.opacity(0.98) : Color.clear, lineWidth: 4)
+            RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(isCurrentTrick ? Color(red: 0.55, green: 0.10, blue: 0.0).opacity(0.85) : Color.clear, lineWidth: 1.4)
+                .padding(4)
+        }
             .allowsHitTesting(false)
     }
 

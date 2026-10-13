@@ -1,0 +1,394 @@
+{
+  "players": 3,
+  "matches": 300,
+  "rounds_per_match": 3,
+  "match_context": true,
+  "schedule": "permutations",
+  "checkpoint": null,
+  "neural_bots": {
+    "champion_policy": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "policy"
+    },
+    "champion_belief_policy": {
+      "checkpoint": "az_runs/best_3p_policy_checkpoint.pt",
+      "mode": "belief_policy"
+    }
+  },
+  "candidate": null,
+  "ratings": {
+    "champion_policy": 1060.83,
+    "champion_belief_policy": 1052.68,
+    "heuristic": 886.48
+  },
+  "online_ratings": {
+    "champion_policy": 1060.83,
+    "champion_belief_policy": 1052.68,
+    "heuristic": 886.48
+  },
+  "pairwise_elo_ratings": {
+    "champion_policy": 1066.98,
+    "champion_belief_policy": 1060.29,
+    "heuristic": 872.73
+  },
+  "stats": {
+    "champion_policy": {
+      "matches": 300,
+      "avg_match_total": 5.48,
+      "paradoxes_per_match": 0.66
+    },
+    "champion_belief_policy": {
+      "matches": 300,
+      "avg_match_total": 5.3967,
+      "paradoxes_per_match": 0.6267
+    },
+    "heuristic": {
+      "matches": 300,
+      "avg_match_total": 0.6867,
+      "paradoxes_per_match": 1.6867
+    }
+  },
+  "pairwise": {
+    "champion_policy": {
+      "champion_belief_policy": {
+        "matches": 300,
+        "wins": 151,
+        "losses": 137,
+        "ties": 12,
+        "win_rate": 0.5033,
+        "non_loss_rate": 0.5433,
+        "score_rate": 0.5233,
+        "score_rate_ci95": [
+          0.4668,
+          0.5799
+        ],
+        "head_to_head_elo_diff": 16.23,
+        "avg_score_diff": 0.0833,
+        "avg_score_diff_ci95": [
+          -0.9538,
+          1.1204
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 220,
+        "losses": 74,
+        "ties": 6,
+        "win_rate": 0.7333,
+        "non_loss_rate": 0.7533,
+        "score_rate": 0.7433,
+        "score_rate_ci95": [
+          0.6939,
+          0.7928
+        ],
+        "head_to_head_elo_diff": 184.73,
+        "avg_score_diff": 4.7933,
+        "avg_score_diff_ci95": [
+          3.9371,
+          5.6496
+        ]
+      }
+    },
+    "champion_belief_policy": {
+      "champion_policy": {
+        "matches": 300,
+        "wins": 137,
+        "losses": 151,
+        "ties": 12,
+        "win_rate": 0.4567,
+        "non_loss_rate": 0.4967,
+        "score_rate": 0.4767,
+        "score_rate_ci95": [
+          0.4201,
+          0.5332
+        ],
+        "head_to_head_elo_diff": -16.23,
+        "avg_score_diff": -0.0833,
+        "avg_score_diff_ci95": [
+          -1.1204,
+          0.9538
+        ]
+      },
+      "heuristic": {
+        "matches": 300,
+        "wins": 220,
+        "losses": 66,
+        "ties": 14,
+        "win_rate": 0.7333,
+        "non_loss_rate": 0.78,
+        "score_rate": 0.7567,
+        "score_rate_ci95": [
+          0.7081,
+          0.8052
+        ],
+        "head_to_head_elo_diff": 197.08,
+        "avg_score_diff": 4.71,
+        "avg_score_diff_ci95": [
+          3.8659,
+          5.5541
+        ]
+      }
+    },
+    "heuristic": {
+      "champion_policy": {
+        "matches": 300,
+        "wins": 74,
+        "losses": 220,
+        "ties": 6,
+        "win_rate": 0.2467,
+        "non_loss_rate": 0.2667,
+        "score_rate": 0.2567,
+        "score_rate_ci95": [
+          0.2072,
+          0.3061
+        ],
+        "head_to_head_elo_diff": -184.73,
+        "avg_score_diff": -4.7933,
+        "avg_score_diff_ci95": [
+          -5.6496,
+          -3.9371
+        ]
+      },
+      "champion_belief_policy": {
+        "matches": 300,
+        "wins": 66,
+        "losses": 220,
+        "ties": 14,
+        "win_rate": 0.22,
+        "non_loss_rate": 0.2667,
+        "score_rate": 0.2433,
+        "score_rate_ci95": [
+          0.1948,
+          0.2919
+        ],
+        "head_to_head_elo_diff": -197.08,
+        "avg_score_diff": -4.71,
+        "avg_score_diff_ci95": [
+          -5.5541,
+          -3.8659
+        ]
+      }
+    }
+  },
+  "sample_matches": [
+    {
+      "bot_names": [
+        "champion_policy",
+        "champion_belief_policy",
+        "heuristic"
+      ],
+      "totals": [
+        9.0,
+        2.0,
+        5.0
+      ],
+      "paradoxes": [
+        0,
+        2,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 0,
+          "returns": [
+            4.0,
+            2.0,
+            0.0
+          ],
+          "totals_after_round": [
+            4.0,
+            2.0,
+            0.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            3.0,
+            0.0,
+            2.0
+          ],
+          "totals_after_round": [
+            7.0,
+            2.0,
+            2.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            2.0,
+            0.0,
+            3.0
+          ],
+          "totals_after_round": [
+            9.0,
+            2.0,
+            5.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "champion_policy",
+        "heuristic",
+        "champion_belief_policy"
+      ],
+      "totals": [
+        18.0,
+        -1.0,
+        1.0
+      ],
+      "paradoxes": [
+        0,
+        2,
+        1
+      ],
+      "rounds": [
+        {
+          "start_player": 1,
+          "returns": [
+            5.0,
+            0.0,
+            -1.0
+          ],
+          "totals_after_round": [
+            5.0,
+            0.0,
+            -1.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 2,
+          "returns": [
+            6.0,
+            0.0,
+            0.0
+          ],
+          "totals_after_round": [
+            11.0,
+            0.0,
+            -1.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            7.0,
+            -1.0,
+            2.0
+          ],
+          "totals_after_round": [
+            18.0,
+            -1.0,
+            1.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        }
+      ]
+    },
+    {
+      "bot_names": [
+        "champion_belief_policy",
+        "champion_policy",
+        "heuristic"
+      ],
+      "totals": [
+        10.0,
+        1.0,
+        1.0
+      ],
+      "paradoxes": [
+        0,
+        1,
+        2
+      ],
+      "rounds": [
+        {
+          "start_player": 2,
+          "returns": [
+            2.0,
+            -3.0,
+            1.0
+          ],
+          "totals_after_round": [
+            2.0,
+            -3.0,
+            1.0
+          ],
+          "paradoxed": [
+            false,
+            true,
+            false
+          ]
+        },
+        {
+          "start_player": 0,
+          "returns": [
+            3.0,
+            3.0,
+            0.0
+          ],
+          "totals_after_round": [
+            5.0,
+            0.0,
+            1.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        },
+        {
+          "start_player": 1,
+          "returns": [
+            5.0,
+            1.0,
+            0.0
+          ],
+          "totals_after_round": [
+            10.0,
+            1.0,
+            1.0
+          ],
+          "paradoxed": [
+            false,
+            false,
+            true
+          ]
+        }
+      ]
+    }
+  ]
+}

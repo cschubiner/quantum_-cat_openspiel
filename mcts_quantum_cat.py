@@ -13,6 +13,7 @@ from open_spiel.python.algorithms.ismcts import (
 from open_spiel.python.algorithms.mcts import RandomRolloutEvaluator
 
 from open_spiel.python.games import quantum_cat
+from quantum_cat_ai import shared_discard_action
 
 
 import numpy as np
@@ -163,35 +164,16 @@ class TrickFollowingEvaluatorV2(RandomRolloutEvaluator):
     # Helper: Discard logic
     # ----------------------------------------------------------------------
     def _get_discard_distribution(self, state, legal_actions):
-        """
-        Weighted so we discard one of the player's most frequent ranks
-        with probability discard_frequent_prob, and we discard a less
-        frequent rank with discard_infrequent_prob.
-        """
-        hand_vec = state._hands[state.current_player()]
-        # Find the maximum count in your hand
-        max_count = max(hand_vec[r] for r in legal_actions)
-        most_ranks = [r for r in legal_actions if hand_vec[r] == max_count]
-
-        distribution = []
-        # Count how many are "others"
-        others_count = len(legal_actions) - len(most_ranks)
-
-        for r in legal_actions:
-            if r in most_ranks:
-                # If *all* ranks are "most," they'd share the entire probability
-                if others_count == 0:
-                    distribution.append(1.0 / len(most_ranks))
-                else:
-                    distribution.append(self._discard_frequent_prob / len(most_ranks))
-            else:
-                # Remainder is allocated to "others"
-                if others_count > 0:
-                    distribution.append(self._discard_infrequent_prob / others_count)
-                else:
-                    distribution.append(0.0)
-
-        return self._normalize(np.array(distribution))
+        legal_actions = [int(action) for action in legal_actions]
+        action = shared_discard_action(
+            state, state.current_player(), legal_actions
+        )
+        distribution = np.zeros(len(legal_actions), dtype=float)
+        if action in legal_actions:
+            distribution[legal_actions.index(action)] = 1.0
+        else:
+            distribution[:] = 1.0 / len(legal_actions)
+        return distribution
 
 
     # ----------------------------------------------------------------------
@@ -602,31 +584,16 @@ class TrickFollowingEvaluator(RandomRolloutEvaluator):
 
 
     def _get_discard_distribution(self, state, legal_actions):
-        """Return 85%-most-frequent-rank, 15%-other discard distribution."""
-        hand_vec = state._hands[state.current_player()]
-        max_count = max(hand_vec[r] for r in legal_actions)
-        most_ranks = [r for r in legal_actions if hand_vec[r] == max_count]
-        distribution = []
-
-        # Check how many 'others' are left
-        others_count = len(legal_actions) - len(most_ranks)
-
-        for r in legal_actions:
-            if r in most_ranks:
-                if others_count == 0:
-                    # If *all* ranks are "most," give them uniform probability
-                    distribution.append(1.0 / len(legal_actions))
-                else:
-                    distribution.append(self._discard_frequent_prob / len(most_ranks))
-            else:
-                # If there *are* others
-                if others_count > 0:
-                    distribution.append(self._discard_infrequent_prob / others_count)
-                else:
-                    distribution.append(0.0)
-
-        # Normalize the distribution
-        return self._normalize(np.array(distribution))
+        legal_actions = [int(action) for action in legal_actions]
+        action = shared_discard_action(
+            state, state.current_player(), legal_actions
+        )
+        distribution = np.zeros(len(legal_actions), dtype=float)
+        if action in legal_actions:
+            distribution[legal_actions.index(action)] = 1.0
+        else:
+            distribution[:] = 1.0 / len(legal_actions)
+        return distribution
 
     def _get_prediction_distribution(self, state, legal_actions):
         """

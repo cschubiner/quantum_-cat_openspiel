@@ -1,0 +1,10 @@
+14:51:49  Acquired tunnel connection to device.
+14:51:49  Enabling developer disk image services.
+14:51:50  Acquired usage assertion.
+App installed:
+• bundleID: com.canal.quantumcat
+• installationURL: file:///private/var/containers/Bundle/Application/B3976413-0297-41C1-8B70-ED185C568937/QuantumCatIOS.app/
+• launchServicesIdentifier: unknown
+• databaseUUID: 81CF32A5-FE95-49D1-A0DE-81E6D2ECB032
+• databaseSequenceNumber: 9552
+• options: 

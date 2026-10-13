@@ -63,7 +63,7 @@ The installed profile path is:
 
 - iPhone 17 Pro Max
   - CoreDevice identifier: `7F494DB0-B84F-5ECE-8B15-52C8F081AEC8`
-  - Hardware UDID / Xcode destination id used successfully for install: `00008122-000C58D11446801C`
+  - Hardware UDID / Xcode destination id verified on 2026-09-08: `00008150-0014142E3A08401C`
 - iPad Air 11-inch (M3)
   - CoreDevice identifier: `F0688612-A069-5A2B-9F4A-A05434261256`
   - Hardware UDID / Xcode destination id: use `xcrun devicectl list devices` to confirm before installing
@@ -87,7 +87,7 @@ installer falls back to the online hardware UDID reported by `xctrace`. You can
 still override selection explicitly:
 
 ```bash
-IPHONE_DEVICE_ID=00008122-000C58D11446801C bash QuantumCatIOS/Tools/install_on_iphone.sh
+IPHONE_DEVICE_ID=7F494DB0-B84F-5ECE-8B15-52C8F081AEC8 bash QuantumCatIOS/Tools/install_on_iphone.sh
 ```
 
 Create an App Store/TestFlight archive:
