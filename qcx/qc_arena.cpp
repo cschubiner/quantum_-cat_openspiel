@@ -8,6 +8,10 @@
 // bot spec: random | heur | pimc:<worlds>[:util]
 //   | lin:<weights>[:temp]           learned PLAY policy (greedy unless temp>0); heuristic discard/bid
 //   | pimcl:<worlds>:<weights>[:temp] PIMC whose rollouts use the learned play policy for all seats
+//   | big:<bigweights>                big-model PLAY policy alone (greedy); heuristic discard/bid
+//   | pimcb:<worlds>:<bigweights>:<smallweights>[:root]
+//                                     PIMC with big-model rollouts for every seat, or (":root")
+//                                     only for the searching player's own seat, small model for others
 #include <atomic>
 #include <chrono>
 #include <ctime>
@@ -17,15 +21,18 @@
 #include <string>
 #include <thread>
 
-#include "qc_learn.h"
+#include "qc_big.h"
 
 using namespace qc;
 
 struct Bot {
-  int type = 0;  // 0 random 1 heur 2 pimc 3 lin 4 pimcl
+  int type = 0;  // 0 random 1 heur 2 pimc 3 lin 4 pimcl 5 big 6 pimcb
   SearchParams sp;
   std::shared_ptr<LearnedPolicy> pol;
   RolloutPolicy rp;
+  std::shared_ptr<BigPolicy> big;
+  BigRolloutPolicy brp;
+  bool big_root = false;
   int act(const Round& truth, Rng& rng) const {
     const int me = truth.cur;
     Round view = mask_for(truth, me);  // agent sees only its information
@@ -36,12 +43,50 @@ struct Bot {
     if (type == 1) return heuristic_action(view, rng, sp.rollout);
     if (type == 3) return rp.act(view, rng);
     if (type == 4) return pimc_decide_rp(view, me, sp.worlds, sp.util, rp, rng);
+    if (type == 5) return view.phase == PLAY ? big_play(view, rng, *big) : heuristic_action(view, rng, sp.rollout);
+    if (type == 6) {
+      BigRolloutPolicy r = brp;
+      if (big_root) r.big_seat = me;
+      return pimc_decide_t(view, me, sp.worlds, sp.util, r, rng);
+    }
     return pimc_decide(view, me, sp, rng);
   }
 };
 
 Bot parse_bot(const std::string& spec) {
   Bot b;
+  auto split = [](const std::string& x) {
+    std::vector<std::string> parts;
+    size_t st = 0;
+    for (;;) {
+      size_t e = x.find(':', st);
+      parts.push_back(x.substr(st, e == std::string::npos ? std::string::npos : e - st));
+      if (e == std::string::npos) break;
+      st = e + 1;
+    }
+    return parts;
+  };
+  if (spec.rfind("big:", 0) == 0 || spec.rfind("pimcb:", 0) == 0) {
+    auto parts = split(spec);
+    b.big = std::make_shared<BigPolicy>();
+    if (parts[0] == "big") {
+      b.type = 5;
+      if (!b.big->load(parts[1])) { std::fprintf(stderr, "cannot load %s\n", parts[1].c_str()); std::exit(2); }
+    } else {
+      if (parts.size() < 4) { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
+      b.type = 6;
+      b.sp.worlds = std::atoi(parts[1].c_str());
+      if (!b.big->load(parts[2])) { std::fprintf(stderr, "cannot load %s\n", parts[2].c_str()); std::exit(2); }
+      b.pol = std::make_shared<LearnedPolicy>();
+      if (!b.pol->load(parts[3])) { std::fprintf(stderr, "cannot load %s\n", parts[3].c_str()); std::exit(2); }
+      b.big_root = parts.size() > 4 && parts[4] == "root";
+    }
+    b.brp.big = b.big.get();
+    b.brp.small = b.pol.get();
+    std::fprintf(stderr, "bot %s -> type %d worlds %d big H1=%d H1b=%d H2=%d H3=%d root_only %d\n", spec.c_str(),
+                 b.type, b.sp.worlds, b.big->H1, b.big->H1b, b.big->H2, b.big->H3, (int)b.big_root);
+    return b;
+  }
   if (spec == "random") b.type = 0;
   else if (spec == "heur") b.type = 1;
   else if (spec.rfind("lin:", 0) == 0 || spec.rfind("pimcl:", 0) == 0) {
