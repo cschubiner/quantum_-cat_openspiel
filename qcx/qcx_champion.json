@@ -1,5 +1,5 @@
 {
-  "id": "qcx_pimc_learned",
+  "id": "qcx_pimc_learned_g3",
   "name": "qcx PIMC search + learned rollouts",
   "display_name": "Champion (qcx PIMC search)",
   "engine": "qc_agents.h pimc_decide via qc_capi.cpp qc_decide",
@@ -11,6 +11,6 @@
     4,
     5
   ],
-  "evidence": "v3: PIMC whose rollouts use a learned MLP play policy (expert iteration on PIMC decisions). At equal worlds it beats the v2 recipe by +11.5pp (5p), +8.1pp (3p), +19.1pp (4p) pairwise placement; with 1/4 the worlds it still beats v2 by +6.5pp (5p). v2 beat the prior Python champions: 87% (5p vs Run1051), 80% (3p vs Run604), 84.6% (4p vs Run730).",
-  "rollout_policy": "weights/g1_mlp.txt"
+  "evidence": "v3: PIMC whose rollouts use a learned MLP play policy (expert iteration on PIMC decisions). At equal worlds it beats the v2 recipe by +11.5pp (5p), +8.1pp (3p), +19.1pp (4p) pairwise placement; with 1/4 the worlds it still beats v2 by +6.5pp (5p). v2 beat the prior Python champions: 87% (5p vs Run1051), 80% (3p vs Run604), 84.6% (4p vs Run730). v4: gen-3 rollout policy (trained on 158k decisions of 128-world v3 search, 3/4/5p) vs v3 at 128 worlds: 3p +6.7pp [+1.0,+12.4], 4p +4.2pp [+0.1,+8.4], 5p +1.5pp pooled over 250 deals (n.s., non-inferior).",
+  "rollout_policy": "weights/g3_mlp32.txt"
 }
