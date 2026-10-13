@@ -25,6 +25,7 @@ struct Bot {
   int type = 0;  // 0 random 1 heur 2 pimc 3 lin 4 pimcl
   SearchParams sp;
   std::shared_ptr<LearnedPolicy> pol;
+  std::shared_ptr<BidModel> bms[MAXP + 1];
   RolloutPolicy rp;
   int act(const Round& truth, Rng& rng) const {
     const int me = truth.cur;
@@ -61,6 +62,13 @@ Bot parse_bot(const std::string& spec) {
     if (!b.pol->load(parts[wi])) { std::fprintf(stderr, "cannot load weights %s\n", parts[wi].c_str()); std::exit(2); }
     b.rp.pol = b.pol.get();
     b.rp.temp = parts.size() > wi + 1 ? std::atof(parts[wi + 1].c_str()) : 0.0;
+    if (parts.size() > wi + 2) {  // learned bid models: <prefix>{3,4,5}.txt
+      for (int P = 3; P <= 5; ++P) {
+        auto m = std::make_shared<BidModel>();
+        std::string path = parts[wi + 2] + std::to_string(P) + ".txt";
+        if (m->load(path.c_str())) { b.bms[P] = m; b.rp.bids[P] = m.get(); std::fprintf(stderr, "bid model %s\n", path.c_str()); }
+      }
+    }
   } else if (spec.rfind("pimc:", 0) == 0 || spec == "pimc") {
     b.type = 2;
     int w = 64, u = 0;

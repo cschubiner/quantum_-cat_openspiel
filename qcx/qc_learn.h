@@ -343,13 +343,77 @@ inline int learned_play(const Round& s, Rng& rng, const LearnedPolicy& pol, doub
   return acts[n - 1];
 }
 
+// ---------------------------------------------------------------- learned bids
+// Multinomial logistic P(bid | hand at bid time, bid position, earlier bids),
+// fitted offline on self-play.  Feature layout must match fit_bidmodel.py.
+struct BidModel {
+  int P = 0, F = 0;
+  std::vector<double> W;  // 4 x F
+  bool ok() const { return F > 0; }
+  bool load(const char* path) {
+    FILE* f = std::fopen(path, "r");
+    if (!f) return false;
+    if (std::fscanf(f, "%d %d", &P, &F) != 2) { std::fclose(f); return false; }
+    W.resize(4 * F);
+    for (auto& w : W) if (std::fscanf(f, "%lf", &w) != 1) { std::fclose(f); F = 0; return false; }
+    std::fclose(f);
+    return true;
+  }
+};
+
+inline int bid_features(int P, int R, const int* hand, int pos, int nprev, int sumprev, double* x) {
+  int n = 0;
+  x[n++] = 1.0;
+  int cards = 0; double strength = 0;
+  for (int r = 0; r < R; ++r) { x[n++] = hand[r]; cards += hand[r]; strength += hand[r] * (r + 1.0) / R; }
+  for (int r = 0; r < R; ++r) x[n++] = hand[r] >= 2 ? 1.0 : 0.0;
+  // top-k counts
+  int top1 = hand[R - 1], top2 = top1 + hand[R - 2], top3 = top2 + hand[R - 3];
+  x[n++] = top1; x[n++] = top2; x[n++] = top3; x[n++] = strength; x[n++] = strength * strength / 10.0;
+  for (int k = 0; k < MAXP; ++k) x[n++] = (k == pos) ? 1.0 : 0.0;
+  x[n++] = nprev ? (double)sumprev / nprev : 0.0;
+  x[n++] = sumprev;
+  return n;
+}
+
+inline void bid_logprobs(const BidModel& m, int R, const int* hand, int pos, int nprev, int sumprev, double* lp) {
+  double x[64];
+  int F = bid_features(m.P, R, hand, pos, nprev, sumprev, x);
+  double mx = -1e300, z = 0;
+  for (int b = 0; b < 4; ++b) {
+    double v = 0;
+    for (int i = 0; i < F; ++i) v += m.W[b * m.F + i] * x[i];
+    lp[b] = v; mx = std::max(mx, v);
+  }
+  for (int b = 0; b < 4; ++b) z += std::exp(lp[b] - mx);
+  for (int b = 0; b < 4; ++b) lp[b] = lp[b] - mx - std::log(z);
+}
+
+
+// Bid for the current player by sampling the learned bid model (info-safe:
+// own hand at bid time, own position, public earlier bids).
+inline int model_bid(const Round& s, const BidModel& m, Rng& rng) {
+  const int p = s.cur;
+  int hand[MAXR];
+  for (int r = 0; r < s.R; ++r) hand[r] = s.hand[p][r];
+  int pos = (p - s.start + s.P) % s.P, sum = 0;
+  for (int k = 0; k < pos; ++k) sum += s.bid[(s.start + k) % s.P];
+  double lp[4];
+  bid_logprobs(m, s.R, hand, pos, pos, sum, lp);
+  double u = rng.uniform();
+  for (int b = 0; b < 4; ++b) { u -= std::exp(lp[b]); if (u <= 0) return PRED_OFF + b + 1; }
+  return PRED_OFF + 4;
+}
+
 // Rollout policy: heuristic discard/bid; learned play (or heuristic play if pol==nullptr).
 struct RolloutPolicy {
   const LearnedPolicy* pol = nullptr;
+  const BidModel* bids[MAXP + 1] = {nullptr};  // per player count (3..5)
   double temp = 0.0;
   HeurParams hp;
   inline int act(const Round& s, Rng& rng) const {
     if (s.phase == PLAY && pol) return learned_play(s, rng, *pol, temp);
+    if (s.phase == BID && bids[s.P] && bids[s.P]->ok()) return model_bid(s, *bids[s.P], rng);
     return heuristic_action(s, rng, hp);
   }
 };
