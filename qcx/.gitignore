@@ -13,8 +13,5 @@ qc_noise
 bench_pimcl
 bid_truth
 *_chk
-qc_gen
-qc_noise
-bench_pimcl
-test_features
 dbg_nb
+qcx_arena3

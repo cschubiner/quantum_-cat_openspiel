@@ -79,7 +79,7 @@ int main(int argc, char** argv) {
               buf.resize(off + ncols);
               float* row = &buf[off];
               row[0] = (float)g; row[1] = (float)dec; row[2] = (float)vals[i];
-              row[3] = (float)heuristic_move_score(view, acts[i], HeurParams());
+              { HeurParams hp0; hp0.w_token = 1.2; HeurCtx cx; heur_ctx(view, cx); row[3] = (float)heuristic_move_score(view, cx, acts[i], hp0); }
               play_features(view, x, acts[i], row + 4);
             }
             ++dec; ++ndec; nrows += n;
