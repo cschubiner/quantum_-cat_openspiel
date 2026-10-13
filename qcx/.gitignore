@@ -7,3 +7,4 @@ dbg_trace
 *.dylib
 results/
 __pycache__/
+dbg_nb

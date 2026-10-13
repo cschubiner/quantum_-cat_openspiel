@@ -17,6 +17,7 @@
 using namespace qc;
 
 struct Bot {
+  int nb_outer = 0, nb_inner = 0;  // nested bid search if nb_outer > 0
   int type = 0;  // 0 random 1 heur 2 pimc
   SearchParams sp;
   int act(const Round& truth, Rng& rng) const {
@@ -27,6 +28,7 @@ struct Bot {
     if (n == 1) return acts[0];
     if (type == 0) return acts[rng.below(n)];
     if (type == 1) return heuristic_action(view, rng, sp.rollout);
+    if (nb_outer > 0 && view.phase == BID) return nested_bid_decide(view, me, sp, nb_outer, nb_inner, rng);
     return pimc_decide(view, me, sp, rng);
   }
 };
@@ -35,11 +37,16 @@ Bot parse_bot(const std::string& spec) {
   Bot b;
   if (spec == "random") b.type = 0;
   else if (spec == "heur") b.type = 1;
-  else if (spec.rfind("pimc", 0) == 0) {
+  else if (spec.rfind("pimc:", 0) == 0) {
     b.type = 2;
     int w = 64, u = 0;
     std::sscanf(spec.c_str(), "pimc:%d:%d", &w, &u);
     b.sp.worlds = w; b.sp.util = u;
+  } else if (spec.rfind("nbpimc", 0) == 0) {  // nbpimc:worlds:outer:inner
+    b.type = 2;
+    int w = 64;
+    std::sscanf(spec.c_str(), "nbpimc:%d:%d:%d", &w, &b.nb_outer, &b.nb_inner);
+    b.sp.worlds = w;
   } else { std::fprintf(stderr, "bad bot %s\n", spec.c_str()); std::exit(2); }
   return b;
 }

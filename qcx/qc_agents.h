@@ -222,6 +222,12 @@ inline double utility(const Round& s, int me, int mode) {
   return sc[me] - o / (s.P - 1);
 }
 
+// Nested bid search: value each bid by playing the round where the bidder
+// uses an inner PIMC (inner_worlds) for its own play decisions and every
+// other seat uses the heuristic. Only used for the BID phase.
+inline int nested_bid_decide(const Round& view, int me, const SearchParams& sp, int outer_worlds,
+                             int inner_worlds, Rng& rng, double* out_values = nullptr);
+
 // PIMC with common random numbers across actions.
 inline int pimc_decide(const Round& view, int me, const SearchParams& sp, Rng& rng,
                        double* out_values = nullptr) {
@@ -247,4 +253,36 @@ inline int pimc_decide(const Round& view, int me, const SearchParams& sp, Rng& r
   return acts[bi];
 }
 
+}  // namespace qc
+
+namespace qc {
+inline int nested_bid_decide(const Round& view, int me, const SearchParams& sp, int outer_worlds,
+                             int inner_worlds, Rng& rng, double* out_values) {
+  double sum[4] = {0};
+  SearchParams inner = sp;
+  inner.worlds = inner_worlds;
+  Round world, s;
+  for (int w = 0; w < outer_worlds; ++w) {
+    sample_world(view, me, rng, world);
+    uint64_t seed = rng.next();
+    for (int b = 0; b < 4; ++b) {
+      s = world;
+      s.apply(PRED_OFF + b + 1);
+      Rng rr(seed);
+      while (!s.done()) {
+        if (s.cur == me && s.phase == PLAY) {
+          Round v = mask_for(s, me);
+          s.apply(pimc_decide(v, me, inner, rr));
+        } else {
+          s.apply(heuristic_action(s, rr, sp.rollout));
+        }
+      }
+      sum[b] += utility(s, me, sp.util);
+    }
+  }
+  int bi = 0;
+  for (int b = 1; b < 4; ++b) if (sum[b] > sum[bi]) bi = b;
+  if (out_values) for (int b = 0; b < 4; ++b) out_values[b] = sum[b] / outer_worlds;
+  return PRED_OFF + bi + 1;
+}
 }  // namespace qc
