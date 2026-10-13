@@ -111,3 +111,35 @@ Four-nines bidding ground truth (5p, 300 deals): bid 2 − bid 1 = −0.09 [−0
 | 4 | 60 | −1.4 [−5.7, +3.0] |
 | 5 | 100 | +1.75 [−1.4, +4.9] |
 Not significant → not adopted.
+
+## E7 — policy-based inference over opponents' past plays (branch claude/exp-infer)
+`pimcli:<N>:<weights>:<M>:<alpha>:<eps>[:<T>]` (qc_infer.h): the bot gets its masked view + the round's public bid/play history (discards never recorded). Draw M uniform candidate worlds; for each, rebuild every opponent's past PLAY decision this round (hand then = candidate hand + cards played since; public state by replaying from the start of play), score log[(1−ε)·π(a|s) + ε/n] with the learned g3 policy (softmax T=1; −∞ if the play would have been illegal), weight exp(α·Σ), systematically resample the N search worlds, then PIMC with CRN as before.
+
+Tests (`test_infer`, 5p): reconstruction exact for 2,252 / 2,530 / 4,132 opponent decisions (policy-T1 / pimcl:16 / pimcl:32 games); info-safety: 52 / 56 / 93 decisions where a *different* true deal with the same masked view + history gave bit-identical action and values.
+
+Belief quality (posterior-mean opponent rank counts vs truth, sum of squared errors per decision, M=1024; vs uniform sampler):
+| Opponents | α=1 ε=.1 | α=.5 ε=.1 | α=.3 ε=.1 | α=1 ε=.1 T=2 | truth more likely than |
+|---|---|---|---|---|---|
+| policy sampled at T=1 (exact model), heuristic discards | +5.7% | +1.1% | +0.4% | +7.1% | 73% of candidates |
+| same, uniform-random discards (exact prior) | −2.6% (α=1) | | | | 83% |
+| pimcl:32 for discard/bid/play (≈ field) | +0.5% | **−1.1%** | −1.0% | +1.9% | 66% |
+The plays are informative (truth ranks well), but the likelihood favours worlds where the actor had few options; with non-uniform (searched) discards the prior is wrong in exactly that direction, so the full posterior barely improves (or worsens) hand estimates. Tempering α≈0.3–0.5 is needed.
+
+CPU per 5p PLAY decision at N=128 (400 states, interleaved): pimcl 51.8 ms; pimci M=512 67.6 ms (×1.31); M=1024 84.0 ms (×1.62). 3p: 25.9 / 32.7 (×1.26) / 40.1 (×1.55).
+
+Arena vs champion field pimcl:128:g3_mlp32 (candidate N=128):
+| Candidate | P | Seed | Deals | Δ placement (95% CI) |
+|---|---|---|---|---|
+| α=1 ε=.1 M=512 | 5 | 9101 | 100 | −0.3 [−3.4, +2.9] |
+| tune: α=.3 ε=.1 M=512 | 5 | 9201 | 60 | +2.4 [−0.9, +5.7] |
+| tune: α=.5 ε=.1 M=512 | 5 | 9201 | 60 | +5.7 [+1.6, +9.8] |
+| tune: α=1 ε=.3 M=1024 | 5 | 9201 | 60 | −6.7 [−11.2, −2.3] |
+| tune: α=.5 ε=.1 M=1024 | 5 | 9201 | 60 | −1.7 [−5.6, +2.3] |
+| **confirm α=.5 ε=.1 M=512** | 5 | 9301 | 150 | +3.2 [+0.7, +5.8] |
+| confirm, replicate | 5 | 9401 | 150 | −1.0 [−3.4, +1.4] |
+| confirm | 4 | 9302 | 80 | +3.75 [−0.5, +8.0] |
+| confirm, replicate | 4 | 9402 | 80 | +1.6 [−2.2, +5.4] |
+| confirm | 3 | 9303 | 80 | −0.7 [−5.8, +4.4] |
+| CPU-matched control pimcl:168 (no inference) | 5 | 9301 | 150 | +1.9 [−0.6, +4.4] |
+Pooled α=.5 confirmations: 5p (300 deals) +1.1 [−0.6, +2.9]; 4p (160) +2.7 [−0.2, +5.5]; 3p −0.7.
+→ **Not adopted.** Untempered inference (α=1) is neutral-to-harmful; tempered α=0.5 gives at most +1–3 pp, not significant, and not distinguishable from spending the same 1.3× CPU on more worlds (the M=512 vs M=1024 pair at the same α/seed differs by 7 pp, i.e. the tuning winner was largely noise). Likely blockers: misspecified prior over post-discard hands (a discard/bid model would be needed alongside the play likelihood) and a play policy that imitates search, not the field's actual decision rule.
