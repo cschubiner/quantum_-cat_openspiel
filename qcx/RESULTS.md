@@ -12,6 +12,7 @@ All C++-arena rows are 5-player complete matches: one candidate seat against a f
 |---|---|---|---|---|---|---|---|
 | qcx PIMC 64 worlds | 4× Run1051 champion | 32 (160) | **87.1%** | **72.5%** (par 20%) | **+8.13** | 12.6% (champ 13.6%) | 51.8% |
 | qcx PIMC 128 worlds (v1) | 4× Run1052 champion (the prior confirmed champion) | 16 (80) | **86.9%** | **73.8%** (par 20%) | **+7.69** | 13.3% (champ 12.6%) | 52.0% |
+| **qcx v3 (learned rollouts, 256 worlds)** | 4× Run1052 champion | 32 (160) | **96.1%** | **87.5%** (par 20%) | **+10.59** | 8.1% (champ 13.5%) | 61.6% |
 | qcx PIMC 128 worlds (3p) | 2× Run604 3p champion (liveness shield) | 40 (120) | **80.0%** | **69.6%** (par 33%) | **+6.35** | 10.0% (champ 26.4%) | 36.7% |
 | qcx PIMC 128 worlds (4p) | 3× Run730 best 4p model (liveness shield) | 40 (160) | **84.6%** | **70.6%** (par 25%) | **+8.24** | 11.1% (champ 22.4%) | 45.0% |
 
@@ -111,3 +112,10 @@ Four-nines bidding ground truth (5p, 300 deals): bid 2 − bid 1 = −0.09 [−0
 | 4 | 60 | −1.4 [−5.7, +3.0] |
 | 5 | 100 | +1.75 [−1.4, +4.9] |
 Not significant → not adopted.
+
+v4 fresh-deal confirmations vs v3: 3p 80 deals +9.0 [+4.2, +13.7]; 4p 80 deals +4.2 [+1.0, +7.3].
+
+## E7 — policy-based belief inference (branch claude/exp-infer; details in that branch's RESULTS.md)
+Worlds importance-resampled by the likelihood of opponents' past plays under the learned policy (reconstruction & info-safety tests pass).
+Best setting (α=0.5, ε=0.1, M=512): 5p pooled 300 deals +1.1 [−0.6, +2.9]; 4p 160 deals +2.7 [−0.2, +5.5]; 3p −0.7. CPU-matched control (more worlds) +1.9.
+→ Not adopted. Diagnosed cause: deliberate discards bias the uniform hand prior; play likelihood alone can't fix it.
